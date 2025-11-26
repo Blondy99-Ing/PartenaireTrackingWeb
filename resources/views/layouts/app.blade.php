@@ -637,7 +637,7 @@
 
         <div class="flex-grow">
             <!-- Exemple de titre de page -->
-            <h1 class="text-xl font-semibold hidden sm:block" style="color: var(--color-text);">@yield('title',
+            <h1 class="text-xl font-bold font-orbitron hidden sm:block" style="color: var(--color-text); font-size: 2rem;">@yield('title',
                 'Dashboard')</h1>
         </div>
 
@@ -720,6 +720,7 @@
     <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBn88TP5X-xaRCYo5gYxvGnVy_0WYotZWo&callback=initMap" async></script>
 
     <script>
     $(function() { // équivalent de $(document).ready()

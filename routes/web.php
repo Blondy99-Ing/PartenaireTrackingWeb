@@ -1,16 +1,18 @@
 <?php
 
-use App\Http\Controllers\ProfileController;
+
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Users\TrackingUserController;
 use App\Http\Controllers\AgenceAuthController;
 use App\Http\Controllers\Voitures\VoitureController;
 use App\Http\Controllers\Associations\AssociationController;
-use App\Http\Controllers\Alert\AlertController;
 use App\Http\Controllers\VehiclesController;
 use App\Http\Controllers\Employes\EmployeController;
-
+use App\Http\Controllers\Villes\VilleController;
+use App\Http\Controllers\TestController;
+use App\Http\Controllers\Users\ProfileController;
+use App\Http\Controllers\Alert\AlertController;
 
 
 
@@ -60,6 +62,11 @@ Route::prefix('tracking')->name('tracking.')->group(function() {
     Route::delete('vehicles/{voiture}', [VoitureController::class, 'destroy'])->name('vehicles.destroy');
 });
 
+
+
+// route creation des ville
+Route::get('/villes', [VilleController::class, 'index'])->name('villes.index');
+Route::post('/villes', [VilleController::class, 'store'])->name('villes.store');
 
 
 
@@ -113,3 +120,32 @@ Route::middleware('auth')->group(function () {
 });
 
 require __DIR__.'/auth.php';
+
+
+
+
+Route::prefix('tests')->name('test.')->group(function () {
+    Route::get('/profile', [TestController::class, 'profile'])->name('profile'); 
+    Route::get('/dashboard', [TestController::class, 'dashboard'])->name('dashboard');        
+    Route::get('/alert', [TestController::class, 'alert'])->name('alert');       
+    Route::get('/alertcentre', [TestController::class, 'alertcentre'])->name('alert.centre');  
+   
+});
+
+
+
+Route::get('/users/{id}/profile', [ProfileController::class, 'show'])
+    ->name('users.profile');
+
+
+
+    // Liste de toutes les alertes (JSON)
+Route::get('/alerts', [AlertController::class, 'index'])->name('alerts.index');
+
+// Marquer une alerte comme lue
+Route::patch('/alerts/{id}/read', [AlertController::class, 'markAsRead'])->name('alerts.read');
+
+// Vue HTML des alertes
+Route::get('/alerts/view', function () {
+    return view('alerts.index'); // le nom du blade fourni
+})->name('alerts.view');

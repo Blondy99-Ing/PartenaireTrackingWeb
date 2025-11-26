@@ -17,16 +17,16 @@
 
 /* Mode clair */
 .light-mode { --color-bg:#f3f4f6; --color-card:#fff; --color-text:#111827; --color-input-bg:#fff; --color-input-border:#d1d5db; --color-secondary-text:#6b7280; color: var(--color-text);}
-.light-mode.bg-image { background-image: url('https://placehold.co/1920x1080/FFFFFF/374151?text=Tracking+Fleet+Daytime'); background-color: #e5e7eb; }
-.light-mode.bg-image::before { background-color: rgba(243,244,246,0.9); }
+.light-mode.bg-image { background-image: url('assets/images/bgloginlight.png'); background-color: #e5e7eb; }
+.light-mode.bg-image::before { background-color: rgba(243,244,246,0.1); }
 .light-mode .card-shadow { box-shadow:0 10px 30px rgba(0,0,0,0.1); border-color:#e5e7eb; background-color:var(--color-card); }
 .light-mode .input-style { background-color:var(--color-input-bg); border-color:var(--color-input-border); color:var(--color-text); }
 .light-mode .text-primary{color:var(--color-primary);} .light-mode .text-secondary{color:var(--color-secondary-text);}
 
 /* Mode sombre */
 .dark-mode { --color-bg:#121212; --color-card:#1f2937; --color-text:#f3f4f6; --color-input-bg:#374151; --color-input-border:#4b5563; --color-secondary-text:#9ca3af; color: var(--color-text);}
-.dark-mode.bg-image { background-image: url('https://placehold.co/1920x1080/1F2937/F58220?text=Tracking+Tech+Night'); background-color: #121212; }
-.dark-mode.bg-image::before { background-color: rgba(18,18,18,0.95); }
+.dark-mode.bg-image { background-image: url('assets/images/bglogindarck.png'); background-color: #121212; }
+.dark-mode.bg-image::before { background-color: rgba(18,18,18,0.1); }
 .dark-mode .card-shadow { box-shadow:0 15px 40px rgba(0,0,0,0.5); border-color:#374151; background-color:var(--color-card); }
 .dark-mode .input-style { background-color:var(--color-input-bg); border-color:var(--color-input-border); color:var(--color-text); }
 .dark-mode .text-primary { color: var(--color-primary); } .dark-mode .text-secondary { color: var(--color-secondary-text); }

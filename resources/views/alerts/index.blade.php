@@ -1,228 +1,216 @@
 @extends('layouts.app')
 
-@section('styles')
-    <style>
-        .alert-card {
-            transition: all 0.3s ease;
-            border-left: 4px solid #dc3545;
-            margin-bottom: 15px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .alert-card.read {
-            border-left-color: #6c757d;
-            opacity: 0.8;
-        }
-        .alert-card:hover {
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-            transform: translateY(-2px);
-        }
-        .vehicle-info {
-            display: flex;
-            align-items: center;
-        }
-        .vehicle-details {
-            margin-left: 15px;
-        }
-        .alert-badge {
-            font-size: 0.7rem;
-            padding: 0.2em 0.6em;
-            border-radius: 50px;
-            font-weight: 600;
-        }
-        .location-map {
-            height: 120px;
-            background-color: #f8f9fa;
-            border-radius: 4px;
-        }
-        .alert-timestamp {
-            font-size: 0.8rem;
-            color: #6c757d;
-        }
-        .action-buttons {
-            display: flex;
-            gap: 10px;
-        }
-        .filters {
-            margin-bottom: 20px;
-        }
-        .unread-count {
-            background-color: #dc3545;
-            color: white;
-            border-radius: 50%;
-            padding: 2px 8px;
-            font-size: 12px;
-            margin-left: 10px;
-        }
-    </style>
-@endsection
+@section('title', 'Gestion des Alertes')
 
 @section('content')
-    <div class="container">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h2>
-                🚨 Cars Alerts
-                @if($unreadCount > 0)
-                    <span class="unread-count">({{ $unreadCount }})</span>
-                @endif
-            </h2>
-            <div class="filters">
-                <div class="btn-group" role="group">
-                    <button type="button" class="btn btn-outline-primary filter-btn active" data-filter="all">All</button>
-                    <button type="button" class="btn btn-outline-primary filter-btn" data-filter="unread">Unread</button>
-                    <button type="button" class="btn btn-outline-primary filter-btn" data-filter="read">Read</button>
-                </div>
+<div class="space-y-8">
+
+    {{-- STATS --}}
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
+        <div class="ui-card p-5 flex items-center justify-between border-l-4 border-red-500">
+            <div>
+                <p class="text-sm text-secondary uppercase">Alertes Ouvertes</p>
+                <p class="text-3xl font-bold text-red-500" id="stat-open">0</p>
             </div>
+            <div class="text-3xl text-red-500 opacity-70"><i class="fas fa-exclamation-circle"></i></div>
         </div>
 
-        <div class="row" id="alerts-container">
-            @foreach ($alerts as $alert)
-                @php
-                    $voiture = $alert->voiture;
-                    $location = $voiture->latestLocation;
-                    $user = $voiture->user->first(); // just get one user
-                @endphp
-                <div class="col-md-6 col-lg-4 alert-item" data-status="{{ $alert->read ? 'read' : 'unread' }}">
-                    <div class="card alert-card {{ $alert->read ? 'read' : '' }}" id="alert-{{ $alert->id }}">
-                        <div class="card-header d-flex justify-content-between align-items-center">
-                            <div>
-                                @if(!$alert->read)
-                                    <span class="badge bg-danger alert-badge">NEW</span>
-                                @endif
-                                <span class="alert-timestamp">{{ $alert->alerted_at->diffForHumans() }}</span>
-                            </div>
-                            <div class="dropdown">
-                                <button class="btn btn-sm btn-link text-dark" type="button" data-bs-toggle="dropdown">
-                                    <i class="fas fa-ellipsis-v"></i>
-                                </button>
-                                <div class="dropdown-menu dropdown-menu-end">
-                                    @if(!$alert->read)
-                                        <form method="POST" action="{{ route('alerts.markAsRead', $alert->id) }}">
-                                            @csrf
-                                            <button type="submit" class="dropdown-item">
-                                                <i class="fas fa-check"></i> Mark as Read
-                                            </button>
-                                        </form>
-                                    @else
-                                        <form method="POST" action="{{ route('alerts.markAsUnread', $alert->id) }}">
-                                            @csrf
-                                            <button type="submit" class="dropdown-item">
-                                                <i class="fas fa-undo"></i> Mark as Unread
-                                            </button>
-                                        </form>
-                                    @endif
-                                </div>
-                            </div>
-                        </div>
-                        <div class="card-body">
-                            <div class="vehicle-info">
-                                <div class="vehicle-avatar bg-light rounded-circle text-center d-flex align-items-center justify-content-center" style="width: 50px; height: 50px;">
-                                    <i class="fas fa-car"></i>
-                                </div>
-                                <div class="vehicle-details">
-                                    <h5 class="mb-0">{{ $voiture->marque }} {{ $voiture->model }}</h5>
-                                    <p class="text-muted mb-0">{{ $voiture->immatriculation }}</p>
-                                </div>
-                            </div>
-
-                            <hr>
-
-                            <div class="row mb-3">
-                                <div class="col-6">
-                                    <small class="text-muted d-block">Vehicle ID</small>
-                                    <span>{{ $voiture->voiture_unique_id }}</span>
-                                </div>
-                                <div class="col-6">
-                                    <small class="text-muted d-block">MAC ID</small>
-                                    <span>{{ $voiture->mac_id_gps }}</span>
-                                </div>
-                            </div>
-
-                            <div class="row mb-3">
-                                <div class="col-12">
-                                    <small class="text-muted d-block">Owner</small>
-                                    <span>{{ $user->nom ?? '-' }} {{ $user->prenom ?? '' }}</span>
-                                    <small class="text-muted d-block mt-1">Phone</small>
-                                    <span>{{ $user->phone ?? '-' }}</span>
-                                </div>
-                            </div>
-
-                            <div class="location-map mb-3" id="map-{{ $alert->id }}">
-                                @if($location)
-                                    <small class="text-muted d-block">Location</small>
-                                    <span>{{ $location->latitude }}, {{ $location->longitude }}</span>
-                                    <!-- Map will be initialized here with JavaScript -->
-                                @else
-                                    <div class="d-flex h-100 align-items-center justify-content-center">
-                                        <span class="text-muted">Location unavailable</span>
-                                    </div>
-                                @endif
-                            </div>
-
-                            <div class="action-buttons">
-                                <form method="POST" action="{{ route('alerts.turnoff', $voiture->id) }}" class="w-100">
-                                    @csrf
-                                    <button type="submit" class="btn btn-danger w-100">
-                                        <i class="fas fa-power-off"></i> Turn Off Car
-                                    </button>
-                                </form>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            @endforeach
+        <div class="ui-card p-5 flex items-center justify-between border-l-4 border-orange-500">
+            <div>
+                <p class="text-sm text-secondary uppercase">Geofence</p>
+                <p class="text-3xl font-bold text-orange-500" id="stat-geofence">0</p>
+            </div>
+            <div class="text-3xl text-orange-500 opacity-70"><i class="fas fa-route"></i></div>
         </div>
 
-        @if(count($alerts) == 0)
-            <div class="text-center py-5">
-                <div class="mb-3">
-                    <i class="fas fa-check-circle text-success" style="font-size: 3rem;"></i>
-                </div>
-                <h4>No alerts at this time</h4>
-                <p class="text-muted">All vehicles are operating normally</p>
+        <div class="ui-card p-5 flex items-center justify-between border-l-4 border-blue-500">
+            <div>
+                <p class="text-sm text-secondary uppercase">Vitesse</p>
+                <p class="text-3xl font-bold text-blue-500" id="stat-speed">0</p>
             </div>
-        @endif
+            <div class="text-3xl text-blue-500 opacity-70"><i class="fas fa-tachometer-alt"></i></div>
+        </div>
+
+        <div class="ui-card p-5 flex items-center justify-between border-l-4 border-green-500">
+            <div>
+                <p class="text-sm text-secondary uppercase">Résolues</p>
+                <p class="text-3xl font-bold text-green-500" id="stat-resolved">0</p>
+            </div>
+            <div class="text-3xl text-green-500 opacity-70"><i class="fas fa-check-double"></i></div>
+        </div>
+
+        <div class="ui-card p-5 flex items-center justify-between border-l-4 border-purple-500">
+            <div>
+                <p class="text-sm text-secondary uppercase">Safe Zone</p>
+                <p class="text-3xl font-bold text-purple-500" id="stat-safezone">0</p>
+            </div>
+            <div class="text-3xl text-purple-500 opacity-70"><i class="fas fa-shield-alt"></i></div>
+        </div>
     </div>
+
+    {{-- TABLE --}}
+    <div class="ui-card p-6">
+        <h2 class="text-xl font-bold mb-4">Liste Détaillée des Incidents</h2>
+
+        <div class="flex flex-wrap gap-4 mb-4 items-center border-b pb-4">
+            <input id="alertSearch" class="ui-input max-w-sm" placeholder="Recherche véhicule / lieu / utilisateur..." />
+            <select id="alertTypeFilter" class="ui-select">
+                <option value="all">Tous les types</option>
+                <option value="geofence">GeoFence</option>
+                <option value="speed">Speed</option>
+                <option value="engine">Engine</option>
+                <option value="safe_zone">Safe Zone</option>
+                <option value="unauthorized">Unauthorized Time</option>
+            </select>
+            <button id="filterBtn" class="btn-primary"><i class="fas fa-filter mr-1"></i> Filtrer</button>
+            <button id="refreshBtn" class="btn-secondary"><i class="fas fa-sync-alt mr-1"></i> Rafraîchir</button>
+        </div>
+
+        <div class="ui-table-container shadow-md">
+            <table class="ui-table w-full">
+                <thead>
+                    <tr>
+                        <th>Type</th>
+                        <th>Véhicule</th>
+                        <th>Utilisateur(s)</th>
+                        <th>Déclenchée le</th>
+                        <th>Description</th>
+                        <th>Statut</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="alerts-tbody">
+                    <tr><td colspan="7" class="text-center text-secondary py-4">Chargement...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
 @endsection
 
-@section('scripts')
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // Filter functionality
-            const filterButtons = document.querySelectorAll('.filter-btn');
-            const alertItems = document.querySelectorAll('.alert-item');
+@push('scripts')
+<script>
+document.addEventListener('DOMContentLoaded', function () {
 
-            filterButtons.forEach(button => {
-                button.addEventListener('click', function() {
-                    // Remove active class from all buttons
-                    filterButtons.forEach(btn => btn.classList.remove('active'));
-                    // Add active class to clicked button
-                    this.classList.add('active');
+    const API_INDEX = "{{ route('alerts.index') }}";
+    const API_MARK_READ_BASE = "{{ url('/alerts') }}";
 
-                    const filter = this.getAttribute('data-filter');
+    const typeStyle = {
+        geofence:   { color: 'bg-orange-500', icon: 'fas fa-map-marker-alt', label: 'GeoFence' },
+        safe_zone:  { color: 'bg-purple-500',  icon: 'fas fa-shield-alt', label: 'Safe Zone' },
+        speed:      { color: 'bg-blue-500',   icon: 'fas fa-tachometer-alt', label: 'Speeding' },
+        engine:     { color: 'bg-red-500',    icon: 'fas fa-exclamation-triangle', label: 'Engine' },
+        unauthorized:{ color: 'bg-red-600',   icon: 'fas fa-clock', label: 'Unauthorized Time' }
+    };
 
-                    alertItems.forEach(item => {
-                        if (filter === 'all') {
-                            item.style.display = 'block';
-                        } else if (filter === 'read' && item.getAttribute('data-status') === 'read') {
-                            item.style.display = 'block';
-                        } else if (filter === 'unread' && item.getAttribute('data-status') === 'unread') {
-                            item.style.display = 'block';
-                        } else {
-                            item.style.display = 'none';
-                        }
-                    });
-                });
-            });
+    let alerts = [];
 
-            // Initialize maps if using Google Maps or any other map service
-            // This is a placeholder - you'll need to implement actual map initialization
-            initializeMaps();
+    async function fetchAlertsFromApi() {
+        try {
+            const res = await fetch(API_INDEX);
+            const json = await res.json();
+            if(json.status==='success') return json.data;
+            return [];
+        } catch (err) { console.error(err); return []; }
+    }
+
+    function renderAlerts(rows) {
+        const tbody = document.getElementById('alerts-tbody');
+        tbody.innerHTML='';
+
+        if(!rows.length){
+            tbody.innerHTML='<tr><td colspan="7" class="text-center text-secondary py-6">Aucune alerte trouvée.</td></tr>';
+            updateStats([]);
+            return;
+        }
+
+        rows.forEach(a=>{
+            const style = typeStyle[a.type] ?? { color:'bg-gray-500', icon:'fas fa-bell', label:a.type ?? 'Unknown' };
+            const usersLabel = a.users_labels ?? '-';
+            const vehicleLabel = a.voiture ? `${a.voiture.immatriculation} (${a.voiture.marque} ${a.voiture.model})` : 'N/A';
+            const alertedHuman = a.alerted_at_human ?? '-';
+            const statusText = a.read ? 'Résolue' : 'Ouverte';
+            const statusClass = a.read ? 'text-green-500' : 'text-red-500';
+
+            const row = document.createElement('tr');
+            row.className='hover:bg-gray-50';
+            row.innerHTML=`
+                <td><span class="px-3 py-1 rounded-full text-white text-xs font-semibold ${style.color}">
+                    <i class="${style.icon} mr-1"></i> ${a.type_label ?? style.label}
+                </span></td>
+                <td style="color:var(--color-text)">${vehicleLabel}</td>
+                <td style="color:var(--color-text)">${usersLabel}</td>
+                <td class="text-secondary">${alertedHuman}</td>
+                <td class="text-secondary">${a.location ?? '-'}</td>
+                <td class="${statusClass} font-bold">${statusText}</td>
+                <td>
+                    <button class="text-blue-600 hover:text-blue-800 mr-3" title="Voir sur le profil et carte" 
+                        onclick="goToProfile(${a.user_id}, ${a.voiture_id})">
+                        <i class="fas fa-map-marker-alt"></i>
+                    </button>
+                    ${ a.read ? '' : `<button class="text-green-600 hover:text-green-800" title="Marquer comme lue" onclick="markAsRead(${a.id})"><i class="fas fa-check"></i></button>` }
+                </td>
+            `;
+            tbody.appendChild(row);
         });
 
-        function initializeMaps() {
-            // Placeholder for map initialization
-            // You would typically call the maps API here
-            console.log('Maps should be initialized here');
-        }
-    </script>
-@endsection
+        updateStats(rows);
+    }
+
+    function updateStats(data){
+        document.getElementById('stat-open').textContent = data.filter(a=>!a.read).length;
+        document.getElementById('stat-geofence').textContent = data.filter(a=>a.type==='geofence').length;
+        document.getElementById('stat-speed').textContent = data.filter(a=>a.type==='speed').length;
+        document.getElementById('stat-resolved').textContent = data.filter(a=>a.read).length;
+        document.getElementById('stat-safezone').textContent = data.filter(a=>a.type==='safe_zone').length;
+    }
+
+    function applyFilters(){
+        const q = (document.getElementById('alertSearch').value || '').toLowerCase().trim();
+        const type = document.getElementById('alertTypeFilter').value;
+
+        let filtered = alerts.slice();
+        if(type && type!=='all') filtered = filtered.filter(a=>a.type===type);
+        if(q) filtered = filtered.filter(a=>{
+            const vehicle = (a.voiture?.immatriculation ?? '') + ' ' + (a.voiture?.marque ?? '') + ' ' + (a.voiture?.model ?? '');
+            const users = a.users_labels ?? '';
+            return vehicle.toLowerCase().includes(q) || (a.location ?? '').toLowerCase().includes(q) || users.toLowerCase().includes(q);
+        });
+        renderAlerts(filtered);
+    }
+
+    window.markAsRead = async function(id){
+        try{
+            const res = await fetch(`${API_MARK_READ_BASE}/${id}/read`, {
+                method:'PATCH',
+                headers:{'Content-Type':'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}'}
+            });
+            const json = await res.json();
+            if(json.status==='success'){ await reload(); }
+        } catch(err){ console.error(err); }
+    }
+
+window.goToProfile = function(userId, vehicleId){
+    if(!userId || !vehicleId) return;
+    // On utilise la route nommée 'users.profile' et on passe vehicle_id en query param
+    window.location.href = `/users/${userId}/profile?vehicle_id=${vehicleId}`;
+}
+
+    async function reload(){
+        alerts = await fetchAlertsFromApi();
+        applyFilters();
+    }
+
+    document.getElementById('filterBtn').addEventListener('click', applyFilters);
+    document.getElementById('alertSearch').addEventListener('keyup', applyFilters);
+    document.getElementById('alertTypeFilter').addEventListener('change', applyFilters);
+    document.getElementById('refreshBtn').addEventListener('click', reload);
+
+    (async ()=>{
+        alerts = await fetchAlertsFromApi();
+        renderAlerts(alerts);
+    })();
+
+});
+</script>
+@endpush

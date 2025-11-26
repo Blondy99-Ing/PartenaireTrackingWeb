@@ -40,10 +40,12 @@ class Voiture extends Model
 }
 
 
-    public function latestLocation()
-    {
-        return $this->hasOne(\App\Models\Location::class, 'mac_id_gps', 'mac_id_gps')->latest('created_at');
-    }
+   public function latestLocation()
+{
+    return $this->hasOne(\App\Models\Location::class, 'mac_id_gps', 'mac_id_gps')
+                ->orderByDesc('datetime'); // <- utiliser datetime ici
+}
+
 
     public function user()
     {
