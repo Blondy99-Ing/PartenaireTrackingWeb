@@ -146,7 +146,7 @@
                         <td class="text-secondary">{{ optional($assoc->created_at)->format('d/m/Y H:i') ?? 'Non défini' }}</td>
                         <td class="whitespace-nowrap space-x-1">
                             {{-- Voir (Dark Mode Ready) --}}
-                            <a href="#" class="text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-200 p-2"
+                            <a href="{{ route('users.profile', ['id' => $assoc->utilisateur->first()->id]) }}" class="text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-200 p-2"
                                 title="Voir les détails">
                                 <i class="fas fa-eye"></i>
                             </a>

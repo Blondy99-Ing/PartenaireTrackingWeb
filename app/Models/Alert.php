@@ -17,37 +17,31 @@ class Alert extends Model
         'alerted_at',
         'sent',
         'read',
+        'processed',      // corrigé
+        'processed_by',   // clé étrangère vers employe
     ];
 
     protected $casts = [
         'alerted_at' => 'datetime',
         'read' => 'boolean',
         'sent' => 'boolean',
+        'processed' => 'boolean', // ajouté pour cohérence
     ];
 
     /**
      * Accessor : expose ->type en priorité, sinon ->alert_type
-     * (évite le null si ton champ s'appelle alert_type en base)
      */
     public function getTypeAttribute($value)
     {
-        if (!empty($value)) {
-            return $value;
-        }
-
-        return $this->attributes['alert_type'] ?? null;
+        return $value ?: ($this->attributes['alert_type'] ?? null);
     }
 
     /**
-     * Accessor pour message/location (compatibilité si tu utilises l'un ou l'autre)
+     * Accessor pour message/location
      */
     public function getLocationAttribute($value)
     {
-        if (!empty($value)) {
-            return $value;
-        }
-
-        return $this->attributes['message'] ?? null;
+        return $value ?: ($this->attributes['message'] ?? null);
     }
 
     /**
@@ -57,4 +51,16 @@ class Alert extends Model
     {
         return $this->belongsTo(\App\Models\Voiture::class, 'voiture_id');
     }
+
+    /**
+     * Relation vers l'employé qui a traité l'alerte
+     */
+    public function processedBy()
+    {
+        return $this->belongsTo(\App\Models\Employe::class, 'processed_by');
+    }
+
+
+
+    
 }

@@ -3,89 +3,92 @@
 namespace App\Http\Controllers\Voitures;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
 use App\Models\Voiture;
-use Illuminate\Support\Str;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use App\Services\GpsControlService;
 
 class VoitureController extends Controller
 {
-    // Affichage de la liste + gestion modification
-    public function index(Request $request)
+    private GpsControlService $gps;
+
+    public function __construct(GpsControlService $gps)
     {
-        $voitures = Voiture::all();
-
-        // Si on clique sur modifier, récupérer le véhicule
-        $voitureEdit = null;
-        if ($request->has('edit')) {
-            $voitureEdit = Voiture::find($request->edit);
-        }
-
-        return view('voitures.index', compact('voitures', 'voitureEdit'));
+        $this->gps = $gps;
     }
 
-    // Enregistrement d'un nouveau véhicule
-    public function store(Request $request)
+    /**
+     * Liste des véhicules appartenant à l'utilisateur connecté
+     */
+    public function index()
     {
-        $validatedData = $request->validate([
-            'immatriculation' => 'required|string|max:255',
-            'model' => 'required|string|max:255',
-            'couleur' => 'required|string|max:255',
-            'marque' => 'required|string|max:255',
-            'mac_id_gps' => 'required|string|max:255|unique:voitures,mac_id_gps',
-            'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:8048',
-            'geofence_latitude' => 'required|numeric',
-            'geofence_longitude' => 'required|numeric',
-            'geofence_radius' => 'required|integer|min:100',
+        $userId = Auth::id();
+
+        // Récupérer les voitures via la table pivot association_user_voitures
+        $voitures = Voiture::whereHas('utilisateur', function ($q) use ($userId) {
+            $q->where('user_id', $userId);
+        })->get();
+
+        // Ajouter statut moteur + GPS online
+        foreach ($voitures as $v) {
+            $status = $this->gps->getEngineStatus($v->mac_id_gps);
+
+            $v->engine_on = $status['engine_on'] ?? false;
+            $v->gps_status = ($status['online'] ?? false) ? 'Connected' : 'Disconnected';
+        }
+
+        return view('voitures.index', compact('voitures'));
+    }
+
+    /**
+     * API : statut moteur
+     */
+    public function getEngineStatus($id)
+    {
+        $userId = Auth::id();
+
+        $voiture = Voiture::where('id', $id)
+            ->whereHas('utilisateur', fn($q) => $q->where('user_id', $userId))
+            ->firstOrFail();
+
+        $status = $this->gps->getEngineStatus($voiture->mac_id_gps);
+
+        return response()->json([
+            "success" => $status["success"] ?? false,
+            "engine_on" => $status["engine_on"] ?? false,
         ]);
-
-        // Upload photo
-        if ($request->hasFile('photo')) {
-            $validatedData['photo'] = $request->file('photo')->store('photos');
-        }
-
-        // Generate unique ID
-        $validatedData['voiture_unique_id'] = 'VH-' . now()->format('Ym') . '-' . Str::random(6);
-
-        Voiture::create($validatedData);
-
-        return redirect()->route('tracking.vehicles')->with('success', 'Véhicule ajouté avec succès.');
     }
 
-    // Mise à jour d'un véhicule existant
-    public function update(Request $request, Voiture $voiture)
+    /**
+     * API : on/off moteur
+     */
+    public function toggleEngine($id)
     {
-        $validatedData = $request->validate([
-            'immatriculation' => 'required|string|max:255',
-            'model' => 'required|string|max:255',
-            'couleur' => 'required|string|max:255',
-            'marque' => 'required|string|max:255',
-            'mac_id_gps' => 'required|string|max:255|unique:voitures,mac_id_gps,' . $voiture->id,
-            'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:8048',
-            'geofence_latitude' => 'required|numeric',
-            'geofence_longitude' => 'required|numeric',
-            'geofence_radius' => 'required|integer|min:100',
+        $userId = Auth::id();
+
+        $voiture = Voiture::where('id', $id)
+            ->whereHas('utilisateur', fn($q) => $q->where('user_id', $userId))
+            ->firstOrFail();
+
+        $status = $this->gps->getEngineStatus($voiture->mac_id_gps);
+
+        if (!($status["success"] ?? false)) {
+            return response()->json([
+                "success" => false,
+                "message" => "Impossible d’obtenir le statut moteur."
+            ], 500);
+        }
+
+        $engineOn = $status["engine_on"];
+
+        $response = $engineOn
+            ? $this->gps->cutEngine($voiture->mac_id_gps)   // moteur ON → couper
+            : $this->gps->startEngine($voiture->mac_id_gps); // moteur OFF → allumer
+
+        return response()->json([
+            "success" => true,
+            "engine_on" => !$engineOn,
+            "gps_response" => $response
         ]);
-
-        // Upload nouvelle photo si fournie
-        if ($request->hasFile('photo')) {
-            $validatedData['photo'] = $request->file('photo')->store('photos');
-        }
-
-        $voiture->update($validatedData);
-
-        return redirect()->route('tracking.vehicles')->with('success', 'Véhicule mis à jour avec succès.');
-    }
-
-    // Suppression d'un véhicule
-    public function destroy(Voiture $voiture)
-    {
-        // Supprimer la photo si elle existe
-        if ($voiture->photo && \Storage::exists($voiture->photo)) {
-            \Storage::delete($voiture->photo);
-        }
-
-        $voiture->delete();
-
-        return redirect()->route('tracking.vehicles')->with('success', 'Véhicule supprimé avec succès.');
     }
 }

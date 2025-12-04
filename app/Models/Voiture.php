@@ -29,7 +29,7 @@ class Voiture extends Model
         'geofence_latitude',
         'geofence_longitude',
         'geofence_radius',
-        'region_polygon', // ✅ Add this!
+        'geofence_zone', 
     ];
 
 
@@ -52,6 +52,20 @@ class Voiture extends Model
         return $this->belongsToMany(\App\Models\User::class, 'association_user_voitures', 'voiture_id', 'user_id');
     }
 
+// app/Models/Voiture.php
+
+public function alerts()
+{
+    return $this->hasMany(\App\Models\Alert::class, 'voiture_id');
+}
+
+
+
+
+public function trajets()
+{
+    return $this->hasMany(\App\Models\Trajet::class, 'vehicle_id');
+}
 
 
 }

@@ -13,19 +13,18 @@ use App\Http\Controllers\Villes\VilleController;
 use App\Http\Controllers\TestController;
 use App\Http\Controllers\Users\ProfileController;
 use App\Http\Controllers\Alert\AlertController;
+use App\Http\Controllers\Trajets\TrajetController;
 
 
 
-Route::get('/', function () {
-    return view('welcome');
-});
+//Route::get('/', function () {
+//    return view('welcome');
+//});
 
 
 
 
-Route::get('/', function () {
-    return view('welcome');
-});
+
 
 
 
@@ -89,6 +88,13 @@ Route::post('/alerts/{alert}/mark-as-unread', [AlertController::class, 'markAsUn
 // Vehicles Routes
 Route::get('/vehicles/create', [VehiclesController::class, 'create'])->name('vehicles.create');
 Route::post('/vehicles/store', [VehiclesController::class, 'store'])->name('vehicles.store');
+// couper le moteur
+Route::get('/voitures/{id}/engine-status', [VoitureController::class, 'getEngineStatus'])
+    ->name('voitures.engineStatus');
+
+Route::post('/voitures/{id}/toggle-engine', [VoitureController::class, 'toggleEngine'])
+    ->name('voitures.toggleEngine');
+
 
 
 // 1. Route to show the page
@@ -107,6 +113,42 @@ Route::prefix('employes')->name('employes.')->group(function () {
     Route::put('/{employe}', [EmployeController::class, 'update'])->name('update'); // Mettre à jour
     Route::delete('/{employe}', [EmployeController::class, 'destroy'])->name('destroy'); // Supprimer
 });
+
+
+Route::get('/users/{id}/profile', [ProfileController::class, 'show'])
+    ->name('users.profile');
+
+    // Liste de toutes les alertes (JSON)
+Route::get('/alerts', [AlertController::class, 'index'])->name('alerts.index');
+
+// Marquer une alerte comme lue
+Route::patch('/alerts/{id}/processed', [AlertController::class, 'markAsProcessed'])->name('alerts.processed');
+
+// Vue HTML des alertes
+Route::get('/alerts/view', function () {
+    return view('alerts.index'); // le nom du blade fourni
+})->name('alerts.view');
+
+
+//trajets
+Route::get('/trajets', [TrajetController::class, 'index'])->name('trajets.index');
+Route::get('/voitures/{id}/trajets', [TrajetController::class, 'byVoiture'])->name('voitures.trajets');
+
+Route::get('/trajets/{vehicle_id}/detail/{trajet_id}', 
+    [TrajetController::class, 'showTrajet'])
+    ->name('voitures.trajet.detail');
+
+
+
+
+
+
+
+
+
+
+
+
 
 });
 
@@ -134,18 +176,3 @@ Route::prefix('tests')->name('test.')->group(function () {
 
 
 
-Route::get('/users/{id}/profile', [ProfileController::class, 'show'])
-    ->name('users.profile');
-
-
-
-    // Liste de toutes les alertes (JSON)
-Route::get('/alerts', [AlertController::class, 'index'])->name('alerts.index');
-
-// Marquer une alerte comme lue
-Route::patch('/alerts/{id}/read', [AlertController::class, 'markAsRead'])->name('alerts.read');
-
-// Vue HTML des alertes
-Route::get('/alerts/view', function () {
-    return view('alerts.index'); // le nom du blade fourni
-})->name('alerts.view');

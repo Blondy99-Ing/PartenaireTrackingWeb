@@ -80,7 +80,7 @@
                     </tr>
                 </thead>
                 <tbody id="alerts-tbody">
-                    <tr><td colspan="7" class="text-center text-secondary py-4">Chargement...</td></tr>
+                    <tr><td colspan="8" class="text-center text-secondary py-4">Chargement...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -93,7 +93,7 @@
 document.addEventListener('DOMContentLoaded', function () {
 
     const API_INDEX = "{{ route('alerts.index') }}";
-    const API_MARK_READ_BASE = "{{ url('/alerts') }}";
+    const API_MARK_PROCESSED = "{{ url('/alerts') }}";
 
     const typeStyle = {
         geofence:   { color: 'bg-orange-500', icon: 'fas fa-map-marker-alt', label: 'GeoFence' },
@@ -119,7 +119,7 @@ document.addEventListener('DOMContentLoaded', function () {
         tbody.innerHTML='';
 
         if(!rows.length){
-            tbody.innerHTML='<tr><td colspan="7" class="text-center text-secondary py-6">Aucune alerte trouvée.</td></tr>';
+            tbody.innerHTML='<tr><td colspan="8" class="text-center text-secondary py-6">Aucune alerte trouvée.</td></tr>';
             updateStats([]);
             return;
         }
@@ -129,8 +129,9 @@ document.addEventListener('DOMContentLoaded', function () {
             const usersLabel = a.users_labels ?? '-';
             const vehicleLabel = a.voiture ? `${a.voiture.immatriculation} (${a.voiture.marque} ${a.voiture.model})` : 'N/A';
             const alertedHuman = a.alerted_at_human ?? '-';
-            const statusText = a.read ? 'Résolue' : 'Ouverte';
-            const statusClass = a.read ? 'text-green-500' : 'text-red-500';
+            const statusText = a.processed ? 'Résolue' : 'Ouverte';
+            const statusClass = a.processed ? 'text-green-500' : 'text-red-500';
+            const processedBy = a.processed_by_name ?? '-';
 
             const row = document.createElement('tr');
             row.className='hover:bg-gray-50';
@@ -148,7 +149,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         onclick="goToProfile(${a.user_id}, ${a.voiture_id})">
                         <i class="fas fa-map-marker-alt"></i>
                     </button>
-                    ${ a.read ? '' : `<button class="text-green-600 hover:text-green-800" title="Marquer comme lue" onclick="markAsRead(${a.id})"><i class="fas fa-check"></i></button>` }
+                    
                 </td>
             `;
             tbody.appendChild(row);
@@ -158,10 +159,10 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function updateStats(data){
-        document.getElementById('stat-open').textContent = data.filter(a=>!a.read).length;
+        document.getElementById('stat-open').textContent = data.filter(a=>!a.processed).length;
         document.getElementById('stat-geofence').textContent = data.filter(a=>a.type==='geofence').length;
         document.getElementById('stat-speed').textContent = data.filter(a=>a.type==='speed').length;
-        document.getElementById('stat-resolved').textContent = data.filter(a=>a.read).length;
+        document.getElementById('stat-resolved').textContent = data.filter(a=>a.processed).length;
         document.getElementById('stat-safezone').textContent = data.filter(a=>a.type==='safe_zone').length;
     }
 
@@ -179,9 +180,9 @@ document.addEventListener('DOMContentLoaded', function () {
         renderAlerts(filtered);
     }
 
-    window.markAsRead = async function(id){
+    window.markAsProcessed = async function(id){
         try{
-            const res = await fetch(`${API_MARK_READ_BASE}/${id}/read`, {
+            const res = await fetch(`${API_MARK_PROCESSED}/${id}/processed`, {
                 method:'PATCH',
                 headers:{'Content-Type':'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}'}
             });
@@ -190,11 +191,10 @@ document.addEventListener('DOMContentLoaded', function () {
         } catch(err){ console.error(err); }
     }
 
-window.goToProfile = function(userId, vehicleId){
-    if(!userId || !vehicleId) return;
-    // On utilise la route nommée 'users.profile' et on passe vehicle_id en query param
-    window.location.href = `/users/${userId}/profile?vehicle_id=${vehicleId}`;
-}
+    window.goToProfile = function(userId, vehicleId){
+        if(!userId || !vehicleId) return;
+        window.location.href = `/users/${userId}/profile?vehicle_id=${vehicleId}`;
+    }
 
     async function reload(){
         alerts = await fetchAlertsFromApi();

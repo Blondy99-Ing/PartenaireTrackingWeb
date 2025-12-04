@@ -15,10 +15,7 @@
                 class="py-2 px-4 rounded-lg font-semibold text-primary border-b-2 border-primary transition-colors">
                 <i class="fas fa-users mr-2"></i> Utilisateurs
             </a>
-            <a href="{{ route('employes.index') }}"
-                class="py-2 px-4 rounded-lg font-semibold text-secondary hover:text-primary transition-colors">
-                <i class="fas fa-user-tie mr-2"></i> Employés
-            </a>
+            
         </div>
     </div>
 
