@@ -28,8 +28,6 @@
                     <th>Photo</th>
                     <th>Immatriculation</th>
                     <th>Marque / Modèle</th>
-                    <th>GPS</th>
-                    <th>Moteur</th>
                     <th>Action</th>
                 </tr>
             </thead>
@@ -45,20 +43,7 @@
 
                     <td>{{ $v->marque }} {{ $v->model }}</td>
 
-                    <td>
-                        <span class="px-2 py-1 text-xs rounded 
-                            {{ $v->gps_status === 'Connected' ? 'bg-green-500 text-white' : 'bg-red-500 text-white' }}">
-                            {{ $v->gps_status }}
-                        </span>
-                    </td>
 
-                    <td>
-                        <button 
-                            class="engineBtn px-3 py-1 rounded text-white"
-                            data-id="{{ $v->id }}">
-                            Chargement...
-                        </button>
-                    </td>
 
                     <td>
                         <button onclick="zoomToVehicle({{ $v->id }})" 
@@ -80,14 +65,16 @@
 
 
 @push('scripts')
-
 <script>
 let map;
-let markers = [];
+let markersById = {}; // { vehicleId: google.maps.Marker }
 let vehicles = @json($voitures);
 
+// URL backend pour récupérer les positions à jour
+const positionsUrl = "{{ route('profile.vehicles.positions') }}";
+
 // -------------------------
-// INIT MAP
+// INIT MAP (appelé par Google Maps callback)
 // -------------------------
 function initMap() {
     map = new google.maps.Map(document.getElementById('userMap'), {
@@ -95,14 +82,24 @@ function initMap() {
         zoom: 12
     });
 
+    // Première initialisation des markers
+    initMarkersFromInitialData();
+
+    // Rafraîchissement régulier des positions
+    setInterval(refreshVehiclePositions, 10000); // 10s
+}
+
+// Créer les markers au premier chargement
+function initMarkersFromInitialData() {
     vehicles.forEach(v => {
         if (!v.latest_location) return;
 
-        let marker = new google.maps.Marker({
-            position: {
-                lat: parseFloat(v.latest_location.latitude),
-                lng: parseFloat(v.latest_location.longitude)
-            },
+        const lat = parseFloat(v.latest_location.latitude);
+        const lng = parseFloat(v.latest_location.longitude);
+        if (isNaN(lat) || isNaN(lng)) return;
+
+        const marker = new google.maps.Marker({
+            position: { lat, lng },
             map: map,
             title: v.immatriculation,
             icon: {
@@ -111,67 +108,125 @@ function initMap() {
             }
         });
 
-        markers.push(marker);
+        markersById[v.id] = marker;
     });
 }
 
-// Zoom depuis le tableau
+// -------------------------
+// RAFRAÎCHIR LES POSITIONS
+// -------------------------
+function refreshVehiclePositions() {
+    fetch(positionsUrl, {
+        headers: {
+            "Accept": "application/json"
+        }
+    })
+    .then(res => res.json())
+    .then(payload => {
+        if (!payload.success) return;
+
+        const updatedVehicles = payload.vehicles || [];
+
+        updatedVehicles.forEach(v => {
+            if (!v.lat || !v.lng) return;
+
+            const lat = parseFloat(v.lat);
+            const lng = parseFloat(v.lng);
+            if (isNaN(lat) || isNaN(lng)) return;
+
+            const pos = { lat, lng };
+
+            // 1️⃣ Marker déjà existant ⇒ on le déplace
+            if (markersById[v.id]) {
+                markersById[v.id].setPosition(pos);
+            } else {
+                // 2️⃣ Nouveau véhicule ⇒ on crée un marker
+                const marker = new google.maps.Marker({
+                    position: pos,
+                    map: map,
+                    title: v.immatriculation,
+                    icon: {
+                        url: "/assets/icons/car_icon.png",
+                        scaledSize: new google.maps.Size(40, 40)
+                    }
+                });
+                markersById[v.id] = marker;
+            }
+
+            // 3️⃣ Mettre à jour aussi l’objet vehicles (pour zoomToVehicle)
+            const local = vehicles.find(x => x.id === v.id);
+            if (local) {
+                local.latest_location = {
+                    latitude: v.lat,
+                    longitude: v.lng,
+                };
+            }
+        });
+    })
+    .catch(err => {
+        console.error("Erreur refresh positions:", err);
+    });
+}
+
+// -------------------------
+// ZOOM depuis le tableau
+// -------------------------
 function zoomToVehicle(id) {
-    let v = vehicles.find(x => x.id === id);
+    const v = vehicles.find(x => x.id === id);
     if (!v || !v.latest_location) return;
 
-    map.setCenter({
-        lat: parseFloat(v.latest_location.latitude),
-        lng: parseFloat(v.latest_location.longitude)
-    });
+    const lat = parseFloat(v.latest_location.latitude);
+    const lng = parseFloat(v.latest_location.longitude);
+    if (isNaN(lat) || isNaN(lng)) return;
 
+    map.setCenter({ lat, lng });
     map.setZoom(15);
+
+    // Optionnel : animer le marker
+    if (markersById[id]) {
+        markersById[id].setAnimation(google.maps.Animation.BOUNCE);
+        setTimeout(() => markersById[id].setAnimation(null), 1400);
+    }
 }
 
 // -------------------------
-// MOTEUR : STATUT + TOGGLE
+// (Optionnel) MOTEUR : TON CODE EXISTANT
 // -------------------------
-
 document.addEventListener("DOMContentLoaded", () => {
 
     document.querySelectorAll(".engineBtn").forEach(btn => {
 
         const id = btn.dataset.id;
 
-        // Charger le statut moteur réel
-        fetch(`/voitures/${id}/engine-status`, {
-            method: "POST",
-            headers: { "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').content }
-        })
-        .then(res => res.json())
-        .then(data => renderButton(btn, data.engine_on))
-        .catch(() => renderButton(btn, false));
+        // ⚠️ ta route engine-status est GET dans tes routes !
+        fetch(`/voitures/${id}/engine-status`)
+            .then(res => res.json())
+            .then(data => renderButton(btn, data.engine_on))
+            .catch(() => renderButton(btn, false));
 
-        // Gestion du clic
         btn.addEventListener("click", () => {
-
             btn.textContent = "Traitement...";
             btn.style.opacity = 0.5;
 
             fetch(`/voitures/${id}/toggle-engine`, {
                 method: "POST",
-                headers: { "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').content }
+                headers: {
+                    "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').content
+                }
             })
-            .then(res => res.json())
-            .then(data => {
-                renderButton(btn, data.new_state);
-            })
-            .catch(() => {
-                btn.textContent = "Erreur";
-                btn.style.background = "gray";
-            });
-
+                .then(res => res.json())
+                .then(data => {
+                    renderButton(btn, data.new_state);
+                })
+                .catch(() => {
+                    btn.textContent = "Erreur";
+                    btn.style.background = "gray";
+                });
         });
 
     });
 });
 
-// Rendu du bouton
 function renderButton(btn, state) {
     if (state) {
         btn.textContent = "Éteindre";
@@ -184,5 +239,4 @@ function renderButton(btn, state) {
     btn.style.opacity = 1;
 }
 </script>
-
 @endpush

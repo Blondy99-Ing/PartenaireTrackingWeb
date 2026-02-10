@@ -14,6 +14,7 @@
     <!-- Font Awesome pour les icônes -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
 
+    @stack('styles')
 
     @stack('head')
 
@@ -27,6 +28,7 @@
         --font-family: 'Orbitron', sans-serif;
         --sidebar-width: 260px;
         --sidebar-collapsed-width: 80px;
+        --navbar-h: 5rem;
     }
 
     .font-orbitron {
@@ -610,8 +612,9 @@
                 </a>
                 <ul class="nav-dropdown" id="tracking-menu">
                    
-                    <li><a href="{{ route('tracking.vehicles') ?? '#' }}"
+                    <li><i class="fas fa-chevron-right text-xs ml-auto"></i> <a href="{{ route('tracking.vehicles') ?? '#' }}"
                             class="{{ request()->is('tracking.vehicles') ? 'active' : '' }}">Véhicules</a></li>
+                    <li><a href="{{ route('users.index') }}" class="{{ request()->is('users') ? 'active' : '' }}">Chauffeurs</a></li>
                     <li><a href="{{ route('trajets.index') }}" class="{{ request()->is('tracking.zones') ? 'active' : '' }}">Trajets</a></li>
                 </ul>
             </li>
@@ -719,7 +722,7 @@
 
 
 
-
+    @include('partials.affectation-modal')
 
         </div>
 
@@ -734,9 +737,7 @@
 
     <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBn88TP5X-xaRCYo5gYxvGnVy_0WYotZWo&callback=initMap" async></script>
-
+   
     <script>
     $(function() { // équivalent de $(document).ready()
         if ($.fn.DataTable) { // Vérifie que DataTables est chargé

@@ -5,6 +5,13 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Models\AssociationChauffeurVoiturePartner;
+use App\Models\HistoriqueAssociationChauffeurVoiturePartner;
+
+
+
 
 class Voiture extends Model
 {
@@ -47,10 +54,10 @@ class Voiture extends Model
 }
 
 
-    public function user()
-    {
-        return $this->belongsToMany(\App\Models\User::class, 'association_user_voitures', 'voiture_id', 'user_id');
-    }
+   public function partenaires()
+{
+    return $this->belongsToMany(User::class, 'association_user_voitures', 'voiture_id', 'user_id');
+}
 
 // app/Models/Voiture.php
 
@@ -61,10 +68,28 @@ public function alerts()
 
 
 
+public function chauffeurActuelPartner(): HasOne
+{
+    return $this->hasOne(AssociationChauffeurVoiturePartner::class, 'voiture_id');
+}
+
+
 
 public function trajets()
 {
     return $this->hasMany(\App\Models\Trajet::class, 'vehicle_id');
+}
+
+
+public function chauffeurPartnerActuel(): HasOne
+{
+    return $this->hasOne(AssociationChauffeurVoiturePartner::class, 'voiture_id');
+}
+
+public function historiqueChauffeursPartner(): HasMany
+{
+    return $this->hasMany(HistoriqueAssociationChauffeurVoiturePartner::class, 'voiture_id')
+        ->orderByDesc('start_at');
 }
 
 

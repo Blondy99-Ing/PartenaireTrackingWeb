@@ -42,4 +42,10 @@ return [
         ],
     ],
 
+    
+    'techsoft_sms' => [
+        'token'     => env('TECHSOFT_SMS_API_TOKEN'),
+        'sender_id' => env('TECHSOFT_SMS_SENDER_ID', 'PROXYM'),
+    ],
+
 ];
