@@ -11,18 +11,15 @@ class DashboardController extends Controller
 
     public function index()
     {
-        $userId = (int) auth()->id();
+        $partnerId = (int) auth()->id();
 
-        $stats = $this->cache->getStatsFromRedis($userId) ?: $this->cache->rebuildStats($userId);
-        $vehicles = $this->cache->getFleetFromRedis($userId);
-        if (empty($vehicles)) $vehicles = $this->cache->rebuildFleet($userId);
+        $stats = $this->cache->getStatsFromRedis($partnerId) ?: $this->cache->rebuildStats($partnerId);
 
-        $alerts = $this->cache->getAlertsFromRedis($userId);
-        if (empty($alerts)) $alerts = $this->cache->rebuildAlerts($userId, 10);
+        $vehicles = $this->cache->getFleetFromRedis($partnerId);
+        if (empty($vehicles)) $vehicles = $this->cache->rebuildFleet($partnerId);
 
-        if (!isset($stats['alertsCount']) || !isset($stats['alertsByType'])) {
-            $stats = $this->cache->rebuildStats($userId);
-        }
+        $alerts = $this->cache->getAlertsFromRedis($partnerId);
+        if (empty($alerts)) $alerts = $this->cache->rebuildAlerts($partnerId, 10);
 
         return view('dashboards.index', [
             'usersCount'        => (int)($stats['usersCount'] ?? 0),
@@ -30,7 +27,6 @@ class DashboardController extends Controller
             'associationsCount' => (int)($stats['associationsCount'] ?? 0),
             'alertsCount'       => (int)($stats['alertsCount'] ?? 0),
             'alertStats'        => (array)($stats['alertsByType'] ?? []),
-
             'vehicles'          => $vehicles,
             'alerts'            => $alerts,
         ]);
@@ -38,13 +34,17 @@ class DashboardController extends Controller
 
     public function dashboardStream(): StreamedResponse
     {
-        $userId = (int) auth()->id();
+        $partnerId = (int) auth()->id();
 
-        return response()->stream(function () use ($userId) {
+        return response()->stream(function () use ($partnerId) {
 
             @ini_set('output_buffering', 'off');
-            @ini_set('zlib.output_compression', 0);
-            @ini_set('implicit_flush', 1);
+            @ini_set('zlib.output_compression', '0');
+            @ini_set('implicit_flush', '1');
+            @ini_set('max_execution_time', '0');
+            if (function_exists('apache_setenv')) {
+                @apache_setenv('no-gzip', '1');
+            }
 
             try { session()->save(); } catch (\Throwable $e) {}
             if (function_exists('session_write_close')) @session_write_close();
@@ -54,26 +54,27 @@ class DashboardController extends Controller
             $this->flushNow();
 
             echo "event: dashboard\n";
-            echo "data: " . $this->buildPayload($userId) . "\n\n";
+            echo "data: " . $this->buildPayload($partnerId) . "\n\n";
             $this->flushNow();
 
-            $lastVersion = $this->cache->getVersion($userId);
+            $lastVersion = $this->cache->getVersion($partnerId);
 
             while (!connection_aborted()) {
-                $v = $this->cache->getVersion($userId);
+                $v = $this->cache->getVersion($partnerId);
 
                 if ($v !== $lastVersion) {
                     $lastVersion = $v;
 
                     echo "event: dashboard\n";
-                    echo "data: " . $this->buildPayload($userId) . "\n\n";
+                    echo "data: " . $this->buildPayload($partnerId) . "\n\n";
                     $this->flushNow();
                 } else {
                     echo ": ping\n\n";
                     $this->flushNow();
                 }
 
-                usleep(120000);
+                // ✅ 250ms suffit (avec debounce 1/s, c’est parfait)
+                usleep(250000);
             }
 
         }, 200, [
@@ -87,26 +88,26 @@ class DashboardController extends Controller
 
     public function rebuildCache()
     {
-        $userId = (int) auth()->id();
-        $all = $this->cache->rebuildAll($userId);
+        $partnerId = (int) auth()->id();
+        $all = $this->cache->rebuildAll($partnerId);
 
         return response()->json([
             'ok'      => true,
             'ts'      => now()->toDateTimeString(),
-            'version' => $this->cache->getVersion($userId),
+            'version' => $this->cache->getVersion($partnerId),
             ...$all,
         ]);
     }
 
-    private function buildPayload(int $userId): string
+    private function buildPayload(int $partnerId): string
     {
-        $stats = $this->cache->getStatsFromRedis($userId) ?? $this->cache->rebuildStats($userId);
+        $stats = $this->cache->getStatsFromRedis($partnerId) ?? $this->cache->rebuildStats($partnerId);
 
-        $fleet = $this->cache->getFleetFromRedis($userId);
-        if (empty($fleet)) $fleet = $this->cache->rebuildFleet($userId);
+        $fleet = $this->cache->getFleetFromRedis($partnerId);
+        if (empty($fleet)) $fleet = $this->cache->rebuildFleet($partnerId);
 
-        $alerts = $this->cache->getAlertsFromRedis($userId);
-        if (empty($alerts)) $alerts = $this->cache->rebuildAlerts($userId, 10);
+        $alerts = $this->cache->getAlertsFromRedis($partnerId);
+        if (empty($alerts)) $alerts = $this->cache->rebuildAlerts($partnerId, 10);
 
         return json_encode([
             'ts'     => now()->toDateTimeString(),

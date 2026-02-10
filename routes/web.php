@@ -46,10 +46,8 @@ Route::middleware(['auth:web'])->group(function () {
 
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/dashboard/vehicles/positions', [DashboardController::class, 'vehiclesPositions']);
-  Route::get('/dashboard/stream', [DashboardController::class, 'dashboardStream'])->name('dashboard.stream');
-
-    // debug cache
-    Route::post('/dashboard/rebuild-cache', [DashboardController::class, 'rebuildCache'])->name('dashboard.rebuild');
+    Route::get('/dashboard/stream', [DashboardController::class, 'dashboardStream'])->name('dashboard.stream');
+    Route::post('/dashboard/rebuild', [DashboardController::class, 'rebuildCache'])->name('dashboard.rebuild');
 
 
 

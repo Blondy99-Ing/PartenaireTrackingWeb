@@ -48,4 +48,9 @@ return [
         'sender_id' => env('TECHSOFT_SMS_SENDER_ID', 'PROXYM'),
     ],
 
+
+    'tracking_webhook' => [
+        'token' => env('TRACKING_WEBHOOK_TOKEN'),
+    ],
+
 ];
