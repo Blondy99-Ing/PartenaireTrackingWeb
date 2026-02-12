@@ -56,8 +56,7 @@
                         <th>Modèle</th>
                         <th>Marque</th>
                         <th>Couleur</th>
-                        <th>GPS</th>
-                        <th>Photo</th>
+                        
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -74,17 +73,7 @@
                             <td>
                                 <div class="w-8 h-8 rounded" style="background-color: {{ $voiture->couleur }}"></div>
                             </td>
-                            <td>{{ $voiture->mac_id_gps }}</td>
-                            <td>
-                                @if($voiture->photo)
-                                    <img
-                                        src="{{ asset('storage/' . $voiture->photo) }}"
-                                        alt="Photo"
-                                        class="h-10 w-10 object-cover rounded"
-                                        onerror="this.style.display='none';"
-                                    >
-                                @endif
-                            </td>
+                       
                             <td class="whitespace-nowrap">
                                 {{-- Localiser --}}
                                 <button

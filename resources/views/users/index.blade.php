@@ -88,7 +88,7 @@
                         <th>Ville</th>
                         <th>Quartier</th>
                         <th>Email</th>
-                        <th>Photo</th>
+                        
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -124,16 +124,7 @@
                             <td>{{ $user->quartier }}</td>
                             <td>{{ $user->email }}</td>
 
-                            <td>
-                                <img
-                                    src="{{ $thumbUrl }}"
-                                    alt="Photo"
-                                    class="h-10 w-10 object-cover rounded-full border border-border-subtle cursor-pointer hover:opacity-90 transition js-user-photo"
-                                    data-full-url="{{ $fullUrl }}"
-                                    data-title="{{ $fullName }}"
-                                    title="Voir la photo"
-                                >
-                            </td>
+                        
 
                             <td class="space-x-2 whitespace-nowrap">
                                 {{-- Modifier --}}

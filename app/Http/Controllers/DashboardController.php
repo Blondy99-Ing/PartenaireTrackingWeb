@@ -13,6 +13,7 @@ class DashboardController extends Controller
     {
         $partnerId = (int) auth()->id();
 
+        // ✅ OK de rebuild ici (page load)
         $stats = $this->cache->getStatsFromRedis($partnerId) ?: $this->cache->rebuildStats($partnerId);
 
         $vehicles = $this->cache->getFleetFromRedis($partnerId);
@@ -53,8 +54,9 @@ class DashboardController extends Controller
             echo "data: {\"ok\":true}\n\n";
             $this->flushNow();
 
+            // premier payload (lecture Redis only)
             echo "event: dashboard\n";
-            echo "data: " . $this->buildPayload($partnerId) . "\n\n";
+            echo "data: " . $this->buildPayloadRedisOnly($partnerId) . "\n\n";
             $this->flushNow();
 
             $lastVersion = $this->cache->getVersion($partnerId);
@@ -66,14 +68,13 @@ class DashboardController extends Controller
                     $lastVersion = $v;
 
                     echo "event: dashboard\n";
-                    echo "data: " . $this->buildPayload($partnerId) . "\n\n";
+                    echo "data: " . $this->buildPayloadRedisOnly($partnerId) . "\n\n";
                     $this->flushNow();
                 } else {
                     echo ": ping\n\n";
                     $this->flushNow();
                 }
 
-                // ✅ 250ms suffit (avec debounce 1/s, c’est parfait)
                 usleep(250000);
             }
 
@@ -99,21 +100,21 @@ class DashboardController extends Controller
         ]);
     }
 
-    private function buildPayload(int $partnerId): string
+    /**
+     * ✅ IMPORTANT: aucune requête DB ici
+     * (sinon tu bloques le stream, et tu as les "parfois ça marche / parfois ça freeze")
+     */
+    private function buildPayloadRedisOnly(int $partnerId): string
     {
-        $stats = $this->cache->getStatsFromRedis($partnerId) ?? $this->cache->rebuildStats($partnerId);
-
-        $fleet = $this->cache->getFleetFromRedis($partnerId);
-        if (empty($fleet)) $fleet = $this->cache->rebuildFleet($partnerId);
-
+        $stats  = $this->cache->getStatsFromRedis($partnerId);
+        $fleet  = $this->cache->getFleetFromRedis($partnerId);
         $alerts = $this->cache->getAlertsFromRedis($partnerId);
-        if (empty($alerts)) $alerts = $this->cache->rebuildAlerts($partnerId, 10);
 
         return json_encode([
             'ts'     => now()->toDateTimeString(),
-            'stats'  => $stats,
-            'fleet'  => $fleet,
-            'alerts' => $alerts,
+            'stats'  => $stats ?? ['usersCount'=>0,'vehiclesCount'=>0,'associationsCount'=>0,'alertsCount'=>0,'alertsByType'=>[]],
+            'fleet'  => is_array($fleet) ? $fleet : [],
+            'alerts' => is_array($alerts) ? $alerts : [],
         ], JSON_UNESCAPED_UNICODE);
     }
 

@@ -9,26 +9,25 @@ use App\Models\User;
 use App\Models\Voiture;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Redis;
+use Illuminate\Support\Facades\DB;
 
 class DashboardCacheService
 {
-    // TTLs (stables)
     private int $ttlStats  = 60;
-    private int $ttlFleet  = 600; // ✅ 10 min (évite les “trous”)
+    private int $ttlFleet  = 600;
     private int $ttlAlerts = 60;
 
-    // OFFLINE si last seen > X minutes
     private int $gpsOfflineMinutes = 10;
 
-    // =========================
-    // Keys (scopées partner)
-    // =========================
-    private function kStats(int $partnerId): string   { return "dash:p:$partnerId:stats"; }
-    private function kFleet(int $partnerId): string   { return "dash:p:$partnerId:fleet"; }     // JSON fallback
-    private function kFleetH(int $partnerId): string  { return "dash:p:$partnerId:fleet:h"; }   // HASH vehicle_id => JSON
-    private function kAlerts(int $partnerId): string  { return "dash:p:$partnerId:alerts"; }
-    private function kVersion(int $partnerId): string { return "dash:p:$partnerId:version"; }
-    private function kDebounce(int $partnerId): string { return "dash:p:$partnerId:debounce"; }
+    private function kStats(int $partnerId): string      { return "dash:p:$partnerId:stats"; }
+    private function kFleet(int $partnerId): string      { return "dash:p:$partnerId:fleet"; }
+    private function kFleetH(int $partnerId): string     { return "dash:p:$partnerId:fleet:h"; }
+    private function kAlerts(int $partnerId): string     { return "dash:p:$partnerId:alerts"; }
+    private function kVersion(int $partnerId): string    { return "dash:p:$partnerId:version"; }
+
+    private function kDebounce(int $partnerId): string   { return "dash:p:$partnerId:debounce"; }
+    private function kAlertsLock(int $partnerId): string { return "dash:p:$partnerId:alerts:lock"; }
+    private function kVehicleIds(int $partnerId): string { return "dash:p:$partnerId:vehicle_ids"; }
 
     // =========================
     // Version
@@ -43,33 +42,42 @@ class DashboardCacheService
         Redis::incr($this->kVersion($partnerId));
     }
 
-    /**
-     * ✅ Debounce : bumpVersion au max 1 fois / seconde (stabilise SSE)
-     */
     public function bumpVersionDebounced(int $partnerId, int $seconds = 1): void
     {
         $ok = Redis::set($this->kDebounce($partnerId), '1', 'EX', $seconds, 'NX');
-        if ($ok) {
-            $this->bumpVersion($partnerId);
-        }
+        if ($ok) $this->bumpVersion($partnerId);
+    }
+
+    public function shouldRefreshAlertsNow(int $partnerId, int $seconds = 1): bool
+    {
+        return (bool) Redis::set($this->kAlertsLock($partnerId), '1', 'EX', $seconds, 'NX');
     }
 
     // =========================
-    // Helpers: véhicules du partenaire (pivot)
+    // Véhicules du partenaire (pivot)
     // =========================
     public function partnerVehicleIds(int $partnerId): array
     {
-        return AssociationUserVoiture::query()
-            ->where('user_id', $partnerId) // user_id = partenaire
+        $cached = Redis::get($this->kVehicleIds($partnerId));
+        if ($cached) {
+            $arr = json_decode($cached, true);
+            if (is_array($arr)) return array_values(array_unique(array_map('intval', $arr)));
+        }
+
+        $ids = AssociationUserVoiture::query()
+            ->where('user_id', $partnerId)
             ->pluck('voiture_id')
             ->map(fn ($x) => (int) $x)
             ->unique()
             ->values()
             ->all();
+
+        Redis::setex($this->kVehicleIds($partnerId), $this->ttlFleet, json_encode($ids, JSON_UNESCAPED_UNICODE));
+        return $ids;
     }
 
     // =========================
-    // STATS (scopées partner)
+    // STATS
     // =========================
     public function getStatsFromRedis(int $partnerId): ?array
     {
@@ -79,39 +87,46 @@ class DashboardCacheService
 
     public function rebuildStats(int $partnerId): array
     {
-        // ✅ Chauffeurs = users dont partner_id = partner connecté
+        // NOTE: si tes “chauffeurs” ne sont pas dans users.partner_id, adapte ici.
         $driversCount = User::query()
             ->where('partner_id', $partnerId)
             ->count();
 
-        // ✅ Véhicules = pivot association_user_voitures (user_id = partnerId)
         $vehicleIds = $this->partnerVehicleIds($partnerId);
         $vehiclesCount = count($vehicleIds);
 
-        // ✅ Associations = lignes pivot
         $associationsCount = AssociationUserVoiture::query()
             ->where('user_id', $partnerId)
             ->count();
 
-        // ✅ Alertes ouvertes du partenaire = alertes sur SES véhicules
         $alertsCount = 0;
-        $alertsByType = [];
+        $alertsByType = [
+            'stolen'    => 0,
+            'geofence'  => 0,
+            'safe_zone' => 0,
+            'speed'     => 0,
+            'time_zone' => 0,
+            'unknown'   => 0,
+        ];
 
         if (!empty($vehicleIds)) {
-            $alertsCount = Alert::query()
+            // ✅ OUVERT = processed = 0 OU NULL
+            $baseOpen = Alert::query()
                 ->whereIn('voiture_id', $vehicleIds)
-                ->where('processed', false)
-                ->count();
+                ->where(function ($q) {
+                    $q->where('processed', 0)->orWhereNull('processed');
+                });
 
-            $rows = Alert::query()
-                ->whereIn('voiture_id', $vehicleIds)
-                ->where('processed', false)
+            $alertsCount = (clone $baseOpen)->count();
+
+            $rows = (clone $baseOpen)
                 ->selectRaw("COALESCE(alert_type, 'unknown') as t, COUNT(*) as c")
                 ->groupBy('t')
                 ->get();
 
             foreach ($rows as $r) {
-                $alertsByType[(string) $r->t] = (int) $r->c;
+                $norm = $this->normalizeAlertType((string)$r->t);
+                $alertsByType[$norm] = ($alertsByType[$norm] ?? 0) + (int)$r->c;
             }
         }
 
@@ -130,7 +145,7 @@ class DashboardCacheService
     }
 
     // =========================
-    // FLEET (scopée partner)
+    // FLEET
     // =========================
     public function getFleetFromRedis(int $partnerId): array
     {
@@ -144,7 +159,7 @@ class DashboardCacheService
                 }
                 return $out;
             }
-        } catch (\Throwable $e) {
+        } catch (\Throwable) {
             // fallback JSON
         }
 
@@ -153,14 +168,18 @@ class DashboardCacheService
     }
 
     /**
-     * ✅ rebuild complet fleet du partenaire
+     * ✅ Rebuild fleet fiable : dernier location.id par mac_id_gps
+     * (évite datetime NULL / désordre)
      */
     public function rebuildFleet(int $partnerId): array
     {
         $vehicleIds = $this->partnerVehicleIds($partnerId);
+
         if (empty($vehicleIds)) {
-            Redis::del($this->kFleetH($partnerId));
-            Redis::setex($this->kFleet($partnerId), $this->ttlFleet, json_encode([], JSON_UNESCAPED_UNICODE));
+            Redis::pipeline(function ($pipe) use ($partnerId) {
+                $pipe->del($this->kFleetH($partnerId));
+                $pipe->setex($this->kFleet($partnerId), $this->ttlFleet, json_encode([], JSON_UNESCAPED_UNICODE));
+            });
             $this->bumpVersionDebounced($partnerId, 1);
             return [];
         }
@@ -175,35 +194,42 @@ class DashboardCacheService
 
         $latestByMac = [];
         if (!empty($macIds)) {
-            $latest = Location::query()
-                ->select(['id','mac_id_gps','latitude','longitude','heart_time','sys_time','datetime','status','speed'])
+            // subquery: max(id) par mac
+            $sub = Location::query()
+                ->selectRaw('MAX(id) as max_id, mac_id_gps')
                 ->whereIn('mac_id_gps', $macIds)
-                ->orderByDesc('datetime')
-                ->get()
-                ->groupBy('mac_id_gps')
-                ->map(fn ($g) => $g->first());
+                ->groupBy('mac_id_gps');
 
-            $latestByMac = $latest->toArray();
+            $latestRows = Location::query()
+                ->joinSub($sub, 't', function ($join) {
+                    $join->on('locations.id', '=', 't.max_id');
+                })
+                ->select('locations.*')
+                ->get();
+
+            foreach ($latestRows as $loc) {
+                $latestByMac[(string)$loc->mac_id_gps] = $loc;
+            }
         }
 
         $fleet = [];
         $hashPayload = [];
 
         foreach ($voitures as $v) {
-            $loc = $latestByMac[$v->mac_id_gps] ?? null;
+            $loc = $latestByMac[(string)$v->mac_id_gps] ?? null;
             if (!$loc) continue;
 
-            $lat = $loc['latitude'] ?? null;
-            $lon = $loc['longitude'] ?? null;
-            if (!$lat || !$lon) continue;
+            $lat = $loc->latitude;
+            $lon = $loc->longitude;
+            if ($lat === null || $lon === null) continue;
 
             $chauffeur = $v->chauffeurActuelPartner?->chauffeur;
             $driverLabel = $chauffeur ? trim(($chauffeur->prenom ?? '').' '.($chauffeur->nom ?? '')) : 'Non associé';
 
-            $lastSeen = $loc['heart_time'] ?? $loc['sys_time'] ?? $loc['datetime'] ?? null;
+            $lastSeen = $loc->heart_time ?? $loc->sys_time ?? $loc->datetime ?? null;
             $gpsOnline = $this->isGpsOnline($lastSeen);
 
-            $engineDecoded = app(\App\Services\GpsControlService::class)->decodeEngineStatus($loc['status'] ?? null);
+            $engineDecoded = app(\App\Services\GpsControlService::class)->decodeEngineStatus($loc->status ?? null);
             $engineCut = ($engineDecoded['engineState'] ?? 'UNKNOWN') === 'CUT';
 
             $row = [
@@ -226,27 +252,33 @@ class DashboardCacheService
                     'state'     => $gpsOnline === true ? 'ONLINE' : 'OFFLINE',
                     'last_seen' => (string) $lastSeen,
                 ],
+                // ✅ anti-retour arrière (critique)
+                'loc_id' => (int) $loc->id,
             ];
 
             $fleet[] = $row;
             $hashPayload[(string) $v->id] = json_encode($row, JSON_UNESCAPED_UNICODE);
         }
 
-        Redis::del($this->kFleetH($partnerId));
-        if (!empty($hashPayload)) {
-            Redis::hmset($this->kFleetH($partnerId), $hashPayload);
-            Redis::expire($this->kFleetH($partnerId), $this->ttlFleet);
-        }
-        Redis::setex($this->kFleet($partnerId), $this->ttlFleet, json_encode($fleet, JSON_UNESCAPED_UNICODE));
+        Redis::pipeline(function ($pipe) use ($partnerId, $hashPayload, $fleet) {
+            $pipe->del($this->kFleetH($partnerId));
+
+            if (!empty($hashPayload)) {
+                $pipe->hMSet($this->kFleetH($partnerId), $hashPayload);
+                $pipe->expire($this->kFleetH($partnerId), $this->ttlFleet);
+            }
+
+            $pipe->setex($this->kFleet($partnerId), $this->ttlFleet, json_encode($fleet, JSON_UNESCAPED_UNICODE));
+        });
 
         $this->bumpVersionDebounced($partnerId, 1);
         return $fleet;
     }
 
     /**
-     * ✅ Update 1 véhicule (temps réel)
+     * ✅ Update 1 véhicule : on ignore les points “plus vieux” via loc_id
      */
-    public function updateVehicleFromLocation(int $partnerId, Location $location): void
+    public function updateVehicleFromLocation(int $partnerId, Location $location, bool $bump = true): void
     {
         $macId = trim((string) $location->mac_id_gps);
         if ($macId === '') return;
@@ -265,7 +297,15 @@ class DashboardCacheService
 
         $lat = $location->latitude;
         $lon = $location->longitude;
-        if (!$lat || !$lon) return;
+        if ($lat === null || $lon === null) return;
+
+        // ✅ incoming location id
+        $incomingLocId = (int) ($location->id ?? 0);
+
+        // ✅ si le node envoie bien id, c’est PARFAIT. Sinon, on laisse passer.
+        if ($incomingLocId > 0 && !$this->isNewerLocIdThanCached($partnerId, (int)$voiture->id, $incomingLocId)) {
+            return;
+        }
 
         $voiture->load(['chauffeurActuelPartner.chauffeur:id,prenom,nom,partner_id']);
         $chauffeur = $voiture->chauffeurActuelPartner?->chauffeur;
@@ -297,35 +337,75 @@ class DashboardCacheService
                 'state'     => $gpsOnline === true ? 'ONLINE' : 'OFFLINE',
                 'last_seen' => (string) $lastSeen,
             ],
+            'loc_id' => $incomingLocId,
         ];
 
-        Redis::hset($this->kFleetH($partnerId), (string) $voiture->id, json_encode($row, JSON_UNESCAPED_UNICODE));
-        Redis::expire($this->kFleetH($partnerId), $this->ttlFleet);
+        Redis::pipeline(function ($pipe) use ($partnerId, $voiture, $row) {
+            $pipe->hset($this->kFleetH($partnerId), (string) $voiture->id, json_encode($row, JSON_UNESCAPED_UNICODE));
+            $pipe->expire($this->kFleetH($partnerId), $this->ttlFleet);
+        });
 
-        // ✅ IMPORTANT : debounce
-        $this->bumpVersionDebounced($partnerId, 1);
+        if ($bump) $this->bumpVersionDebounced($partnerId, 1);
     }
 
     /**
-     * ✅ Update en batch (très recommandé si Node envoie “beaucoup”)
-     * $items = [ ['mac_id_gps'=>..., 'latitude'=>..., ...], ... ]
+     * ✅ Batch: on garde le plus grand location.id par mac
      */
     public function updateFleetBatchFromLocations(int $partnerId, array $items): void
     {
         if (empty($items)) return;
 
-        // On update véhicule par véhicule (simple & fiable),
-        // mais on ne bump qu’une seule fois à la fin.
-        foreach ($items as $data) {
+        $latest = $this->pickLatestPerMacByLocId($items);
+
+        foreach ($latest as $data) {
             $loc = new Location();
-            foreach ((array)$data as $k => $v) {
-                $loc->setAttribute($k, $v);
-            }
-            $this->updateVehicleFromLocation($partnerId, $loc);
+            foreach ((array) $data as $k => $v) $loc->setAttribute($k, $v);
+            $this->updateVehicleFromLocation($partnerId, $loc, false);
         }
 
-        // updateVehicleFromLocation() bump déjà debounce,
-        // donc pas besoin de re-bump ici.
+        $this->bumpVersionDebounced($partnerId, 1);
+    }
+
+    private function pickLatestPerMacByLocId(array $items): array
+    {
+        $best = [];
+
+        foreach ($items as $it) {
+            $mac = trim((string)($it['mac_id_gps'] ?? ''));
+            if ($mac === '') continue;
+
+            $id = (int)($it['id'] ?? 0);
+
+            if (!isset($best[$mac])) {
+                $best[$mac] = $it;
+                $best[$mac]['__id'] = $id;
+                continue;
+            }
+
+            $prev = (int)($best[$mac]['__id'] ?? 0);
+            if ($id >= $prev) {
+                $best[$mac] = $it;
+                $best[$mac]['__id'] = $id;
+            }
+        }
+
+        foreach ($best as &$b) unset($b['__id']);
+        return array_values($best);
+    }
+
+    private function isNewerLocIdThanCached(int $partnerId, int $vehicleId, int $incomingLocId): bool
+    {
+        try {
+            $json = Redis::hget($this->kFleetH($partnerId), (string)$vehicleId);
+            if (!$json) return true;
+
+            $row = json_decode($json, true);
+            $cachedLocId = (int)($row['loc_id'] ?? 0);
+
+            return $incomingLocId >= $cachedLocId;
+        } catch (\Throwable) {
+            return true;
+        }
     }
 
     private function isGpsOnline($lastSeen): ?bool
@@ -341,7 +421,7 @@ class DashboardCacheService
     }
 
     // =========================
-    // ALERTS (scopées partner)
+    // ALERTS
     // =========================
     public function getAlertsFromRedis(int $partnerId): array
     {
@@ -352,6 +432,7 @@ class DashboardCacheService
     public function rebuildAlerts(int $partnerId, int $limit = 10): array
     {
         $vehicleIds = $this->partnerVehicleIds($partnerId);
+
         if (empty($vehicleIds)) {
             Redis::setex($this->kAlerts($partnerId), $this->ttlAlerts, json_encode([], JSON_UNESCAPED_UNICODE));
             $this->bumpVersionDebounced($partnerId, 1);
@@ -361,22 +442,25 @@ class DashboardCacheService
         $alerts = Alert::query()
             ->with(['voiture'])
             ->whereIn('voiture_id', $vehicleIds)
-            ->orderBy('processed', 'asc')
+            ->where(function ($q) { // ✅ ouverts = 0 OU NULL
+                $q->where('processed', 0)->orWhereNull('processed');
+            })
             ->orderBy('alerted_at', 'desc')
             ->limit($limit)
             ->get()
             ->map(function (Alert $a) {
                 $v = $a->voiture;
-                $type = $a->alert_type ?? 'unknown';
+                $typeNorm = $this->normalizeAlertType($a->alert_type);
 
                 return [
                     'id'           => $a->id,
                     'vehicle'      => $v?->immatriculation ?? 'N/A',
-                    'type'         => $type,
+                    'type'         => $typeNorm,
+                    'type_label'   => $this->alertTypeLabel($typeNorm),
                     'time'         => optional($a->alerted_at)->format('d/m/Y H:i:s'),
-                    'processed'    => (bool) $a->processed,
-                    'status'       => $a->processed ? 'Résolu' : 'Ouvert',
-                    'status_color' => $a->processed ? 'bg-green-500' : 'bg-red-500',
+                    'processed'    => (bool) ($a->processed ?? false),
+                    'status'       => 'Ouvert',
+                    'status_color' => 'bg-red-500',
                 ];
             })
             ->values()
@@ -388,9 +472,6 @@ class DashboardCacheService
         return $alerts;
     }
 
-    // =========================
-    // ALL
-    // =========================
     public function rebuildAll(int $partnerId): array
     {
         $stats  = $this->rebuildStats($partnerId);
@@ -398,5 +479,35 @@ class DashboardCacheService
         $alerts = $this->rebuildAlerts($partnerId, 10);
 
         return compact('stats', 'fleet', 'alerts');
+    }
+
+    // =========================
+    // Normalisation alert types
+    // =========================
+    private function normalizeAlertType(?string $t): string
+    {
+        $t = strtolower(trim((string)$t));
+        if ($t === '') return 'unknown';
+
+        return match ($t) {
+            'overspeed', 'speeding', 'speed' => 'speed',
+            'safezone', 'safe-zone', 'safe_zone' => 'safe_zone',
+            'geo_fence', 'geofence', 'geofence_enter', 'geofence_exit', 'geofence_breach' => 'geofence',
+            'stolen', 'theft', 'stolen_vehicle' => 'stolen',
+            'timezone', 'time_zone', 'time-zone' => 'time_zone',
+            default => $t,
+        };
+    }
+
+    private function alertTypeLabel(string $type): string
+    {
+        return match ($type) {
+            'geofence'      => 'GeoFence Breach',
+            'safe_zone'     => 'Safe Zone',
+            'speed'         => 'Speeding',
+            'stolen'        => 'Stolen Vehicle',
+            'time_zone'     => 'Time Zone',
+            default         => ucfirst(str_replace('_', ' ', $type)),
+        };
     }
 }

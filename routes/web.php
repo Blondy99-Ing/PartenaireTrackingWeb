@@ -121,8 +121,7 @@ Route::post('/save-vehicle', [\App\Http\Controllers\VehicleController::class, 's
 Route::get('/users/{id}/profile', [ProfileController::class, 'show'])
     ->name('users.profile');
 
-    // Liste de toutes les alertes (JSON)
-Route::get('/alerts', [AlertController::class, 'index'])->name('alerts.index');
+
 
 
 // Vue HTML des alertes

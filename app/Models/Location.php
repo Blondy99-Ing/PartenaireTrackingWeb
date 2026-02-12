@@ -6,9 +6,8 @@ use Illuminate\Database\Eloquent\Model;
 
 class Location extends Model
 {
-    protected $table = 'locations'; // Nom de la table
-
-    public $timestamps = false; // On ne gère pas updated_at automatiquement
+    protected $table = 'locations';
+    public $timestamps = false;
 
     protected $fillable = [
         'sys_time',
@@ -21,14 +20,17 @@ class Location extends Model
         'status',
         'direction',
         'mac_id_gps',
-        'datetime',
+        'processed',
+        'trip_id',
     ];
 
     protected $casts = [
         'longitude' => 'float',
-        'latitude' => 'float',
-        'speed' => 'float',
-        'datetime' => 'datetime',
-        'created_at' => 'datetime',
+        'latitude'  => 'float',
+        'speed'     => 'float',
+        'datetime'  => 'datetime',
+        'sys_time'  => 'datetime',
+        'heart_time'=> 'datetime',
+        'processed' => 'boolean',
     ];
 }

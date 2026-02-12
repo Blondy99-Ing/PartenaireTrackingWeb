@@ -53,4 +53,8 @@ return [
         'token' => env('TRACKING_WEBHOOK_TOKEN'),
     ],
 
+    'google_maps' => [
+        'key' => env('GOOGLE_MAPS_KEY'),
+    ],
+
 ];

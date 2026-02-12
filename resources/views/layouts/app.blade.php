@@ -627,6 +627,14 @@
                     <span class="title">Alertes</span>
                 </a>
             </li>
+
+             <li>
+                <a href="{{ route('engine.action.index') ?? '#' }}"
+                    class="{{ request()->routeIs('engine.actions') ? 'active' : '' }}">
+                    <span class="icon"><i class="fas fa-power-off"></i></span>
+                    <span class="title">Coupure Moteur</span>
+                </a>
+            </li>
         </ul>
 
         <!-- Section Pied de page de la Sidebar (Déconnexion) -->
