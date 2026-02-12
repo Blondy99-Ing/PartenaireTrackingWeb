@@ -6,6 +6,9 @@
 @push('styles')
     <style>
         .badge{display:inline-flex;align-items:center;gap:.35rem;padding:.25rem .7rem;border-radius:9999px;font-size:.72rem;font-weight:700;color:#fff;white-space:nowrap}
+
+        /* -------- (commented) status + action styles (keep for later) -------- */
+        /*
         .status-pill{display:inline-flex;align-items:center;gap:.35rem;padding:.2rem .65rem;border-radius:9999px;font-size:.72rem;font-weight:700}
         .status-open{background:rgba(239,68,68,.12);color:#ef4444}
         .status-processed{background:rgba(34,197,94,.12);color:#22c55e}
@@ -21,6 +24,7 @@
 
         .row-unprocessed{border-left:3px solid rgba(245,130,32,.85)}
         .row-processed{border-left:3px solid transparent;opacity:.78}
+        */
 
         /* ---------------- TOASTS (Telegram-style) ---------------- */
         .toast-stack{
@@ -32,7 +36,7 @@
             flex-direction: column;
             gap: 12px;
             width: min(380px, calc(100vw - 36px));
-            pointer-events: none; /* allow clicks only inside toasts */
+            pointer-events: none;
         }
 
         .toast{
@@ -102,14 +106,20 @@
         }
         .toast-btn:disabled{opacity:.55; cursor:not-allowed}
 
-        .toast-btn-view{ background: rgba(59,130,246,.10); color:#2563eb; border-color: rgba(59,130,246,.18); }
-        .toast-btn-view:hover{ background:#2563eb; color:#fff; border-color:#2563eb; }
-
         .toast-btn-ignore{ background: rgba(107,114,128,.10); color:#374151; border-color: rgba(107,114,128,.18); }
         .toast-btn-ignore:hover{ background:#374151; color:#fff; border-color:#374151; }
 
+        .toast-btn-read{ background: rgba(59,130,246,.10); color:#2563eb; border-color: rgba(59,130,246,.18); }
+        .toast-btn-read:hover{ background:#2563eb; color:#fff; border-color:#2563eb; }
+
+        /* -------- (commented) view/process toast buttons (keep for later) -------- */
+        /*
+        .toast-btn-view{ background: rgba(59,130,246,.10); color:#2563eb; border-color: rgba(59,130,246,.18); }
+        .toast-btn-view:hover{ background:#2563eb; color:#fff; border-color:#2563eb; }
+
         .toast-btn-process{ background: rgba(34,197,94,.12); color:#16a34a; border-color: rgba(34,197,94,.20); }
         .toast-btn-process:hover{ background:#22c55e; color:#fff; border-color:#22c55e; }
+        */
 
         .toast-dot{
             width: 10px; height: 10px; border-radius: 999px;
@@ -119,10 +129,9 @@
             flex: none;
         }
 
-        /* optional: different dot colors based on type */
-        .dot-red{ background:#ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,.18); }
+        /* dots */
+        .dot-orange{ background:#f58220; box-shadow: 0 0 0 3px rgba(245,130,32,.18); }
         .dot-blue{ background:#3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.18); }
-        .dot-green{ background:#22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,.18); }
         .dot-purple{ background:#a855f7; box-shadow: 0 0 0 3px rgba(168,85,247,.18); }
         .dot-gray{ background:#6b7280; box-shadow: 0 0 0 3px rgba(107,114,128,.18); }
     </style>
@@ -131,7 +140,7 @@
 @section('content')
     <div class="space-y-8">
 
-        {{-- STATS --}}
+        {{-- STATS (only the 4 handled alert types) --}}
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             <div class="ui-card p-5 flex items-center justify-between border-l-4 border-orange-500">
                 <div>
@@ -143,18 +152,10 @@
 
             <div class="ui-card p-5 flex items-center justify-between border-l-4 border-blue-500">
                 <div>
-                    <p class="text-sm text-secondary uppercase">Vitesse</p>
+                    <p class="text-sm text-secondary uppercase">Speed</p>
                     <p class="text-3xl font-bold text-blue-500" id="stat-speed">0</p>
                 </div>
                 <div class="text-3xl text-blue-500 opacity-70"><i class="fas fa-tachometer-alt"></i></div>
-            </div>
-
-            <div class="ui-card p-5 flex items-center justify-between border-l-4 border-green-500">
-                <div>
-                    <p class="text-sm text-secondary uppercase">Résolues</p>
-                    <p class="text-3xl font-bold text-green-500" id="stat-resolved">0</p>
-                </div>
-                <div class="text-3xl text-green-500 opacity-70"><i class="fas fa-check-double"></i></div>
             </div>
 
             <div class="ui-card p-5 flex items-center justify-between border-l-4 border-purple-500">
@@ -164,6 +165,25 @@
                 </div>
                 <div class="text-3xl text-purple-500 opacity-70"><i class="fas fa-shield-alt"></i></div>
             </div>
+
+            <div class="ui-card p-5 flex items-center justify-between border-l-4 border-gray-600">
+                <div>
+                    <p class="text-sm text-secondary uppercase">Time Zone</p>
+                    <p class="text-3xl font-bold text-gray-700" id="stat-timezone">0</p>
+                </div>
+                <div class="text-3xl text-gray-700 opacity-70"><i class="fas fa-clock"></i></div>
+            </div>
+
+            {{-- (commented) resolved card --}}
+            {{--
+            <div class="ui-card p-5 flex items-center justify-between border-l-4 border-green-500">
+                <div>
+                    <p class="text-sm text-secondary uppercase">Résolues</p>
+                    <p class="text-3xl font-bold text-green-500" id="stat-resolved">0</p>
+                </div>
+                <div class="text-3xl text-green-500 opacity-70"><i class="fas fa-check-double"></i></div>
+            </div>
+            --}}
         </div>
 
         {{-- TABLE --}}
@@ -185,6 +205,9 @@
                     <option value="speed">Speed</option>
                     <option value="safe_zone">Safe Zone</option>
                     <option value="time_zone">Time Zone</option>
+
+                    {{-- (commented) other types for later --}}
+                    {{--
                     <option value="engine">Engine</option>
                     <option value="stolen">Stolen / Vol</option>
                     <option value="offline">Offline</option>
@@ -192,6 +215,7 @@
                     <option value="low_battery">Low Battery</option>
                     <option value="device_removal">Device Removal</option>
                     <option value="general">General</option>
+                    --}}
                 </select>
 
                 <select id="vehicleFilter" class="ui-select">
@@ -202,11 +226,14 @@
                     <option value="all">Tous les utilisateurs</option>
                 </select>
 
+                {{-- (commented) status filter for later --}}
+                {{--
                 <select id="statusFilter" class="ui-select">
                     <option value="all">Tous les statuts</option>
                     <option value="open">Ouvertes</option>
                     <option value="processed">Traitées</option>
                 </select>
+                --}}
 
                 <button id="filterBtn" class="btn-primary">
                     <i class="fas fa-filter mr-1"></i> Filtrer
@@ -226,12 +253,16 @@
                         <th>Utilisateur(s)</th>
                         <th>Déclenchée le</th>
                         <th>Description</th>
+
+                        {{-- (commented) status + action columns for later --}}
+                        {{--
                         <th>Statut</th>
                         <th>Action</th>
+                        --}}
                     </tr>
                     </thead>
                     <tbody id="alerts-tbody">
-                    <tr><td colspan="7" class="text-center text-secondary py-6">Chargement...</td></tr>
+                    <tr><td colspan="5" class="text-center text-secondary py-6">Chargement...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -253,15 +284,21 @@
             const API_MARK_READ = "{{ url('/alerts') }}";                   // PATCH /alerts/{id}/read
             const CSRF = "{{ csrf_token() }}";
 
-            const POLL_MS = 30000; // 30s polling
-            const TOAST_TTL_MS = 12000; // auto-dismiss after 12s (if no action)
-            const TOAST_MAX_STACK = 6;  // keep stack small
+            const POLL_MS = 30000;
+            const TOAST_TTL_MS = 12000;
+            const TOAST_MAX_STACK = 6;
+
+            // ✅ only the 4 types we handle
+            const ALLOWED_TYPES = new Set(['geofence','safe_zone','speed','time_zone']);
 
             const typeStyle = {
-                geofence:      { color: 'bg-orange-500', icon: 'fas fa-route', label: 'GeoFence' , dot: 'dot-orange' },
-                safe_zone:     { color: 'bg-purple-500', icon: 'fas fa-shield-alt', label: 'Safe Zone', dot:'dot-purple' },
-                speed:         { color: 'bg-blue-500', icon: 'fas fa-tachometer-alt', label: 'Speed', dot:'dot-blue' },
-                time_zone:     { color: 'bg-yellow-400 text-yellow-900', icon: 'fas fa-clock', label: 'Time Zone', dot:'dot-gray' },
+                geofence:   { color: 'bg-orange-500', icon: 'fas fa-route', label: 'GeoFence' , dot: 'dot-orange' },
+                safe_zone:  { color: 'bg-purple-500', icon: 'fas fa-shield-alt', label: 'Safe Zone', dot:'dot-purple' },
+                speed:      { color: 'bg-blue-500', icon: 'fas fa-tachometer-alt', label: 'Speed', dot:'dot-blue' },
+                time_zone:  { color: 'bg-gray-700', icon: 'fas fa-clock', label: 'Time Zone', dot:'dot-gray' },
+
+                {{-- (commented) keep for later --}}
+                /*
                 engine:        { color: 'bg-red-500', icon: 'fas fa-exclamation-triangle', label: 'Engine', dot:'dot-red' },
                 stolen:        { color: 'bg-red-700', icon: 'fas fa-car-crash', label: 'Stolen', dot:'dot-red' },
                 offline:       { color: 'bg-gray-600', icon: 'fas fa-wifi', label: 'Offline', dot:'dot-gray' },
@@ -269,19 +306,21 @@
                 low_battery:   { color: 'bg-red-300 text-red-900 border border-red-500', icon: 'fas fa-battery-quarter', label: 'Low Battery', dot:'dot-red' },
                 device_removal:{ color: 'bg-gray-800', icon: 'fas fa-tools', label: 'Device Removal', dot:'dot-gray' },
                 general:       { color: 'bg-gray-500', icon: 'fas fa-bell', label: 'General', dot:'dot-gray' },
+                */
             };
 
             let alerts = [];
             let pollTimer = null;
 
-            // We keep the last seen max ID to fetch only new alerts
-            // Initialized after first load from /alerts (we take max id in payload)
             let lastSeenId = 0;
-
-            // For dedupe (avoid showing same toast twice)
             const shownToastIds = new Set();
 
             function normalizeType(a) { return a?.type ?? a?.alert_type ?? 'general'; }
+
+            function isAllowedAlert(a) {
+                const t = normalizeType(a);
+                return ALLOWED_TYPES.has(t);
+            }
 
             function vehicleLabel(a) {
                 if (a && a.voiture) {
@@ -311,18 +350,34 @@
                     .replaceAll("'","&#039;");
             }
 
+            function toastDotClassByType(t) {
+                if (t === 'speed') return 'dot-blue';
+                if (t === 'safe_zone') return 'dot-purple';
+                if (t === 'geofence') return 'dot-orange';
+                if (t === 'time_zone') return 'dot-gray';
+                return 'dot-gray';
+            }
+
             function updateStats(data) {
+                const only = data.filter(isAllowedAlert);
+
                 document.getElementById('stat-geofence').textContent =
-                    data.filter(a => normalizeType(a) === 'geofence' && !a.processed).length;
+                    only.filter(a => normalizeType(a) === 'geofence').length;
 
                 document.getElementById('stat-speed').textContent =
-                    data.filter(a => normalizeType(a) === 'speed' && !a.processed).length;
-
-                document.getElementById('stat-resolved').textContent =
-                    data.filter(a => !!a.processed).length;
+                    only.filter(a => normalizeType(a) === 'speed').length;
 
                 document.getElementById('stat-safezone').textContent =
-                    data.filter(a => normalizeType(a) === 'safe_zone' && !a.processed).length;
+                    only.filter(a => normalizeType(a) === 'safe_zone').length;
+
+                document.getElementById('stat-timezone').textContent =
+                    only.filter(a => normalizeType(a) === 'time_zone').length;
+
+                // (commented) resolved stat
+                /*
+                document.getElementById('stat-resolved').textContent =
+                    only.filter(a => !!a.processed).length;
+                */
 
                 const now = new Date();
                 document.getElementById('lastRefresh').textContent =
@@ -333,13 +388,15 @@
                 const tbody = document.getElementById('alerts-tbody');
                 tbody.innerHTML = '';
 
-                if (!rows.length) {
-                    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-secondary py-6">Aucune alerte trouvée.</td></tr>';
+                const only = rows.filter(isAllowedAlert);
+
+                if (!only.length) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-secondary py-6">Aucune alerte trouvée.</td></tr>';
                     updateStats([]);
                     return;
                 }
 
-                rows.forEach(a => {
+                only.forEach(a => {
                     const t = normalizeType(a);
                     const style = typeStyle[t] ?? { color:'bg-gray-500', icon:'fas fa-bell', label: t ?? 'Unknown' };
 
@@ -349,8 +406,15 @@
                     const msg = a.message ?? a.location ?? '-';
 
                     const row = document.createElement('tr');
-                    row.className = `${a.processed ? 'row-processed' : 'row-unprocessed'} hover:bg-gray-50`;
 
+                    // (commented) row class based on processed
+                    /*
+                    row.className = `${a.processed ? 'row-processed' : 'row-unprocessed'} hover:bg-gray-50`;
+                    */
+                    row.className = 'hover:bg-gray-50';
+
+                    // (commented) status pill + process btn
+                    /*
                     const statusPill = a.processed
                         ? `<span class="status-pill status-processed"><i class="fas fa-check-circle"></i> Traitée</span>`
                         : `<span class="status-pill status-open"><i class="fas fa-dot-circle"></i> Ouverte</span>`;
@@ -362,6 +426,7 @@
                         : `<button class="action-btn btn-process" onclick="markAsProcessed(${a.id})" title="Marquer comme traitée">
                             <i class="fas fa-check"></i> Traiter
                         </button>`;
+                    */
 
                     row.innerHTML = `
                         <td>
@@ -373,19 +438,23 @@
                         <td style="color:var(--color-text)">${escapeHtml(uLabel)}</td>
                         <td class="text-secondary">${escapeHtml(alertedHuman)}</td>
                         <td class="text-secondary">${escapeHtml(msg)}</td>
-                        <td>${statusPill}</td>
-                        <td class="whitespace-nowrap">
-                            <button class="action-btn btn-view" title="Voir sur profil/carte"
-                                onclick="goToProfile(${a.user_id ?? 'null'}, ${a.voiture_id ?? 'null'})">
-                                <i class="fas fa-map-marker-alt"></i> Voir
-                            </button>
-                            ${processBtn}
-                        </td>
+
+                        {{-- (commented) status + action cells --}}
+                    {{--
+                    <td>${statusPill}</td>
+                    <td class="whitespace-nowrap">
+                        <button class="action-btn btn-view" title="Voir sur profil/carte"
+                            onclick="goToProfile(${a.user_id ?? 'null'}, ${a.voiture_id ?? 'null'})">
+                            <i class="fas fa-map-marker-alt"></i> Voir
+                        </button>
+                        ${processBtn}
+                    </td>
+                    --}}
                     `;
                     tbody.appendChild(row);
                 });
 
-                updateStats(rows);
+                updateStats(only);
             }
 
             function buildFiltersFromData(data) {
@@ -395,7 +464,7 @@
                 const vehicles = new Map();
                 const users = new Map();
 
-                data.forEach(a => {
+                data.filter(isAllowedAlert).forEach(a => {
                     if (a?.voiture_id) vehicles.set(String(a.voiture_id), vehicleLabel(a));
                     if (a?.user_id) users.set(String(a.user_id), userLabel(a));
                 });
@@ -422,16 +491,23 @@
                 const type = document.getElementById('alertTypeFilter').value;
                 const vehicleId = document.getElementById('vehicleFilter').value;
                 const userId = document.getElementById('userFilter').value;
-                const status = document.getElementById('statusFilter').value;
 
-                let filtered = alerts.slice();
+                // (commented) status filter
+                /*
+                const status = document.getElementById('statusFilter').value;
+                */
+
+                let filtered = alerts.slice().filter(isAllowedAlert);
 
                 if (type !== 'all') filtered = filtered.filter(a => normalizeType(a) === type);
                 if (vehicleId !== 'all') filtered = filtered.filter(a => String(a.voiture_id ?? '') === String(vehicleId));
                 if (userId !== 'all') filtered = filtered.filter(a => String(a.user_id ?? '') === String(userId));
 
+                // (commented) status filtering logic
+                /*
                 if (status === 'open') filtered = filtered.filter(a => !a.processed);
                 if (status === 'processed') filtered = filtered.filter(a => !!a.processed);
+                */
 
                 if (q) {
                     filtered = filtered.filter(a => {
@@ -462,9 +538,9 @@
 
                     if (!res.ok || !json || json.status !== 'success') return [];
 
-                    const data = Array.isArray(json.data) ? json.data : [];
+                    // keep only allowed types at UI level (even if API sends more)
+                    const data = (Array.isArray(json.data) ? json.data : []).filter(isAllowedAlert);
 
-                    // initialize lastSeenId (max id in the list) so polling only gets new ones
                     const maxId = data.reduce((m, a) => Math.max(m, Number(a?.id || 0)), 0);
                     if (maxId > lastSeenId) lastSeenId = maxId;
 
@@ -475,11 +551,13 @@
             }
 
             async function pollNewAlerts() {
-                // If tab not visible, you can skip polling to reduce load
                 if (document.visibilityState !== 'visible') return;
 
                 try {
-                    const url = API_POLL + (API_POLL.includes('?') ? '&' : '?') + 'after_id=' + encodeURIComponent(String(lastSeenId)) + '&ts=' + Date.now();
+                    const url = API_POLL + (API_POLL.includes('?') ? '&' : '?')
+                        + 'after_id=' + encodeURIComponent(String(lastSeenId))
+                        + '&ts=' + Date.now();
+
                     const res = await fetch(url, {
                         method: 'GET',
                         headers: { 'Accept': 'application/json', 'Cache-Control':'no-cache', 'Pragma':'no-cache' },
@@ -492,23 +570,17 @@
 
                     if (!res.ok || !json || json.status !== 'success') return;
 
-                    const data = Array.isArray(json.data) ? json.data : [];
-                    const metaMax = Number(json?.meta?.max_id || 0);
+                    let data = Array.isArray(json.data) ? json.data : [];
+                    data = data.filter(isAllowedAlert);
 
-                    // update lastSeenId first (avoid duplication on slow UI)
+                    const metaMax = Number(json?.meta?.max_id || 0);
                     if (metaMax > lastSeenId) lastSeenId = metaMax;
 
                     if (!data.length) return;
 
-                    // show toast for each new alert (most recent ends up top)
                     data.forEach(a => showToastForAlert(a));
 
-                    // keep the table fresh too:
-                    // 1) merge new alerts into list (prepend)
-                    // 2) re-apply filters and re-render
                     alerts = data.concat(alerts);
-
-                    // cap client list to avoid huge memory
                     if (alerts.length > 2000) alerts = alerts.slice(0, 2000);
 
                     buildFiltersFromData(alerts);
@@ -519,6 +591,8 @@
                 }
             }
 
+            // (commented) process API (keep for later)
+            /*
             async function apiMarkProcessed(alertId) {
                 const res = await fetch(`${API_MARK_PROCESSED}/${alertId}/processed`, {
                     method: 'PATCH',
@@ -540,6 +614,7 @@
                 }
                 return json;
             }
+            */
 
             async function apiMarkRead(alertId) {
                 const res = await fetch(`${API_MARK_READ}/${alertId}/read`, {
@@ -558,24 +633,17 @@
                 try { json = JSON.parse(text); } catch(e) {}
 
                 if (!res.ok || !json || json.status !== 'success') {
-                    throw new Error((json && json.message) ? json.message : 'Erreur: impossible d’ignorer cette alerte.');
+                    throw new Error((json && json.message) ? json.message : 'Erreur: impossible de marquer comme lu/ignorer.');
                 }
                 return json;
             }
 
             // ------------------- Toast UI -------------------
 
-            function toastDotClassByType(t) {
-                if (t === 'speed') return 'dot-blue';
-                if (t === 'safe_zone') return 'dot-purple';
-                if (t === 'geofence') return 'dot-orange';
-                if (t === 'engine' || t === 'stolen' || t === 'low_battery') return 'dot-red';
-                if (t === 'power_failure' || t === 'offline' || t === 'device_removal' || t === 'general' || t === 'time_zone') return 'dot-gray';
-                return 'dot-gray';
-            }
-
             function showToastForAlert(a) {
                 if (!a || !a.id) return;
+                if (!isAllowedAlert(a)) return;
+
                 const id = Number(a.id);
                 if (shownToastIds.has(id)) return;
                 shownToastIds.add(id);
@@ -590,7 +658,6 @@
 
                 const stack = document.getElementById('toast-stack');
 
-                // cap stack
                 while (stack.children.length >= TOAST_MAX_STACK) {
                     stack.removeChild(stack.lastElementChild);
                 }
@@ -619,43 +686,41 @@
                     <div class="toast-body">
                         ${escapeHtml(msg || '—')}
                     </div>
+
                     <div class="toast-actions">
-                        <button class="toast-btn toast-btn-view" type="button">
-                            <i class="fas fa-map-marker-alt"></i> Voir
+                        <button class="toast-btn toast-btn-read" type="button">
+                            <i class="fas fa-eye"></i> Lu
                         </button>
                         <button class="toast-btn toast-btn-ignore" type="button">
                             <i class="fas fa-eye-slash"></i> Ignorer
                         </button>
-                        <button class="toast-btn toast-btn-process" type="button">
-                            <i class="fas fa-check"></i> Traiter
-                        </button>
-                    </div>
-                `;
 
-                // add to top
+                        {{-- (commented) keep for later --}}
+                {{--
+                <button class="toast-btn toast-btn-view" type="button">
+                    <i class="fas fa-map-marker-alt"></i> Voir
+                </button>
+                <button class="toast-btn toast-btn-process" type="button">
+                    <i class="fas fa-check"></i> Traiter
+                </button>
+                --}}
+                </div>
+`;
+
                 stack.insertBefore(el, stack.firstChild);
-
-                // animate in
                 requestAnimationFrame(() => el.classList.add('show'));
 
-                // wire actions
                 const btnClose = el.querySelector('.toast-close');
-                const btnView = el.querySelector('.toast-btn-view');
+                const btnRead = el.querySelector('.toast-btn-read');
                 const btnIgnore = el.querySelector('.toast-btn-ignore');
-                const btnProcess = el.querySelector('.toast-btn-process');
 
                 btnClose.addEventListener('click', () => dismissToast(el));
 
-                btnView.addEventListener('click', () => {
-                    goToProfile(a.user_id ?? null, a.voiture_id ?? null);
-                    dismissToast(el);
-                });
-
-                btnIgnore.addEventListener('click', async () => {
+                // both "Lu" and "Ignorer" mark read (same endpoint) — different UX wording
+                btnRead.addEventListener('click', async () => {
                     setToastBusy(el, true);
                     try {
                         await apiMarkRead(id);
-                        // update local list
                         alerts = alerts.map(x => (Number(x.id) === id ? {...x, read:true} : x));
                         applyFilters();
                         dismissToast(el);
@@ -665,12 +730,11 @@
                     }
                 });
 
-                btnProcess.addEventListener('click', async () => {
+                btnIgnore.addEventListener('click', async () => {
                     setToastBusy(el, true);
                     try {
-                        await apiMarkProcessed(id);
-                        // update local list
-                        alerts = alerts.map(x => (Number(x.id) === id ? {...x, processed:true, processed_by:true} : x));
+                        await apiMarkRead(id);
+                        alerts = alerts.map(x => (Number(x.id) === id ? {...x, read:true} : x));
                         applyFilters();
                         dismissToast(el);
                     } catch (e) {
@@ -679,19 +743,41 @@
                     }
                 });
 
-                // auto dismiss (if user doesn't interact)
+                // (commented) view/process wiring for later
+                /*
+                const btnView = el.querySelector('.toast-btn-view');
+                const btnProcess = el.querySelector('.toast-btn-process');
+
+                btnView.addEventListener('click', () => {
+                    goToProfile(a.user_id ?? null, a.voiture_id ?? null);
+                    dismissToast(el);
+                });
+
+                btnProcess.addEventListener('click', async () => {
+                    setToastBusy(el, true);
+                    try {
+                        await apiMarkProcessed(id);
+                        alerts = alerts.map(x => (Number(x.id) === id ? {...x, processed:true, processed_by:true} : x));
+                        applyFilters();
+                        dismissToast(el);
+                    } catch (e) {
+                        alert(String(e.message || e));
+                        setToastBusy(el, false);
+                    }
+                });
+                */
+
                 const timer = setTimeout(() => {
                     if (document.body.contains(el)) dismissToast(el);
                 }, TOAST_TTL_MS);
 
-                // stop auto-dismiss while hovering (nice UX)
                 el.addEventListener('mouseenter', () => clearTimeout(timer), { once: true });
             }
 
             function setToastBusy(toastEl, busy) {
                 const buttons = toastEl.querySelectorAll('button');
                 buttons.forEach(b => {
-                    if (b.classList.contains('toast-close')) return; // allow closing anytime
+                    if (b.classList.contains('toast-close')) return;
                     b.disabled = !!busy;
                 });
             }
@@ -703,8 +789,8 @@
                 }, 180);
             }
 
-            // ------------------- Existing actions (table) -------------------
-
+            // ------------------- Existing actions (commented for later) -------------------
+            /*
             window.goToProfile = function(userId, vehicleId) {
                 if (!vehicleId) return;
                 if (!userId) {
@@ -726,6 +812,7 @@
                     alert(String(e.message || e));
                 }
             };
+            */
 
             // ------------------- Polling lifecycle -------------------
 
@@ -739,7 +826,6 @@
             }
 
             document.addEventListener('visibilitychange', () => {
-                // optional: if tab hidden, stop polling; restart when visible
                 if (document.visibilityState !== 'visible') stopPolling();
                 else startPolling();
             });
@@ -752,13 +838,17 @@
                 applyFilters();
             }
 
-            // ------- Events -------
             document.getElementById('filterBtn').addEventListener('click', applyFilters);
             document.getElementById('alertSearch').addEventListener('keyup', applyFilters);
             document.getElementById('alertTypeFilter').addEventListener('change', applyFilters);
             document.getElementById('vehicleFilter').addEventListener('change', applyFilters);
             document.getElementById('userFilter').addEventListener('change', applyFilters);
+
+            // (commented) status filter event
+            /*
             document.getElementById('statusFilter').addEventListener('change', applyFilters);
+            */
+
             document.getElementById('refreshBtn').addEventListener('click', reload);
 
             (async () => {
