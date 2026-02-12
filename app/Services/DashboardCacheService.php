@@ -3,7 +3,7 @@
 namespace App\Services;
 
 use App\Models\Alert;
-use App\Models\AssociationUserVoiture;
+use App\Models\AssociationChauffeurVoiturePartner;
 use App\Models\Location;
 use App\Models\User;
 use App\Models\Voiture;
@@ -12,20 +12,20 @@ use Illuminate\Support\Facades\Redis;
 
 class DashboardCacheService
 {
-    // TTLs (stables)
+    // TTLs
     private int $ttlStats  = 60;
-    private int $ttlFleet  = 600; // ✅ 10 min (évite les “trous”)
+    private int $ttlFleet  = 600; // 10 min
     private int $ttlAlerts = 60;
 
-    // OFFLINE si last seen > X minutes
+    // OFFLINE if last seen > X minutes
     private int $gpsOfflineMinutes = 10;
 
     // =========================
-    // Keys (scopées partner)
+    // Keys (scoped by partner)
     // =========================
     private function kStats(int $partnerId): string   { return "dash:p:$partnerId:stats"; }
-    private function kFleet(int $partnerId): string   { return "dash:p:$partnerId:fleet"; }     // JSON fallback
-    private function kFleetH(int $partnerId): string  { return "dash:p:$partnerId:fleet:h"; }   // HASH vehicle_id => JSON
+    private function kFleet(int $partnerId): string   { return "dash:p:$partnerId:fleet"; }
+    private function kFleetH(int $partnerId): string  { return "dash:p:$partnerId:fleet:h"; } // HASH vehicle_id => JSON
     private function kAlerts(int $partnerId): string  { return "dash:p:$partnerId:alerts"; }
     private function kVersion(int $partnerId): string { return "dash:p:$partnerId:version"; }
     private function kDebounce(int $partnerId): string { return "dash:p:$partnerId:debounce"; }
@@ -44,23 +44,21 @@ class DashboardCacheService
     }
 
     /**
-     * ✅ Debounce : bumpVersion au max 1 fois / seconde (stabilise SSE)
+     * Debounce: bumpVersion max 1x per second
      */
     public function bumpVersionDebounced(int $partnerId, int $seconds = 1): void
     {
         $ok = Redis::set($this->kDebounce($partnerId), '1', 'EX', $seconds, 'NX');
-        if ($ok) {
-            $this->bumpVersion($partnerId);
-        }
+        if ($ok) $this->bumpVersion($partnerId);
     }
 
     // =========================
-    // Helpers: véhicules du partenaire (pivot)
+    // Helpers: partner vehicles (BY chauffeur.partner_id)
     // =========================
     public function partnerVehicleIds(int $partnerId): array
     {
-        return AssociationUserVoiture::query()
-            ->where('user_id', $partnerId) // user_id = partenaire
+        return AssociationChauffeurVoiturePartner::query()
+            ->whereHas('chauffeur', fn ($q) => $q->where('partner_id', $partnerId))
             ->pluck('voiture_id')
             ->map(fn ($x) => (int) $x)
             ->unique()
@@ -69,7 +67,7 @@ class DashboardCacheService
     }
 
     // =========================
-    // STATS (scopées partner)
+    // STATS (scoped)
     // =========================
     public function getStatsFromRedis(int $partnerId): ?array
     {
@@ -79,21 +77,21 @@ class DashboardCacheService
 
     public function rebuildStats(int $partnerId): array
     {
-        // ✅ Chauffeurs = users dont partner_id = partner connecté
+        // Drivers: users whose partner_id = partnerId
         $driversCount = User::query()
             ->where('partner_id', $partnerId)
             ->count();
 
-        // ✅ Véhicules = pivot association_user_voitures (user_id = partnerId)
+        // Vehicles: from partner vehicle ids
         $vehicleIds = $this->partnerVehicleIds($partnerId);
         $vehiclesCount = count($vehicleIds);
 
-        // ✅ Associations = lignes pivot
-        $associationsCount = AssociationUserVoiture::query()
-            ->where('user_id', $partnerId)
+        // Associations: number of pivot rows for this partner (chauffeurs belonging to partner)
+        $associationsCount = AssociationChauffeurVoiturePartner::query()
+            ->whereHas('chauffeur', fn ($q) => $q->where('partner_id', $partnerId))
             ->count();
 
-        // ✅ Alertes ouvertes du partenaire = alertes sur SES véhicules
+        // Open alerts for partner vehicles
         $alertsCount = 0;
         $alertsByType = [];
 
@@ -130,7 +128,7 @@ class DashboardCacheService
     }
 
     // =========================
-    // FLEET (scopée partner)
+    // FLEET (scoped)
     // =========================
     public function getFleetFromRedis(int $partnerId): array
     {
@@ -144,7 +142,7 @@ class DashboardCacheService
                 }
                 return $out;
             }
-        } catch (\Throwable $e) {
+        } catch (\Throwable) {
             // fallback JSON
         }
 
@@ -153,11 +151,12 @@ class DashboardCacheService
     }
 
     /**
-     * ✅ rebuild complet fleet du partenaire
+     * rebuild full fleet of partner
      */
     public function rebuildFleet(int $partnerId): array
     {
         $vehicleIds = $this->partnerVehicleIds($partnerId);
+
         if (empty($vehicleIds)) {
             Redis::del($this->kFleetH($partnerId));
             Redis::setex($this->kFleet($partnerId), $this->ttlFleet, json_encode([], JSON_UNESCAPED_UNICODE));
@@ -167,6 +166,7 @@ class DashboardCacheService
 
         $voitures = Voiture::query()
             ->whereIn('id', $vehicleIds)
+            // uses the alias you added in Voiture model (chauffeurActuelPartner -> chauffeurPartnerActuel)
             ->with(['chauffeurActuelPartner.chauffeur:id,prenom,nom,partner_id'])
             ->select(['id','immatriculation','marque','model','mac_id_gps'])
             ->get();
@@ -198,7 +198,15 @@ class DashboardCacheService
             if (!$lat || !$lon) continue;
 
             $chauffeur = $v->chauffeurActuelPartner?->chauffeur;
-            $driverLabel = $chauffeur ? trim(($chauffeur->prenom ?? '').' '.($chauffeur->nom ?? '')) : 'Non associé';
+
+            // SAFETY: chauffeur must belong to this partner
+            if ($chauffeur && (int)($chauffeur->partner_id ?? 0) !== (int)$partnerId) {
+                $chauffeur = null;
+            }
+
+            $driverLabel = $chauffeur
+                ? trim(($chauffeur->prenom ?? '').' '.($chauffeur->nom ?? ''))
+                : 'Non associé';
 
             $lastSeen = $loc['heart_time'] ?? $loc['sys_time'] ?? $loc['datetime'] ?? null;
             $gpsOnline = $this->isGpsOnline($lastSeen);
@@ -237,14 +245,15 @@ class DashboardCacheService
             Redis::hmset($this->kFleetH($partnerId), $hashPayload);
             Redis::expire($this->kFleetH($partnerId), $this->ttlFleet);
         }
-        Redis::setex($this->kFleet($partnerId), $this->ttlFleet, json_encode($fleet, JSON_UNESCAPED_UNICODE));
 
+        Redis::setex($this->kFleet($partnerId), $this->ttlFleet, json_encode($fleet, JSON_UNESCAPED_UNICODE));
         $this->bumpVersionDebounced($partnerId, 1);
+
         return $fleet;
     }
 
     /**
-     * ✅ Update 1 véhicule (temps réel)
+     * Update 1 vehicle from a Location (real-time)
      */
     public function updateVehicleFromLocation(int $partnerId, Location $location): void
     {
@@ -257,10 +266,12 @@ class DashboardCacheService
             ->first();
         if (!$voiture) return;
 
-        $owned = AssociationUserVoiture::query()
-            ->where('user_id', $partnerId)
+        // Ownership check: voiture must be in partnerVehicleIds
+        $owned = AssociationChauffeurVoiturePartner::query()
             ->where('voiture_id', $voiture->id)
+            ->whereHas('chauffeur', fn ($q) => $q->where('partner_id', $partnerId))
             ->exists();
+
         if (!$owned) return;
 
         $lat = $location->latitude;
@@ -269,7 +280,14 @@ class DashboardCacheService
 
         $voiture->load(['chauffeurActuelPartner.chauffeur:id,prenom,nom,partner_id']);
         $chauffeur = $voiture->chauffeurActuelPartner?->chauffeur;
-        $driverLabel = $chauffeur ? trim(($chauffeur->prenom ?? '').' '.($chauffeur->nom ?? '')) : 'Non associé';
+
+        if ($chauffeur && (int)($chauffeur->partner_id ?? 0) !== (int)$partnerId) {
+            $chauffeur = null;
+        }
+
+        $driverLabel = $chauffeur
+            ? trim(($chauffeur->prenom ?? '').' '.($chauffeur->nom ?? ''))
+            : 'Non associé';
 
         $lastSeen = $location->heart_time ?? $location->sys_time ?? $location->datetime ?? null;
         $gpsOnline = $this->isGpsOnline($lastSeen);
@@ -302,30 +320,23 @@ class DashboardCacheService
         Redis::hset($this->kFleetH($partnerId), (string) $voiture->id, json_encode($row, JSON_UNESCAPED_UNICODE));
         Redis::expire($this->kFleetH($partnerId), $this->ttlFleet);
 
-        // ✅ IMPORTANT : debounce
         $this->bumpVersionDebounced($partnerId, 1);
     }
 
     /**
-     * ✅ Update en batch (très recommandé si Node envoie “beaucoup”)
-     * $items = [ ['mac_id_gps'=>..., 'latitude'=>..., ...], ... ]
+     * Batch update from locations
      */
     public function updateFleetBatchFromLocations(int $partnerId, array $items): void
     {
         if (empty($items)) return;
 
-        // On update véhicule par véhicule (simple & fiable),
-        // mais on ne bump qu’une seule fois à la fin.
         foreach ($items as $data) {
             $loc = new Location();
-            foreach ((array)$data as $k => $v) {
+            foreach ((array) $data as $k => $v) {
                 $loc->setAttribute($k, $v);
             }
             $this->updateVehicleFromLocation($partnerId, $loc);
         }
-
-        // updateVehicleFromLocation() bump déjà debounce,
-        // donc pas besoin de re-bump ici.
     }
 
     private function isGpsOnline($lastSeen): ?bool
@@ -341,7 +352,7 @@ class DashboardCacheService
     }
 
     // =========================
-    // ALERTS (scopées partner)
+    // ALERTS (scoped)
     // =========================
     public function getAlertsFromRedis(int $partnerId): array
     {
@@ -352,6 +363,7 @@ class DashboardCacheService
     public function rebuildAlerts(int $partnerId, int $limit = 10): array
     {
         $vehicleIds = $this->partnerVehicleIds($partnerId);
+
         if (empty($vehicleIds)) {
             Redis::setex($this->kAlerts($partnerId), $this->ttlAlerts, json_encode([], JSON_UNESCAPED_UNICODE));
             $this->bumpVersionDebounced($partnerId, 1);

@@ -20,7 +20,7 @@ class UserController extends Controller
 
         $users = $this->service->listDrivers($partner);
 
-        // Vue : resources/views/users/index.blade.php
+        // Vue : resources/views/users/partner.blade.php
         return view('users.index', compact('users'));
     }
 
