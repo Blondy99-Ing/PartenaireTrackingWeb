@@ -41,7 +41,8 @@ Route::middleware(['auth:web'])->group(function () {
     Route::put('users/{id}', [UserController::class, 'update'])->name('users.update');
     Route::delete('users/{id}', [UserController::class, 'destroy'])->name('users.destroy');
     Route::get('/users/{id}/profile', [ProfileController::class, 'show'])->name('users.profile');
-
+    Route::get('/alerts/poll', [AlertController::class, 'poll'])->name('alerts.poll');
+    Route::patch('/alerts/{id}/read', [AlertController::class, 'markReadApi'])->name('alerts.markReadApi');
     // Partner Affectations
     Route::get('partner/affectations/vehicles', [AffectationChauffeurVoitureController::class, 'vehicles'])
         ->name('partner.affectations.vehicles');
