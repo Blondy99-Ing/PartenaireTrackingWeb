@@ -4,158 +4,338 @@ namespace App\Http\Controllers\Alert;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
-use App\Models\Alert;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 
 class AlertController extends Controller
 {
     /**
-     * Label lisible pour chaque type d’alerte
+     * Allowed alert types for partner UI (optional filter, keep if your ENUM matches).
      */
-    protected function typeLabel(?string $type): string
+    protected const PARTNER_ALERT_TYPES = [
+        'geofence'       => 'GeoFence',
+        'safe_zone'      => 'Safe Zone',
+        'speed'          => 'Speed',
+        'time_zone'      => 'Time Zone',
+        'power_failure'  => 'Power Failure',
+        'stolen'         => 'Stolen',
+        'offline'        => 'Offline',
+        'engine'         => 'Engine',
+        'device_removal' => 'Device Removal',
+        'low_battery'    => 'Low Battery',
+        'general'        => 'General',
+    ];
+
+    private function typeLabel(?string $type): string
     {
         if (!$type) return 'Unknown';
 
         return match ($type) {
-            'geofence'      => 'GeoFence Breach',
-            'safe_zone'     => 'Safe Zone',
-            'speed'         => 'Speeding',
-            'engine'        => 'Engine Alert',
-            'unauthorized'  => 'Unauthorized Time',
-            'stolen'        => 'Stolen Vehicle',
-            'low_battery'   => 'Low Battery',
-            'time_zone'     => 'Time Zone',
-            default         => ucfirst(str_replace('_', ' ', $type)),
+            'geofence'       => 'GeoFence Breach',
+            'safe_zone'      => 'Safe Zone',
+            'speed'          => 'Speeding',
+            'engine'         => 'Engine Alert',
+            'general'        => 'General',
+            'stolen'         => 'Stolen Vehicle',
+            'low_battery'    => 'Low Battery',
+            'power_failure'  => 'Power Failure',
+            'offline'        => 'Offline',
+            'device_removal' => 'Device Removal',
+            'time_zone'      => 'Time Zone',
+            default          => ucfirst(str_replace('_', ' ', $type)),
         };
     }
 
     /**
-     * ✔ Version PARTENAIRE
-     *   - Alertes UNIQUEMENT des véhicules du user connecté
-     *   - AUCUNE alerte batterie (low_battery)
-     *   - Même structure JSON que la plateforme interne
-     *   - Priorité : stolen -> geofence -> autres non traitées -> traitées
+     * GET /alerts (JSON)
+     *
+     * ✅ SCOPE RULE (final):
+     * A partner sees alerts for vehicles that "belong to him" = vehicles present in
+     * association_chauffeur_voiture_partner where assigned_by = partner_id.
+     *
+     * ✅ Data returned:
+     * - voiture: immatriculation, marque, model
+     * - current driver: nom prenom (latest assignment row for that vehicle)
      */
-    public function index()
+    public function index(Request $request)
     {
-        $userId = Auth::id();
+        $partnerId = (int) Auth::id();
 
-        $alerts = Alert::with(['voiture.utilisateur', 'processedBy'])
+        // ---------------------------------------------------------
+        // 1) Vehicles belonging to this partner
+        // ---------------------------------------------------------
+        $vehicleIds = DB::table('association_chauffeur_voiture_partner')
+            ->where('assigned_by', $partnerId)
+            ->pluck('voiture_id')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
 
-            // 🔒 1) Alertes uniquement des véhicules du partenaire connecté
-            ->whereHas('voiture.utilisateur', function ($q) use ($userId) {
-                $q->where('user_id', $userId);
+        if (empty($vehicleIds)) {
+            return response()->json(['status' => 'success', 'data' => []]);
+        }
+
+        // ---------------------------------------------------------
+        // 2) Latest assignment per vehicle (to get current driver)
+        // IMPORTANT: we do NOT filter by assigned_by here, because we just want the latest
+        // chauffeur for that vehicle (even if assigned by admin before).
+        // But we DO restrict to $vehicleIds (partner’s fleet).
+        // ---------------------------------------------------------
+        $latestAssign = DB::table('association_chauffeur_voiture_partner as acvp')
+            ->select([
+                'acvp.voiture_id',
+                DB::raw('MAX(COALESCE(acvp.assigned_at, acvp.created_at, "1970-01-01")) as max_dt'),
+            ])
+            ->whereIn('acvp.voiture_id', $vehicleIds)
+            ->groupBy('acvp.voiture_id');
+
+        // ---------------------------------------------------------
+        // 3) Alerts query with joins:
+        // alerts -> voitures (immatriculation/marque/model)
+        // alerts -> latestAssign -> association row -> users (driver)
+        // ---------------------------------------------------------
+        $q = DB::table('alerts as a')
+            ->leftJoin('voitures as v', 'v.id', '=', 'a.voiture_id')
+
+            ->leftJoinSub($latestAssign, 'last_acvp', function ($join) {
+                $join->on('last_acvp.voiture_id', '=', 'a.voiture_id');
             })
+            ->leftJoin('association_chauffeur_voiture_partner as acvp2', function ($join) {
+                $join->on('acvp2.voiture_id', '=', 'a.voiture_id')
+                    ->on(
+                        DB::raw('COALESCE(acvp2.assigned_at, acvp2.created_at, "1970-01-01")'),
+                        '=',
+                        'last_acvp.max_dt'
+                    );
+            })
+            ->leftJoin('users as u', 'u.id', '=', 'acvp2.chauffeur_id')
 
-            // 🚫 2) Exclure les alertes batterie
-            ->where('alerts.alert_type', '!=', 'low_battery')
-            // Si tu as un autre type lié à la batterie :
-            // ->whereNotIn('alerts.alert_type', ['low_battery', 'battery'])
+            ->whereIn('a.voiture_id', $vehicleIds)
 
-            // ⭐ 3) Priorité : stolen -> geofence -> autres non traitées -> traitées
-            ->select('alerts.*')
-            ->selectRaw("
-                CASE
-                    WHEN alerts.processed = 0 AND alerts.alert_type = 'stolen'   THEN 0
-                    WHEN alerts.processed = 0 AND alerts.alert_type = 'geofence' THEN 1
-                    WHEN alerts.processed = 0                                    THEN 2
-                    ELSE 3
-                END AS priority
-            ")
-            ->orderBy('priority', 'asc')
-            ->orderBy('alerted_at', 'desc')
+            // if you want partner to see only allowed types:
+            // ->whereIn('a.alert_type', array_keys(self::PARTNER_ALERT_TYPES))
 
-            ->get()
-            ->map(function (Alert $a) {
-                $voiture = $a->voiture;
-                $users = collect();
+            ->orderByDesc('a.alerted_at')
+            ->limit(500) // increase if you want more than 200
+            ->select([
+                'a.id',
+                'a.voiture_id',
+                'a.alert_type',
+                'a.message',
+                'a.read',
+                'a.processed',
+                'a.processed_by',
+                'a.alerted_at',
 
-                if ($voiture && $voiture->utilisateur) {
-                    $users = $voiture->utilisateur
-                        ->map(fn($u) => trim(($u->prenom ?? '') . ' ' . ($u->nom ?? '')))
-                        ->filter()
-                        ->values();
-                }
+                'v.id as v_id',
+                'v.immatriculation',
+                'v.marque',
+                'v.model',
 
-                return [
-                    'id'           => $a->id,
-                    'voiture_id'   => $a->voiture_id,
-                    'type'         => $a->type, // accessor ->type (type/alert_type)
-                    'type_label'   => $this->typeLabel($a->type),
-                    'message'      => $a->message,
-                    'location'     => $a->location ?? $a->message,
-                    'read'         => (bool) $a->read,
-                    'processed'    => (bool) $a->processed,
-                    'processed_by' => $a->processed_by,
-                    'processed_by_name' => optional($a->processedBy)->name ?? null,
+                'u.id as driver_id',
+                'u.nom as driver_nom',
+                'u.prenom as driver_prenom',
+            ]);
 
-                    'alerted_at_human' => $a->alerted_at
-                        ? $a->alerted_at->format('d/m/Y H:i:s')
-                        : '-',
+        // optional filter by alert_type
+        if ($request->filled('alert_type')) {
+            $type = (string) $request->input('alert_type');
 
-                    'voiture' => $voiture ? [
-                        'id'              => $voiture->id,
-                        'immatriculation' => $voiture->immatriculation,
-                        'marque'          => $voiture->marque,
-                        'model'           => $voiture->model,
-                        'couleur'         => $voiture->couleur,
-                        'photo'           => $voiture->photo,
-                    ] : null,
+            // accept either "all" or valid types
+            if ($type !== 'all' && $type !== '') {
+                $q->where('a.alert_type', $type);
+            }
+        }
 
-                    'users_labels' => $users->isEmpty() ? null : $users->implode(', '),
-                    'user_id'      => $voiture?->utilisateur?->first()?->id ?? null,
-                ];
-            });
+        $rows = $q->get();
+
+        $data = $rows->map(function ($r) {
+            $driverLabel = trim(($r->driver_nom ?? '') . ' ' . ($r->driver_prenom ?? ''));
+            if ($driverLabel === '') $driverLabel = null;
+
+            return [
+                'id'               => (int) $r->id,
+                'voiture_id'       => (int) $r->voiture_id,
+                'alert_type'       => $r->alert_type,
+                'type'             => $r->alert_type,
+                'type_label'       => $this->typeLabel($r->alert_type),
+
+                'message'          => $r->message,
+                'location'         => $r->message,
+
+                'read'             => (bool) $r->read,
+                'processed'        => (bool) $r->processed,
+                'processed_by'     => $r->processed_by ? (int) $r->processed_by : null,
+
+                'alerted_at_human' => $r->alerted_at
+                    ? date('d/m/Y H:i:s', strtotime($r->alerted_at))
+                    : '-',
+
+                // vehicle info (this is what your JS needs)
+                'voiture' => $r->v_id ? [
+                    'id'              => (int) $r->v_id,
+                    'immatriculation' => $r->immatriculation,
+                    'marque'          => $r->marque,
+                    'model'           => $r->model,
+                ] : null,
+
+                // current driver
+                'user_id'      => $r->driver_id ? (int) $r->driver_id : null,
+                'driver_label' => $driverLabel,
+                'users_labels' => $driverLabel,
+            ];
+        })->values();
+
+        return response()->json(['status' => 'success', 'data' => $data]);
+    }
+
+    public function markReadApi($id)
+    {
+        $partnerId = (int) Auth::id();
+
+        $allowedVehicleIds = DB::table('association_chauffeur_voiture_partner')
+            ->where('assigned_by', $partnerId)
+            ->pluck('voiture_id')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        $alertVehicleId = DB::table('alerts')->where('id', (int) $id)->value('voiture_id');
+        if (!$alertVehicleId || !in_array((int) $alertVehicleId, $allowedVehicleIds, true)) {
+            return response()->json(['status' => 'error', 'message' => 'Accès non autorisé.'], 403);
+        }
+
+        DB::table('alerts')
+            ->where('id', (int) $id)
+            ->update([
+                'read' => 1,
+                'updated_at' => now(),
+            ]);
+
+        return response()->json(['status' => 'success', 'message' => 'Alerte ignorée.']);
+    }
+
+    public function poll(Request $request)
+    {
+        $partnerId = (int) Auth::id();
+        $afterId = (int) $request->query('after_id', 0);
+        $limit = (int) $request->query('limit', 20);
+        if ($limit < 1) $limit = 20;
+        if ($limit > 50) $limit = 50;
+
+        $vehicleIds = DB::table('association_chauffeur_voiture_partner')
+            ->where('assigned_by', $partnerId)
+            ->pluck('voiture_id')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if (empty($vehicleIds)) {
+            return response()->json(['status' => 'success', 'data' => [], 'meta' => ['max_id' => $afterId]]);
+        }
+
+        $latestAssign = DB::table('association_chauffeur_voiture_partner as acvp')
+            ->select([
+                'acvp.voiture_id',
+                DB::raw('MAX(COALESCE(acvp.assigned_at, acvp.created_at, "1970-01-01")) as max_dt'),
+            ])
+            ->whereIn('acvp.voiture_id', $vehicleIds)
+            ->groupBy('acvp.voiture_id');
+
+        $rows = DB::table('alerts as a')
+            ->leftJoin('voitures as v', 'v.id', '=', 'a.voiture_id')
+            ->leftJoinSub($latestAssign, 'last_acvp', function ($join) {
+                $join->on('last_acvp.voiture_id', '=', 'a.voiture_id');
+            })
+            ->leftJoin('association_chauffeur_voiture_partner as acvp2', function ($join) {
+                $join->on('acvp2.voiture_id', '=', 'a.voiture_id')
+                    ->on(DB::raw('COALESCE(acvp2.assigned_at, acvp2.created_at, "1970-01-01")'), '=', 'last_acvp.max_dt');
+            })
+            ->leftJoin('users as u', 'u.id', '=', 'acvp2.chauffeur_id')
+            ->whereIn('a.voiture_id', $vehicleIds)
+            ->where('a.id', '>', $afterId)
+            ->orderByDesc('a.id')
+            ->limit($limit)
+            ->select([
+                'a.id','a.voiture_id','a.alert_type','a.message','a.read','a.processed','a.processed_by','a.alerted_at',
+                'v.id as v_id','v.immatriculation','v.marque','v.model',
+                'u.id as driver_id','u.nom as driver_nom','u.prenom as driver_prenom',
+            ])
+            ->get();
+
+        // reverse so older -> newer (nice stacking order)
+        $rows = $rows->reverse()->values();
+
+        $maxId = $afterId;
+        $data = $rows->map(function ($r) use (&$maxId) {
+            $maxId = max($maxId, (int)$r->id);
+
+            $driverLabel = trim(($r->driver_nom ?? '') . ' ' . ($r->driver_prenom ?? ''));
+            if ($driverLabel === '') $driverLabel = null;
+
+            return [
+                'id' => (int)$r->id,
+                'voiture_id' => (int)$r->voiture_id,
+                'alert_type' => $r->alert_type,
+                'type' => $r->alert_type,
+                'type_label' => $this->typeLabel($r->alert_type),
+                'message' => $r->message,
+                'location' => $r->message,
+                'read' => (bool)$r->read,
+                'processed' => (bool)$r->processed,
+                'processed_by' => $r->processed_by ? (int)$r->processed_by : null,
+                'alerted_at_human' => $r->alerted_at ? date('d/m/Y H:i:s', strtotime($r->alerted_at)) : '-',
+                'voiture' => $r->v_id ? [
+                    'id' => (int)$r->v_id,
+                    'immatriculation' => $r->immatriculation,
+                    'marque' => $r->marque,
+                    'model' => $r->model,
+                ] : null,
+                'user_id' => $r->driver_id ? (int)$r->driver_id : null,
+                'driver_label' => $driverLabel,
+                'users_labels' => $driverLabel,
+            ];
+        })->values();
 
         return response()->json([
             'status' => 'success',
-            'data'   => $alerts,
+            'data' => $data,
+            'meta' => ['max_id' => $maxId],
         ]);
     }
 
     /**
-     * ✔ Logue un polygon envoyé depuis le frontend (debug)
+     * PATCH /alerts/{id}/processed
      */
-    public function receivePolygon(Request $request)
+    public function markProcessedApi($id)
     {
-        $polygon = $request->all();
+        $partnerId = (int) Auth::id();
 
-        Log::info('Polygon reçu depuis le frontend (partenaire) : ', $polygon);
+        // Optional safety: partner can only process alerts for his vehicles
+        $allowedVehicleIds = DB::table('association_chauffeur_voiture_partner')
+            ->where('assigned_by', $partnerId)
+            ->pluck('voiture_id')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
 
-        return response()->json([
-            'status'           => 'success',
-            'message'          => 'Polygon reçu et logué',
-            'polygon_received' => $polygon,
-        ]);
-    }
+        $alertVehicleId = DB::table('alerts')->where('id', (int) $id)->value('voiture_id');
+        if (!$alertVehicleId || !in_array((int) $alertVehicleId, $allowedVehicleIds, true)) {
+            return response()->json(['status' => 'error', 'message' => 'Accès non autorisé.'], 403);
+        }
 
-    /**
-     * ✔ Marquer une alerte comme traitée (optionnel côté partenaire)
-     *   On sécurise : seulement ses propres alertes
-     */
-    public function markAsProcessed(Request $request, $id)
-    {
-        $userId = Auth::id();
+        DB::table('alerts')
+            ->where('id', (int) $id)
+            ->update([
+                'processed'    => 1,
+                'processed_by' => $partnerId,
+                'updated_at'   => now(),
+            ]);
 
-        $alert = Alert::where('id', $id)
-            ->whereHas('voiture.utilisateur', function ($q) use ($userId) {
-                $q->where('user_id', $userId);
-            })
-            ->firstOrFail();
-
-        $alert->processed    = true;
-        $alert->processed_by = $userId;
-        $alert->save();
-
-        return response()->json([
-            'status'  => 'success',
-            'message' => 'Alerte marquée comme traitée',
-            'data'    => [
-                'id'           => $alert->id,
-                'processed'    => true,
-                'processed_by' => $alert->processed_by,
-            ],
-        ]);
+        return response()->json(['status' => 'success', 'message' => 'Alerte traitée.']);
     }
 }

@@ -1,4 +1,4 @@
-{{-- resources/views/coupure_moteur/index.blade.php --}}
+{{-- resources/views/coupure_moteur/partner.blade.php --}}
 @extends('layouts.app')
 
 @section('title', 'Immobilisation des Véhicules')
