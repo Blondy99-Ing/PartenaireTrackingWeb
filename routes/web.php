@@ -64,22 +64,18 @@ Route::middleware(['auth:web'])->group(function () {
         ->name('partner.alerts.markProcessed');
 
     // Engine
-    Route::get('/engine/actions', [ControlGpsController::class, 'index'])->name('engine.action.index');
-    Route::get('/engine/history', [ControlGpsController::class, 'history'])->name('engine.action.history');
-    Route::get('/voitures/engine-status/batch', [ControlGpsController::class, 'engineStatusBatch'])
-        ->name('voitures.engineStatusBatch');
-    Route::get('/voitures/{voiture}/engine-status', [ControlGpsController::class, 'engineStatus'])
-        ->name('voitures.engineStatus');
-    Route::post('/voitures/{voiture}/toggle-engine', [ControlGpsController::class, 'toggleEngine'])
-        ->name('voitures.toggleEngine');
+// Engine
+Route::get('/engine/actions', [ControlGpsController::class, 'index'])->name('engine.action.index');
+Route::get('/engine/history', [ControlGpsController::class, 'history'])->name('engine.action.history');
 
-    Route::get('/voitures/engine-status/batch', [ControlGpsController::class, 'engineStatusBatch'])->name('voitures.engineStatusBatch');
-    Route::get('/voitures/{voiture}/engine-status', [ControlGpsController::class, 'engineStatus'])->name('voitures.engineStatus');
-    Route::post('/voitures/{voiture}/toggle-engine', [ControlGpsController::class, 'toggleEngine'])->name('voitures.toggleEngine');
+Route::get('/voitures/engine-status/batch', [ControlGpsController::class, 'engineStatusBatch'])
+    ->name('voitures.engineStatusBatch');
 
+Route::get('/voitures/{voiture}/engine-status', [ControlGpsController::class, 'engineStatus'])
+    ->name('voitures.engineStatus');
 
-
-
+Route::post('/voitures/{voiture}/toggle-engine', [ControlGpsController::class, 'toggleEngine'])
+    ->name('voitures.toggleEngine');
 
 
 //alerts

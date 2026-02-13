@@ -34,10 +34,16 @@ class Voiture extends Model
      * Users linked to this vehicle via association_user_voitures
      * (partners/admins and/or other linked users depending on your app logic)
      */
-     public function utilisateur()
+     public function utilisateurS()
 {
     return $this->belongsToMany(User::class, 'association_user_voitures', 'voiture_id', 'user_id');
 }
+
+    public function utilisateur()
+{
+    return $this->belongsToMany(User::class, 'association_user_voitures', 'voiture_id', 'user_id');
+}
+
 
 
     /**

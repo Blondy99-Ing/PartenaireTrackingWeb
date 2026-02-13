@@ -566,6 +566,208 @@
 }
 
 
+
+
+
+
+
+
+
+
+    /* ===== Toasts Modern (light/dark via CSS variables) ===== */
+    /* ===== Toast base ===== */
+    .toast {
+        width: min(520px, calc(100vw - 28px));
+        pointer-events: auto;
+
+        display: flex;
+        align-items: flex-start;
+        gap: 14px;
+
+        padding: 16px 16px 14px 16px;
+        border-radius: 18px;
+        border: 1px solid var(--color-border-subtle);
+        background: var(--color-card);
+        color: var(--color-text);
+
+        box-shadow:
+            0 18px 50px rgba(0, 0, 0, .20),
+            0 2px 10px rgba(0, 0, 0, .12);
+
+        transform: translateY(-10px) scale(.98);
+        opacity: 0;
+        transition: transform .25s ease, opacity .25s ease, box-shadow .25s ease;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .toast.show {
+        transform: translateY(0) scale(1);
+        opacity: 1;
+    }
+
+    .toast.hide {
+        transform: translateY(-10px) scale(.98);
+        opacity: 0;
+    }
+
+    /* Barre gauche + halo (plus visible) */
+    .toast::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 6px;
+        border-radius: 18px 0 0 18px;
+        opacity: .95;
+    }
+
+    /* Barre de progression (5s) */
+    .toast::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 4px;
+        opacity: .9;
+        transform-origin: left center;
+        transform: scaleX(1);
+    }
+
+    .toast.show::after {
+        animation: toastProgress 5s linear forwards;
+    }
+
+    @keyframes toastProgress {
+        from {
+            transform: scaleX(1);
+        }
+
+        to {
+            transform: scaleX(0);
+        }
+    }
+
+    /* Layout interne */
+    .toast-icon {
+        width: 46px;
+        height: 46px;
+        border-radius: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        flex: 0 0 auto;
+        font-size: 1.25rem;
+    }
+
+    .toast-title {
+        font-family: var(--font-family);
+        font-weight: 900;
+        letter-spacing: .3px;
+        font-size: 1.05rem;
+        line-height: 1.1;
+        margin-top: 2px;
+    }
+
+    .toast-msg {
+        margin-top: 4px;
+        font-size: .98rem;
+        color: var(--color-secondary-text);
+    }
+
+    .toast-close {
+        margin-left: auto;
+        width: 38px;
+        height: 38px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        border: 1px solid var(--color-border-subtle);
+        background: transparent;
+        color: var(--color-text);
+        opacity: .75;
+        cursor: pointer;
+
+        transition: transform .12s ease, opacity .2s ease, background .2s ease;
+    }
+
+    .toast-close:hover {
+        opacity: 1;
+        background: rgba(255, 255, 255, .06);
+        transform: translateY(-1px);
+    }
+
+    /* ===== SUCCESS (Vert premium) ===== */
+    .toast-success {
+        border-color: rgba(34, 197, 94, .35);
+        background: linear-gradient(135deg,
+                rgba(34, 197, 94, .18),
+                rgba(255, 255, 255, 0) 45%), var(--color-card);
+
+        box-shadow:
+            0 18px 50px rgba(0, 0, 0, .18),
+            0 0 0 2px rgba(34, 197, 94, .16),
+            0 16px 40px rgba(34, 197, 94, .10);
+    }
+
+    .toast-success::before {
+        background: linear-gradient(180deg, #22c55e, #16a34a);
+    }
+
+    .toast-success::after {
+        background: linear-gradient(90deg, #22c55e, #16a34a);
+    }
+
+    .toast-success .toast-icon {
+        background: linear-gradient(135deg, #22c55e, #16a34a);
+        box-shadow: 0 14px 30px rgba(34, 197, 94, .25);
+    }
+
+    .toast-success .toast-title {
+        color: #16a34a;
+    }
+
+    /* ===== ERROR (Rouge premium) ===== */
+    .toast-error {
+        border-color: rgba(239, 68, 68, .35);
+        background: linear-gradient(135deg,
+                rgba(239, 68, 68, .16),
+                rgba(255, 255, 255, 0) 45%), var(--color-card);
+
+        box-shadow:
+            0 18px 50px rgba(0, 0, 0, .18),
+            0 0 0 2px rgba(239, 68, 68, .14),
+            0 16px 40px rgba(239, 68, 68, .10);
+    }
+
+    .toast-error::before {
+        background: linear-gradient(180deg, #ef4444, #b91c1c);
+    }
+
+    .toast-error::after {
+        background: linear-gradient(90deg, #ef4444, #b91c1c);
+    }
+
+    .toast-error .toast-icon {
+        background: linear-gradient(135deg, #ef4444, #b91c1c);
+        box-shadow: 0 14px 30px rgba(239, 68, 68, .22);
+    }
+
+    .toast-error .toast-title {
+        color: #ef4444;
+    }
+
+    /* Dark mode: on augmente un peu la lisibilité */
+    .dark-mode .toast {
+        box-shadow:
+            0 18px 55px rgba(0, 0, 0, .45),
+            0 2px 12px rgba(0, 0, 0, .35);
+    }
    </style>
 
     <!-- DataTables CSS -->
@@ -725,12 +927,45 @@
         <!-- Contenu de la page -->
         <div class="p-8">
             <div class="page-content">
+
+             {{-- Toast container --}}
+                <div id="toast-container" class="fixed top-5 right-5 z-[9999] space-y-3 pointer-events-none"></div>
+
+                @if(session('success'))
+                <div class="toast toast-success pointer-events-auto" role="alert">
+                    <div class="toast-icon">
+                        <i class="fas fa-check-circle"></i>
+                    </div>
+                    <div class="toast-body">
+                        <div class="toast-title">Succès</div>
+                        <div class="toast-msg">{{ session('success') }}</div>
+                    </div>
+                    <button type="button" class="toast-close" aria-label="Fermer">&times;</button>
+                </div>
+                @endif
+
+                @if(session('error'))
+                <div class="toast toast-error pointer-events-auto" role="alert">
+                    <div class="toast-icon">
+                        <i class="fas fa-exclamation-triangle"></i>
+                    </div>
+                    <div class="toast-body">
+                        <div class="toast-title">Erreur</div>
+                        <div class="toast-msg">{{ session('error') }}</div>
+                    </div>
+                    <button type="button" class="toast-close" aria-label="Fermer">&times;</button>
+                </div>
+                @endif
+
+
+
+
                 @yield('content')
             </div>
 
 
 
-    @include('partials.affectation-modal')
+
 
         </div>
 

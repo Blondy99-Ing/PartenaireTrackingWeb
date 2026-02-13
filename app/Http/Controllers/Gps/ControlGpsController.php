@@ -8,7 +8,6 @@ use App\Models\SimGps;
 use App\Models\Voiture;
 use App\Services\GpsControlService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 
 class ControlGpsController extends Controller
@@ -25,7 +24,7 @@ class ControlGpsController extends Controller
         $user = auth('web')->user();
 
         // ⚠️ IMPORTANT : select avec voitures.id (sinon "id ambiguous" car pivot a aussi id)
-        $voitures = $user->voitures()
+      $voitures = $user->voitures()
             ->select([
                 'voitures.id',
                 'voitures.immatriculation',
@@ -35,19 +34,17 @@ class ControlGpsController extends Controller
                 'voitures.mac_id_gps',
             ])
             ->with([
-                // chauffeur actuel (si associé)
                 'chauffeurActuelPartner.chauffeur:id,nom,prenom,phone,photo',
             ])
             ->orderBy('voitures.immatriculation', 'asc')
             ->get();
-
+        // ✅ IMPORTANT: ta vue est resources/views/coupure_moteur/index.blade.php
         return view('coupure_moteur.index', compact('voitures'));
     }
 
     /**
      * ✅ BATCH: engine status LIVE 18GPS
      * GET /voitures/engine-status/batch?ids=1,2,3
-     * => doit être limité aux voitures du user connecté
      */
     public function engineStatusBatch(Request $request)
     {
@@ -90,7 +87,8 @@ class ControlGpsController extends Controller
                 continue;
             }
 
-            $status = $this->gps->getEngineStatusFromLastLocation($mac);
+            // ✅ IMPORTANT: retry si mauvais compte
+            $status = $this->getLiveEngineStatusWithAccountRetry($mac);
 
             if (!($status['success'] ?? false)) {
                 $out[$id] = [
@@ -145,7 +143,6 @@ class ControlGpsController extends Controller
     /**
      * ✅ 1 véhicule - LIVE 18GPS
      * GET /voitures/{voiture}/engine-status
-     * => doit être limité aux voitures du user connecté
      */
     public function engineStatus(Request $request, Voiture $voiture)
     {
@@ -163,7 +160,8 @@ class ControlGpsController extends Controller
             return response()->json(['success' => false, 'message' => 'NO_MAC_ID'], 422);
         }
 
-        $status = $this->gps->getEngineStatusFromLastLocation($mac);
+        // ✅ IMPORTANT: retry si mauvais compte
+        $status = $this->getLiveEngineStatusWithAccountRetry($mac);
 
         if (!($status['success'] ?? false)) {
             return response()->json([
@@ -234,11 +232,11 @@ class ControlGpsController extends Controller
         $action = strtolower(trim((string) $request->input('action', ''))); // cut | restore
 
         if (!in_array($action, ['cut', 'restore'], true)) {
-            // fallback live provider
+            // fallback live provider (si frontend n'envoie rien)
             Cache::forget("gps18gps:engine_status:tracking:{$mac}");
             Cache::forget("gps18gps:engine_status:mobility:{$mac}");
 
-            $statusLive = $this->gps->getEngineStatusFromLastLocation($mac);
+            $statusLive = $this->getLiveEngineStatusWithAccountRetry($mac);
             $engineState = $statusLive['decoded']['engineState'] ?? 'UNKNOWN';
             $currentlyCut = ($engineState === 'CUT');
             $action = $currentlyCut ? 'restore' : 'cut';
@@ -301,10 +299,10 @@ class ControlGpsController extends Controller
         Commande::updateOrCreate(
             ['CmdNo' => $cmdNo],
             [
-                'user_id'     => $user->id,
-                'employe_id'  => null,
-                'vehicule_id' => $voiture->id,
-                'status'      => 'SEND_OK',
+                'user_id'       => $user->id,
+                'employe_id'    => null,
+                'vehicule_id'   => $voiture->id,
+                'status'        => 'SEND_OK',
                 'type_commande' => $typeCommande,
             ]
         );
@@ -312,7 +310,7 @@ class ControlGpsController extends Controller
         Cache::forget("gps18gps:engine_status:tracking:{$mac}");
         Cache::forget("gps18gps:engine_status:mobility:{$mac}");
 
-        $after = $this->gps->getEngineStatusFromLastLocation($mac);
+        $after = $this->getLiveEngineStatusWithAccountRetry($mac);
 
         return response()->json([
             'success' => true,
@@ -338,7 +336,6 @@ class ControlGpsController extends Controller
         /** @var \App\Models\User $user */
         $user = auth('web')->user();
 
-        // ids voitures de ce user
         $voitureIds = $user->voitures()->pluck('voitures.id')->all();
 
         $items = Commande::query()
@@ -347,7 +344,7 @@ class ControlGpsController extends Controller
                 'user:id,nom,prenom,phone',
             ])
             ->whereIn('vehicule_id', $voitureIds)
-            ->where('user_id', $user->id) // historique de ce partner
+            ->where('user_id', $user->id)
             ->orderByDesc('created_at')
             ->paginate(30);
 
@@ -428,47 +425,42 @@ class ControlGpsController extends Controller
             || str_contains($low, 'does not belong to this account');
     }
 
-
-
-
-
-
-
+    /**
+     * ✅ Live engine status, retry si compte incorrect
+     */
     private function getLiveEngineStatusWithAccountRetry(string $mac): array
-{
-    // 1) se caler sur le bon compte si connu
-    $accDb = $this->getAccountFromDb($mac);
-    if ($accDb) {
-        $this->gps->setAccount($accDb);
-    }
+    {
+        // 1) se caler sur le bon compte si connu
+        $accDb = $this->getAccountFromDb($mac);
+        if ($accDb) {
+            $this->gps->setAccount($accDb);
+        }
 
-    // 2) (optionnel) éviter un cache stale
-    Cache::forget("gps18gps:engine_status:tracking:{$mac}");
-    Cache::forget("gps18gps:engine_status:mobility:{$mac}");
+        // 2) éviter un cache stale
+        Cache::forget("gps18gps:engine_status:tracking:{$mac}");
+        Cache::forget("gps18gps:engine_status:mobility:{$mac}");
 
-    // 3) 1er essai
-    $status = $this->gps->getEngineStatusFromLastLocation($mac);
-    if (($status['success'] ?? false) === true) {
+        // 3) 1er essai
+        $status = $this->gps->getEngineStatusFromLastLocation($mac);
+        if (($status['success'] ?? false) === true) {
+            return $status;
+        }
+
+        // 4) retry si mauvais compte
+        $msg = (string) ($status['message'] ?? '');
+        if ($this->isWrongAccountMsg($msg)) {
+            $current = $this->gps->getAccount();
+            $other = ($current === 'tracking') ? 'mobility' : 'tracking';
+
+            $this->upsertAccountForMac($mac, $other);
+
+            $this->gps->setAccount($other);
+            $this->gps->resetGpsToken();
+
+            $status2 = $this->gps->getEngineStatusFromLastLocation($mac);
+            return $status2;
+        }
+
         return $status;
     }
-
-    // 4) retry si mauvais compte
-    $msg = (string) ($status['message'] ?? '');
-    if ($this->isWrongAccountMsg($msg)) {
-        $current = $this->gps->getAccount();
-        $other = ($current === 'tracking') ? 'mobility' : 'tracking';
-
-        $this->upsertAccountForMac($mac, $other);
-
-        $this->gps->setAccount($other);
-        $this->gps->resetGpsToken();
-
-        $status2 = $this->gps->getEngineStatusFromLastLocation($mac);
-        return $status2;
-    }
-
-    return $status;
-}
-
-
 }

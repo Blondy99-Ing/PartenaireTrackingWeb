@@ -1,4 +1,4 @@
-{{-- resources/views/coupure_moteur/partner.blade.php --}}
+{{-- resources/views/coupure_moteur/index.blade.php --}}
 @extends('layouts.app')
 
 @section('title', 'Immobilisation des Véhicules')
@@ -10,9 +10,9 @@
     <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b pb-4"
          style="border-color: var(--color-border-subtle);">
         <div>
-            <h1 class="text-2xl font-bold font-orbitron">Immobilisation des Véhicules</h1>
+
             <p class="text-sm text-secondary mt-1">
-                Couper / Rétablir le moteur via GPS (18GPS). Le statut se met à jour automatiquement.
+                Couper / Rétablir le moteur de votre vehicule à tout moment
             </p>
         </div>
     </div>
@@ -80,8 +80,8 @@
                                         class="engine-toggle"
                                         data-id="{{ $voiture->id }}"
                                         data-cut="0"
-                                        data-toggle-url="{{ route('voitures.toggleEngine', $voiture->id, false) }}"
-                                        data-status-url="{{ route('voitures.engineStatus', $voiture->id, false) }}"
+                                        data-toggle-url="{{ route('voitures.toggleEngine', ['voiture' => $voiture->id], false) }}"
+                                        data-status-url="{{ route('voitures.engineStatus', ['voiture' => $voiture->id], false) }}"
                                         data-immat="{{ $voiture->immatriculation }}"
                                         data-marque="{{ $voiture->marque }}"
                                         data-chauffeur="{{ $chauffeurName ?: '' }}"
@@ -170,11 +170,9 @@
     height: 36px;
     border-radius: 999px;
     position: relative;
-
     background: rgba(0,0,0,.06);
     border: 1px solid rgba(0,0,0,.08);
     box-shadow: 0 10px 26px rgba(0,0,0,.10);
-
     transition: .2s ease;
     overflow: hidden;
 }
@@ -191,15 +189,12 @@
     width: 28px;
     height: 28px;
     border-radius: 999px;
-
     display: flex;
     align-items: center;
     justify-content: center;
-
     background: var(--color-card);
     color: var(--color-text);
     box-shadow: 0 10px 22px rgba(0,0,0,.18);
-
     transition: .22s ease;
     font-size: 13px;
 }
@@ -463,14 +458,18 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // ===================== CONFIRM ACTION =====================
+  // ===================== CONFIRM ACTION (FIXED) =====================
   confirmBtn?.addEventListener('click', async () => {
     if (!pendingTarget) return;
 
+    // ✅ CAPTURE AVANT closeModal()
     const btn = pendingTarget;
     const id = btn.dataset.id;
+
     const toggleUrl = btn.dataset.toggleUrl;
     const statusUrl = btn.dataset.statusUrl;
+
+    const action = pendingAction;          // ✅ FIX
     const expectedCut = !!pendingExpectedCut;
 
     closeModal();
@@ -486,7 +485,7 @@ document.addEventListener('DOMContentLoaded', () => {
           'Accept': 'application/json',
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ action: pendingAction })
+        body: JSON.stringify({ action })    // ✅ FIX
       });
 
       if (res.status === 419) {
@@ -504,7 +503,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      // ✅ UI instant
+      // UI instant
       setUI(id, { success:true, engine:{ cut: expectedCut }, gps:{ online:null } });
 
       pushToast(
@@ -513,7 +512,7 @@ document.addEventListener('DOMContentLoaded', () => {
         (data.message || 'Commande envoyée') + (data.cmd_no ? ` • CmdNo: ${data.cmd_no}` : '')
       );
 
-      // ✅ confirmation rapide
+      // confirmation rapide
       const p = await pollConfirm(statusUrl, expectedCut, 10, 900);
       if (p.confirmed && p.json) {
         setUI(id, p.json);
