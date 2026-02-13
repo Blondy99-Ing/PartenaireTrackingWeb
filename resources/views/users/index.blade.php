@@ -189,7 +189,7 @@
         </button>
 
         <h2 id="modalTitle" class="text-xl font-bold font-orbitron mb-6" style="color: var(--color-text);">
-            Ajouter un utilisateur
+            Ajouter un chauffeur
         </h2>
 
         <form id="userForm"
