@@ -47,23 +47,45 @@ class AlertController extends Controller
     }
 
     /**
+     * ✅ Filtre commun: uniquement alertes OUVERTES de la JOURNÉE
+     * - Ouvertes: processed = 0 ou NULL
+     * - Journée: alerted_at entre start/end day (fallback created_at si alerted_at NULL)
+     */
+    private function applyOpenTodayFilters($q): void
+    {
+        $start = now()->startOfDay();
+        $end   = now()->endOfDay();
+
+        // Ouvertes
+        $q->where(function ($qq) {
+            $qq->where('a.processed', 0)->orWhereNull('a.processed');
+        });
+
+        // Aujourd'hui (fallback created_at)
+        $q->where(function ($qq) use ($start, $end) {
+            $qq->whereBetween('a.alerted_at', [$start, $end])
+               ->orWhere(function ($qq2) use ($start, $end) {
+                   $qq2->whereNull('a.alerted_at')
+                       ->whereBetween('a.created_at', [$start, $end]);
+               });
+        });
+    }
+
+    /**
      * GET /alerts (JSON)
      *
      * ✅ SCOPE RULE (final):
      * A partner sees alerts for vehicles that "belong to him" = vehicles present in
      * association_chauffeur_voiture_partner where assigned_by = partner_id.
      *
-     * ✅ Data returned:
-     * - voiture: immatriculation, marque, model
-     * - current driver: nom prenom (latest assignment row for that vehicle)
+     * ✅ New rule:
+     * Only OPEN alerts of TODAY.
      */
     public function index(Request $request)
     {
         $partnerId = (int) Auth::id();
 
-        // ---------------------------------------------------------
         // 1) Vehicles belonging to this partner
-        // ---------------------------------------------------------
         $vehicleIds = DB::table('association_chauffeur_voiture_partner')
             ->where('assigned_by', $partnerId)
             ->pluck('voiture_id')
@@ -76,12 +98,7 @@ class AlertController extends Controller
             return response()->json(['status' => 'success', 'data' => []]);
         }
 
-        // ---------------------------------------------------------
-        // 2) Latest assignment per vehicle (to get current driver)
-        // IMPORTANT: we do NOT filter by assigned_by here, because we just want the latest
-        // chauffeur for that vehicle (even if assigned by admin before).
-        // But we DO restrict to $vehicleIds (partner’s fleet).
-        // ---------------------------------------------------------
+        // 2) Latest assignment per vehicle (current driver)
         $latestAssign = DB::table('association_chauffeur_voiture_partner as acvp')
             ->select([
                 'acvp.voiture_id',
@@ -90,11 +107,7 @@ class AlertController extends Controller
             ->whereIn('acvp.voiture_id', $vehicleIds)
             ->groupBy('acvp.voiture_id');
 
-        // ---------------------------------------------------------
-        // 3) Alerts query with joins:
-        // alerts -> voitures (immatriculation/marque/model)
-        // alerts -> latestAssign -> association row -> users (driver)
-        // ---------------------------------------------------------
+        // 3) Alerts query with joins
         $q = DB::table('alerts as a')
             ->leftJoin('voitures as v', 'v.id', '=', 'a.voiture_id')
 
@@ -111,13 +124,21 @@ class AlertController extends Controller
             })
             ->leftJoin('users as u', 'u.id', '=', 'acvp2.chauffeur_id')
 
-            ->whereIn('a.voiture_id', $vehicleIds)
+            ->whereIn('a.voiture_id', $vehicleIds);
 
-            // if you want partner to see only allowed types:
-            // ->whereIn('a.alert_type', array_keys(self::PARTNER_ALERT_TYPES))
+        // ✅ ONLY OPEN alerts of TODAY
+        $this->applyOpenTodayFilters($q);
 
-            ->orderByDesc('a.alerted_at')
-            ->limit(500) // increase if you want more than 200
+        // optional filter by alert_type
+        if ($request->filled('alert_type')) {
+            $type = (string) $request->input('alert_type');
+            if ($type !== 'all' && $type !== '') {
+                $q->where('a.alert_type', $type);
+            }
+        }
+
+        $rows = $q->orderByDesc('a.alerted_at')
+            ->limit(500)
             ->select([
                 'a.id',
                 'a.voiture_id',
@@ -127,6 +148,7 @@ class AlertController extends Controller
                 'a.processed',
                 'a.processed_by',
                 'a.alerted_at',
+                'a.created_at',
 
                 'v.id as v_id',
                 'v.immatriculation',
@@ -136,23 +158,14 @@ class AlertController extends Controller
                 'u.id as driver_id',
                 'u.nom as driver_nom',
                 'u.prenom as driver_prenom',
-            ]);
-
-        // optional filter by alert_type
-        if ($request->filled('alert_type')) {
-            $type = (string) $request->input('alert_type');
-
-            // accept either "all" or valid types
-            if ($type !== 'all' && $type !== '') {
-                $q->where('a.alert_type', $type);
-            }
-        }
-
-        $rows = $q->get();
+            ])
+            ->get();
 
         $data = $rows->map(function ($r) {
             $driverLabel = trim(($r->driver_nom ?? '') . ' ' . ($r->driver_prenom ?? ''));
             if ($driverLabel === '') $driverLabel = null;
+
+            $ts = $r->alerted_at ?? $r->created_at ?? null;
 
             return [
                 'id'               => (int) $r->id,
@@ -165,14 +178,12 @@ class AlertController extends Controller
                 'location'         => $r->message,
 
                 'read'             => (bool) $r->read,
-                'processed'        => (bool) $r->processed,
+                // si NULL, on considère ouvert
+                'processed'        => (bool) ($r->processed ?? false),
                 'processed_by'     => $r->processed_by ? (int) $r->processed_by : null,
 
-                'alerted_at_human' => $r->alerted_at
-                    ? date('d/m/Y H:i:s', strtotime($r->alerted_at))
-                    : '-',
+                'alerted_at_human' => $ts ? date('d/m/Y H:i:s', strtotime($ts)) : '-',
 
-                // vehicle info (this is what your JS needs)
                 'voiture' => $r->v_id ? [
                     'id'              => (int) $r->v_id,
                     'immatriculation' => $r->immatriculation,
@@ -180,7 +191,6 @@ class AlertController extends Controller
                     'model'           => $r->model,
                 ] : null,
 
-                // current driver
                 'user_id'      => $r->driver_id ? (int) $r->driver_id : null,
                 'driver_label' => $driverLabel,
                 'users_labels' => $driverLabel,
@@ -245,7 +255,7 @@ class AlertController extends Controller
             ->whereIn('acvp.voiture_id', $vehicleIds)
             ->groupBy('acvp.voiture_id');
 
-        $rows = DB::table('alerts as a')
+        $rowsQuery = DB::table('alerts as a')
             ->leftJoin('voitures as v', 'v.id', '=', 'a.voiture_id')
             ->leftJoinSub($latestAssign, 'last_acvp', function ($join) {
                 $join->on('last_acvp.voiture_id', '=', 'a.voiture_id');
@@ -256,11 +266,16 @@ class AlertController extends Controller
             })
             ->leftJoin('users as u', 'u.id', '=', 'acvp2.chauffeur_id')
             ->whereIn('a.voiture_id', $vehicleIds)
-            ->where('a.id', '>', $afterId)
+            ->where('a.id', '>', $afterId);
+
+        // ✅ ONLY OPEN alerts of TODAY
+        $this->applyOpenTodayFilters($rowsQuery);
+
+        $rows = $rowsQuery
             ->orderByDesc('a.id')
             ->limit($limit)
             ->select([
-                'a.id','a.voiture_id','a.alert_type','a.message','a.read','a.processed','a.processed_by','a.alerted_at',
+                'a.id','a.voiture_id','a.alert_type','a.message','a.read','a.processed','a.processed_by','a.alerted_at','a.created_at',
                 'v.id as v_id','v.immatriculation','v.marque','v.model',
                 'u.id as driver_id','u.nom as driver_nom','u.prenom as driver_prenom',
             ])
@@ -276,6 +291,8 @@ class AlertController extends Controller
             $driverLabel = trim(($r->driver_nom ?? '') . ' ' . ($r->driver_prenom ?? ''));
             if ($driverLabel === '') $driverLabel = null;
 
+            $ts = $r->alerted_at ?? $r->created_at ?? null;
+
             return [
                 'id' => (int)$r->id,
                 'voiture_id' => (int)$r->voiture_id,
@@ -285,9 +302,9 @@ class AlertController extends Controller
                 'message' => $r->message,
                 'location' => $r->message,
                 'read' => (bool)$r->read,
-                'processed' => (bool)$r->processed,
+                'processed' => (bool) ($r->processed ?? false),
                 'processed_by' => $r->processed_by ? (int)$r->processed_by : null,
-                'alerted_at_human' => $r->alerted_at ? date('d/m/Y H:i:s', strtotime($r->alerted_at)) : '-',
+                'alerted_at_human' => $ts ? date('d/m/Y H:i:s', strtotime($ts)) : '-',
                 'voiture' => $r->v_id ? [
                     'id' => (int)$r->v_id,
                     'immatriculation' => $r->immatriculation,

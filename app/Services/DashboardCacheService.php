@@ -9,13 +9,12 @@ use App\Models\User;
 use App\Models\Voiture;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Redis;
-use Illuminate\Support\Facades\DB;
 
 class DashboardCacheService
 {
-    private int $ttlStats  = 60;
+    private int $ttlStats  = 900;
     private int $ttlFleet  = 600;
-    private int $ttlAlerts = 60;
+    private int $ttlAlerts = 600;
 
     private int $gpsOfflineMinutes = 10;
 
@@ -110,23 +109,34 @@ class DashboardCacheService
         ];
 
         if (!empty($vehicleIds)) {
-            // ✅ OUVERT = processed = 0 OU NULL
-            $baseOpen = Alert::query()
+            $start = now()->startOfDay();
+            $end   = now()->endOfDay();
+
+            // ✅ OUVERT = processed = 0 OU NULL + ✅ UNIQUEMENT AUJOURD’HUI
+            // Fallback: si alerted_at NULL => created_at
+            $baseOpenToday = Alert::query()
                 ->whereIn('voiture_id', $vehicleIds)
                 ->where(function ($q) {
                     $q->where('processed', 0)->orWhereNull('processed');
+                })
+                ->where(function ($q) use ($start, $end) {
+                    $q->whereBetween('alerted_at', [$start, $end])
+                      ->orWhere(function ($qq) use ($start, $end) {
+                          $qq->whereNull('alerted_at')
+                             ->whereBetween('created_at', [$start, $end]);
+                      });
                 });
 
-            $alertsCount = (clone $baseOpen)->count();
+            $alertsCount = (clone $baseOpenToday)->count();
 
-            $rows = (clone $baseOpen)
+            $rows = (clone $baseOpenToday)
                 ->selectRaw("COALESCE(alert_type, 'unknown') as t, COUNT(*) as c")
                 ->groupBy('t')
                 ->get();
 
             foreach ($rows as $r) {
-                $norm = $this->normalizeAlertType((string)$r->t);
-                $alertsByType[$norm] = ($alertsByType[$norm] ?? 0) + (int)$r->c;
+                $norm = $this->normalizeAlertType((string) $r->t);
+                $alertsByType[$norm] = ($alertsByType[$norm] ?? 0) + (int) $r->c;
             }
         }
 
@@ -208,7 +218,7 @@ class DashboardCacheService
                 ->get();
 
             foreach ($latestRows as $loc) {
-                $latestByMac[(string)$loc->mac_id_gps] = $loc;
+                $latestByMac[(string) $loc->mac_id_gps] = $loc;
             }
         }
 
@@ -299,10 +309,8 @@ class DashboardCacheService
         $lon = $location->longitude;
         if ($lat === null || $lon === null) return;
 
-        // ✅ incoming location id
         $incomingLocId = (int) ($location->id ?? 0);
 
-        // ✅ si le node envoie bien id, c’est PARFAIT. Sinon, on laisse passer.
         if ($incomingLocId > 0 && !$this->isNewerLocIdThanCached($partnerId, (int)$voiture->id, $incomingLocId)) {
             return;
         }
@@ -439,11 +447,22 @@ class DashboardCacheService
             return [];
         }
 
+        $start = now()->startOfDay();
+        $end   = now()->endOfDay();
+
         $alerts = Alert::query()
             ->with(['voiture'])
             ->whereIn('voiture_id', $vehicleIds)
             ->where(function ($q) { // ✅ ouverts = 0 OU NULL
                 $q->where('processed', 0)->orWhereNull('processed');
+            })
+            // ✅ uniquement alertes du jour (fallback created_at si alerted_at NULL)
+            ->where(function ($q) use ($start, $end) {
+                $q->whereBetween('alerted_at', [$start, $end])
+                  ->orWhere(function ($qq) use ($start, $end) {
+                      $qq->whereNull('alerted_at')
+                         ->whereBetween('created_at', [$start, $end]);
+                  });
             })
             ->orderBy('alerted_at', 'desc')
             ->limit($limit)
@@ -457,7 +476,8 @@ class DashboardCacheService
                     'vehicle'      => $v?->immatriculation ?? 'N/A',
                     'type'         => $typeNorm,
                     'type_label'   => $this->alertTypeLabel($typeNorm),
-                    'time'         => optional($a->alerted_at)->format('d/m/Y H:i:s'),
+                    // fallback si alerted_at NULL
+                    'time'         => optional($a->alerted_at ?? $a->created_at)->format('d/m/Y H:i:s'),
                     'processed'    => (bool) ($a->processed ?? false),
                     'status'       => 'Ouvert',
                     'status_color' => 'bg-red-500',
