@@ -548,28 +548,35 @@
     }
 
 
-
-    .brand{
-            width: 80%;
-            height: 130px;
-            align-items: center;
-            justify-content: center;
-            position: relative;
-    }
-.brand-logo{
-    width: 100%;
-    height: auto;
-    position: absolute;
-    padding-top: 50px;
-
-    padding-bottom: 50px;
+.brand{
+  height: 190px;
+  display: flex;
+  align-items: center;    
+  justify-content: center; 
 }
 
+.brand-logo{
+  display: flex;
+  flex-direction: column; 
+  align-items: center;    
+  justify-content: center;
+  gap: 10px;               
+  text-align: center;   
+}
 
+/* image */
+.brand-logo img{
+  height: 90px;           
+  width: auto;
+  display: block;
+}
 
-
-
-
+/* texte */
+.brand-logo h1{
+  margin: 0;
+  font-size: 2rem;
+  line-height: 1.1;
+}
 
 
 
@@ -785,6 +792,10 @@
             <div class="brand-logo">
                 <div class="logo-text">
                     <img src="{{ asset('assets/images/logo_tracking.png') }}" alt="">
+                   
+                </div>
+                <div class="logo-text">
+                    <h1>Fleetra</h1>
                 </div>
             </div>
         </div>
