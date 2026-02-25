@@ -3,163 +3,224 @@
 
 <head>
     <meta charset="UTF-8">
+    {{-- Viewport standard — on NE force PAS de zoom/scale ici pour respecter l'accessibilité --}}
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>@yield('title', 'ProxymTracking Dashboard')</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
 
-    <!-- Chargement de Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Chargement de la police Orbitron depuis Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800&display=swap" rel="stylesheet">
-    <!-- Font Awesome pour les icônes -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/jquery.dataTables.min.css">
 
     @stack('styles')
-
     @stack('head')
 
     <style>
-    /* --- DESIGN SYSTEM : COULEURS ET POLICES --- */
+    /* ============================================================
+       DESIGN SYSTEM — TOKENS & POLICES
+       L'effet "compact 90%" est obtenu par :
+         - base font-size: 14.4px (soit 90% de 16px) au lieu d'utiliser transform:scale()
+         - spacing tokens légèrement réduits
+         - clamp() sur les titres pour fluidité entre breakpoints
+       ============================================================ */
     :root {
-        --color-primary: #F58220;
-        /* Orange vibrant */
+        /* Base 14.4px = effet visuel ~90% sans casser l'accessibilité */
+        font-size: 14.4px;
+
+        /* === Couleurs === */
+        --color-primary:       #F58220;
         --color-primary-light: #FF9800;
-        --color-primary-dark: #E65100;
-        --font-family: 'Orbitron', sans-serif;
-        --sidebar-width: 260px;
-        --sidebar-collapsed-width: 80px;
-        --navbar-h: 5rem;
+        --color-primary-dark:  #E65100;
+
+        /* === Typographie === */
+        --font-display: 'Orbitron', sans-serif;
+        /* Police système sans-serif, lisible partout, légère */
+        --font-body: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+                     "Segoe UI", Helvetica, Arial, sans-serif;
+
+        /* === Layout === */
+        --sidebar-width:           260px;
+        --sidebar-collapsed-width:  72px;
+        --navbar-h:                4.5rem;  /* légèrement réduit pour l'effet compact */
+
+        /* === Spacing tokens (compact) === */
+        --sp-xs:  0.25rem;   /* 3.6px  */
+        --sp-sm:  0.5rem;    /* 7.2px  */
+        --sp-md:  0.875rem;  /* 12.6px */
+        --sp-lg:  1.25rem;   /* 18px   */
+        --sp-xl:  1.75rem;   /* 25.2px */
+        --sp-2xl: 2.25rem;   /* 32.4px */
+
+        /* === Z-index stacking (propre, centralisé) === */
+        --z-sidebar:  20;
+        --z-overlay:  19;
+        --z-navbar:   30;   /* navbar AU-DESSUS de tout sauf modals */
+        --z-dropdown: 50;   /* dropdowns profil, notifications AU-DESSUS de sticky KPI */
+        --z-kpi:      10;   /* sticky KPI sous navbar et dropdowns */
+        --z-toast:  9999;
     }
 
-    .font-orbitron {
-        font-family: var(--font-family);
-    }
+    /* ============================================================
+       RESET / BASE
+       ============================================================ */
+    *, *::before, *::after { box-sizing: border-box; }
 
-    /* --- LIGHT MODE VARIABLES (Par Défaut) --- */
-    .light-mode {
-        --color-bg: #f3f4f6;
-        --color-card: #ffffff;
-        --color-text: #111827;
-        --color-input-bg: #ffffff;
-        --color-input-border: #d1d5db;
-        --color-secondary-text: #6b7280;
-        --color-sidebar-bg: #ffffff;
-        --color-sidebar-text: #1f2937;
-        --color-sidebar-active-bg: rgba(245, 130, 32, 0.1);
-        --color-border-subtle: #e5e7eb;
-        --color-navbar-bg: #ffffff;
-        background-color: var(--color-bg);
-        color: var(--color-text);
-    }
-
-    /* --- DARK MODE VARIABLES --- */
-    .dark-mode {
-        --color-bg: #121212;
-        /* Fond très sombre */
-        --color-card: #1f2937;
-        /* Cartes et boîtes de dialogue */
-        --color-text: #f3f4f6;
-        /* Texte clair */
-        --color-input-bg: #374151;
-        /* Fond des champs sombres */
-        --color-input-border: #4b5563;
-        /* Bordure des champs sombres */
-        --color-secondary-text: #9ca3af;
-        /* Texte secondaire */
-        --color-sidebar-bg: #1f2937;
-        /* Sidebar sombre */
-        --color-sidebar-text: #f3f4f6;
-        --color-sidebar-active-bg: rgba(245, 130, 32, 0.25);
-        --color-border-subtle: #374151;
-        /* Bordures sombres */
-        --color-navbar-bg: #1f2937;
-        /* Navbar sombre */
-        background-color: var(--color-bg);
-        color: var(--color-text);
-    }
-
-    /* --- LAYOUT GÉNÉRAL --- */
     body {
+        font-family: var(--font-body);
+        font-size: 1rem; /* = 14.4px (notre base) */
         min-height: 100vh;
+        margin: 0;
+        -webkit-font-smoothing: antialiased;
     }
 
-    /* --- SIDEBAR STYLES --- */
+    /* Titres → Orbitron */
+    h1, h2, h3, h4, h5, h6,
+    .font-orbitron {
+        font-family: var(--font-display);
+    }
+
+    /* ============================================================
+       LIGHT MODE
+       ============================================================ */
+    .light-mode {
+        --color-bg:               #f3f4f6;
+        --color-card:             #ffffff;
+        --color-text:             #111827;
+        --color-input-bg:         #ffffff;
+        --color-input-border:     #d1d5db;
+        --color-secondary-text:   #6b7280;
+        --color-sidebar-bg:       #ffffff;
+        --color-sidebar-text:     #1f2937;
+        --color-sidebar-active-bg:rgba(245, 130, 32, 0.10);
+        --color-border-subtle:    #e5e7eb;
+        --color-navbar-bg:        #ffffff;
+        background-color: var(--color-bg);
+        color: var(--color-text);
+    }
+
+    /* ============================================================
+       DARK MODE
+       ============================================================ */
+    .dark-mode {
+        --color-bg:               #111827;
+        --color-card:             #1f2937;
+        --color-text:             #f3f4f6;
+        --color-input-bg:         #374151;
+        --color-input-border:     #4b5563;
+        --color-secondary-text:   #9ca3af;
+        --color-sidebar-bg:       #1f2937;
+        --color-sidebar-text:     #f3f4f6;
+        --color-sidebar-active-bg:rgba(245, 130, 32, 0.20);
+        --color-border-subtle:    #374151;
+        --color-navbar-bg:        #1f2937;
+        background-color: var(--color-bg);
+        color: var(--color-text);
+    }
+
+    /* ============================================================
+       SIDEBAR
+       ============================================================ */
     .sidebar {
         width: var(--sidebar-width);
         position: fixed;
         top: 0;
         left: 0;
         bottom: 0;
-        z-index: 20;
+        z-index: var(--z-sidebar);
         transition: width 0.3s ease, transform 0.3s ease, background-color 0.3s;
         overflow-y: auto;
+        overflow-x: hidden;
         border-right: 1px solid var(--color-border-subtle);
-        padding-bottom: 5rem;
         background-color: var(--color-sidebar-bg);
+        font-family: var(--font-display); /* Sidebar entière en Orbitron */
+        font-size: 0.8rem;
+        padding-bottom: 5rem;
     }
 
-    /* Sidebar en mode rétracté (collapsed) */
-    .sidebar.collapsed {
-        width: var(--sidebar-collapsed-width);
-    }
+    /* Collapsed */
+    .sidebar.collapsed { width: var(--sidebar-collapsed-width); }
 
+    /* Éléments masqués en mode collapsed (texte uniquement) */
+    .sidebar.collapsed .nav-label,
     .sidebar.collapsed .logo-text,
-    .sidebar.collapsed .title,
+    .sidebar.collapsed .profile-text,
     .sidebar.collapsed .nav-dropdown,
-    .sidebar.collapsed .profile-text {
+    .sidebar.collapsed .sidebar-section-title {
         opacity: 0;
         visibility: hidden;
-        transition: opacity 0.1s;
+        width: 0;
+        overflow: hidden;
+        white-space: nowrap;
+        transition: opacity 0.15s, width 0.3s;
     }
 
-    .sidebar.collapsed .dropdown-toggle .fa-chevron-right {
-        display: none;
-    }
+    /* Flèche des dropdowns masquée en collapsed */
+    .sidebar.collapsed .dropdown-arrow { display: none; }
 
-    /* Logo et Texte du Branding */
+    /* ---- Logo / Branding ---- */
     .brand {
+        height: 160px;
         display: flex;
         align-items: center;
-        padding: 1.5rem 1.5rem 2rem;
-        white-space: nowrap;
-        overflow: hidden;
-        border-bottom: 1px solid var(--color-border-subtle);
-    }
-
-    .sidebar.collapsed .brand {
-        padding: 1.5rem 0.5rem 2rem;
         justify-content: center;
-        /* La ligne de séparation reste en mode rétracté sur desktop pour la cohérence */
+        border-bottom: 1px solid var(--color-border-subtle);
+        overflow: hidden;
+        flex-shrink: 0;
     }
 
-    .brand .icon {
-        min-width: 48px;
+    .brand-logo {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: var(--sp-sm);
+        text-align: center;
+        transition: all 0.3s;
     }
 
-    .brand .logo-text {
-        font-family: var(--font-family);
+    /* Le logo (image) reste toujours visible */
+    .brand-logo img {
+        height: 64px;
+        width: auto;
+        display: block;
+        flex-shrink: 0;
+        transition: height 0.3s;
+    }
+
+    /* En collapsed, on réduit le logo */
+    .sidebar.collapsed .brand-logo img { height: 42px; }
+
+    .brand-logo h1 {
+        margin: 0;
+        font-size: clamp(1rem, 1.5vw, 1.35rem);
         font-weight: 800;
-        font-size: 1.25rem;
         color: var(--color-primary);
-        /* Le logo (texte) utilise la couleur primaire */
+        line-height: 1.1;
+        white-space: nowrap;
     }
 
-    /* Liens de Navigation */
+    /* ---- Nav Links ---- */
+    .sidebar-nav {
+        list-style: none;
+        margin: 0;
+        padding: var(--sp-sm) 0;
+    }
+
+    .sidebar-nav li { position: relative; }
+
     .sidebar-nav a {
         display: flex;
         align-items: center;
-        padding: 0.75rem 1.5rem;
-        margin: 0.25rem 0.5rem;
+        gap: var(--sp-sm);
+        padding: var(--sp-md) var(--sp-lg);
+        margin: 2px var(--sp-xs);
         color: var(--color-sidebar-text);
+        text-decoration: none;
         transition: background-color 0.2s, color 0.2s;
         border-radius: 0.5rem;
+        white-space: nowrap;
         position: relative;
-    }
-
-    .sidebar.collapsed .sidebar-nav a {
-        justify-content: center;
-        padding: 0.75rem 0;
-        margin: 0.25rem 0.5rem;
     }
 
     .sidebar-nav a:hover,
@@ -168,100 +229,166 @@
         color: var(--color-primary);
     }
 
-    .sidebar-nav a .icon {
-        min-width: 48px;
-        font-size: 1.1rem;
+    .sidebar-nav a .nav-icon {
+        min-width: 2rem;
         text-align: center;
+        font-size: 1rem;
         color: var(--color-secondary-text);
+        flex-shrink: 0;
     }
 
-    .sidebar-nav a:hover .icon,
-    .sidebar-nav a.active .icon {
-        color: var(--color-primary);
+    .sidebar-nav a:hover .nav-icon,
+    .sidebar-nav a.active .nav-icon { color: var(--color-primary); }
+
+    /* Collapsed : centrer icône */
+    .sidebar.collapsed .sidebar-nav a {
+        justify-content: center;
+        padding: var(--sp-md) 0;
     }
 
-    /* Sous-menus (Dropdowns) */
+    /* ---- Dropdown sous-menus ---- */
     .nav-dropdown {
         max-height: 0;
         overflow: hidden;
         transition: max-height 0.3s ease-out;
-        padding-left: 2rem;
         background-color: var(--color-sidebar-bg);
-        /* S'assure que le fond reste cohérent */
     }
 
-    .nav-dropdown.open {
-        max-height: 500px;
+    .nav-dropdown.open { max-height: 400px; }
+
+    .nav-dropdown li a {
+        padding-left: calc(var(--sp-lg) + 2rem);
+        font-size: 0.78rem;
+        margin: 1px var(--sp-xs);
     }
 
-    .nav-dropdown a {
-        padding-left: 1.5rem;
-        margin: 0.1rem 0.5rem;
-        font-size: 0.9rem;
-    }
+    .sidebar.collapsed .nav-dropdown { display: none; }
 
-    .sidebar.collapsed .nav-dropdown {
-        display: none;
-    }
-
-    .dropdown-toggle .fa-chevron-right {
+    /* FIX : flèche dropdown — pointe vers le bas par défaut, tourne 90° à l'ouverture */
+    .dropdown-arrow {
         position: absolute;
-        right: 1.5rem;
+        right: var(--sp-lg);
+        font-size: 0.65rem;
         transition: transform 0.3s ease;
+        transform: rotate(0deg); /* Pointe vers la droite au repos */
     }
 
-    .dropdown-toggle.open .fa-chevron-right {
-        transform: rotate(90deg);
+    .dropdown-toggle.open .dropdown-arrow {
+        transform: rotate(90deg); /* Pointe vers le bas à l'ouverture */
     }
 
-
-    /* --- MAIN CONTENT & NAVBAR ADAPTATION --- */
-    .main-content {
-        margin-left: var(--sidebar-width);
-        transition: margin-left 0.3s ease;
-        min-height: 100vh;
-        padding-top: 5rem;
+    /* ---- Footer logout ---- */
+    .sidebar-footer {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        padding: var(--sp-sm);
+        border-top: 1px solid var(--color-border-subtle);
+        background-color: var(--color-sidebar-bg);
     }
 
-    .main-content.expanded {
-        margin-left: var(--sidebar-collapsed-width);
+    .sidebar-footer a {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-sm);
+        padding: var(--sp-sm) var(--sp-md);
+        border-radius: 0.5rem;
+        color: var(--color-secondary-text);
+        text-decoration: none;
+        font-family: var(--font-display);
+        font-size: 0.75rem;
+        transition: color 0.2s, background-color 0.2s;
     }
 
+    .sidebar-footer a:hover { color: #ef4444; }
+
+    .sidebar.collapsed .sidebar-footer a { justify-content: center; }
+
+    /* ============================================================
+       BOUTON COLLAPSE SIDEBAR (Desktop)
+       ============================================================ */
+    .toggle-collapse-btn {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        padding: var(--sp-sm) var(--sp-md);
+    }
+
+    #toggle-sidebar-desktop {
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        border: 1px solid var(--color-border-subtle);
+        background: transparent;
+        color: var(--color-secondary-text);
+        cursor: pointer;
+        transition: background-color 0.2s, color 0.2s, transform 0.2s;
+    }
+
+    #toggle-sidebar-desktop:hover {
+        background-color: var(--color-sidebar-active-bg);
+        color: var(--color-primary);
+    }
+
+    /* FIX : icône tourne correctement selon état */
+    #toggle-icon-desktop { transition: transform 0.3s ease; }
+    /* En expanded (non-collapsed) la flèche pointe à gauche (←) */
+    /* En collapsed la flèche pointe à droite (→) via rotate-180 appliqué en JS */
+
+    /* ============================================================
+       NAVBAR
+       ============================================================ */
     .navbar {
         position: fixed;
         top: 0;
         right: 0;
         left: var(--sidebar-width);
-        height: 5rem;
-        z-index: 10;
+        height: var(--navbar-h);
+        z-index: var(--z-navbar);
         background-color: var(--color-navbar-bg);
         border-bottom: 1px solid var(--color-border-subtle);
         transition: left 0.3s ease, background-color 0.3s;
         display: flex;
         align-items: center;
         justify-content: flex-end;
-        padding: 0 2rem;
+        padding: 0 var(--sp-xl);
+        /* Crée un stacking context pour que les dropdowns de la navbar soient au-dessus */
+        isolation: isolate;
     }
 
-    /* Adaptation de la navbar lorsque la sidebar est rétractée */
-    .navbar.expanded {
-        left: var(--sidebar-collapsed-width);
+    .navbar.expanded { left: var(--sidebar-collapsed-width); }
+
+    /* Titre page dans la navbar */
+    .navbar-title {
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-size: clamp(1rem, 2vw, 1.4rem);
+        color: var(--color-text);
+        flex: 1;
+        margin: 0;
     }
 
-    /* Dropdown Navbar (User Menu) */
+    /* ---- Dropdown utilisateur ---- */
+    .user-menu-wrapper { position: relative; }
+
     .user-dropdown-menu {
         position: absolute;
         right: 0;
-        top: calc(100% + 10px);
-        z-index: 30;
-        width: 200px;
+        top: calc(100% + 8px);
+        /* z-index SUPÉRIEUR au sticky KPI (--z-kpi: 10) */
+        z-index: var(--z-dropdown);
+        width: 210px;
         background-color: var(--color-card);
         border: 1px solid var(--color-border-subtle);
-        border-radius: 0.5rem;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        border-radius: 0.625rem;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
         opacity: 0;
         visibility: hidden;
-        transform: translateY(-10px);
+        transform: translateY(-8px);
         transition: opacity 0.2s, transform 0.2s, visibility 0s 0.2s;
     }
 
@@ -273,9 +400,13 @@
     }
 
     .user-dropdown-menu a {
-        display: block;
-        padding: 0.75rem 1rem;
+        display: flex;
+        align-items: center;
+        gap: var(--sp-sm);
+        padding: var(--sp-md) var(--sp-lg);
         color: var(--color-text);
+        text-decoration: none;
+        font-size: 0.85rem;
         transition: background-color 0.2s;
     }
 
@@ -284,14 +415,41 @@
         color: var(--color-primary);
     }
 
-    /* --- DARK MODE TOGGLE SWITCH STYLING (AJOUTÉ) --- */
+    .user-dropdown-menu .user-info {
+        padding: var(--sp-md) var(--sp-lg);
+        border-bottom: 1px solid var(--color-border-subtle);
+    }
+
+    /* ---- Icônes navbar ---- */
+    .navbar-icon-btn {
+        width: 36px;
+        height: 36px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        font-size: 1rem;
+        color: var(--color-text);
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        transition: background-color 0.2s, color 0.2s;
+        position: relative;
+    }
+
+    .navbar-icon-btn:hover {
+        background-color: var(--color-sidebar-active-bg);
+        color: var(--color-primary);
+    }
+
+    /* ---- Toggle mode sombre ---- */
     .toggle-switch {
         position: relative;
         display: inline-block;
-        width: 50px;
-        height: 25px;
+        width: 44px;
+        height: 22px;
         cursor: pointer;
-        border-radius: 12.5px;
+        border-radius: 11px;
         background-color: var(--color-input-border);
         transition: background-color 0.3s;
         flex-shrink: 0;
@@ -300,62 +458,106 @@
     .toggle-switch::after {
         content: '';
         position: absolute;
-        top: 3px;
-        left: 3px;
-        width: 19px;
-        height: 19px;
+        top: 2px;
+        left: 2px;
+        width: 18px;
+        height: 18px;
         border-radius: 50%;
-        background-color: var(--color-card);
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
-        transition: transform 0.3s ease, background 0.3s;
+        background-color: #fff;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        transition: transform 0.3s ease;
     }
 
-    .toggle-switch.toggled {
-        background-color: var(--color-primary);
+    .toggle-switch.toggled { background-color: var(--color-primary); }
+    .toggle-switch.toggled::after { transform: translateX(22px); }
+
+    /* ============================================================
+       MAIN CONTENT
+       ============================================================ */
+    .main-content {
+        margin-left: var(--sidebar-width);
+        transition: margin-left 0.3s ease;
+        min-height: 100vh;
+        padding-top: var(--navbar-h);
     }
 
-    .toggle-switch.toggled::after {
-        transform: translateX(25px);
-        background-color: #ffffff;
+    .main-content.expanded { margin-left: var(--sidebar-collapsed-width); }
+
+    .page-inner { padding: var(--sp-xl); }
+
+    /* ============================================================
+       STICKY KPI DASHBOARD (Option 1 — opaque, desktop seulement)
+       ============================================================ */
+    .dashboard-stats-sticky {
+        position: sticky;
+        top: var(--navbar-h);
+        z-index: var(--z-kpi);
+        /* Fond opaque = même couleur que le background global → pas de "trous blancs" */
+        background-color: var(--color-bg);
+        /* Padding vertical pour espacer du bord et couvrir proprement */
+        padding-top: var(--sp-sm);
+        padding-bottom: var(--sp-sm);
     }
 
-    /* Fin du style pour le Toggle Switch */
+    /* Sur petit écran : désactiver sticky → redevient flux normal */
+    @media (max-width: 1023px) {
+        .dashboard-stats-sticky {
+            position: static;
+            background-color: transparent;
+            padding-top: 0;
+            padding-bottom: 0;
+        }
+    }
 
+    /* ============================================================
+       COMPOSANTS UI
+       ============================================================ */
 
-    /* --- STYLES DES COMPOSANTS UI (Tableaux, Formulaires, Cartes) --- */
-
-    /* Carte/Conteneur */
+    /* Card */
     .ui-card {
         background-color: var(--color-card);
         border: 1px solid var(--color-border-subtle);
         color: var(--color-text);
         border-radius: 0.75rem;
-        padding: 1.5rem;
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+        padding: var(--sp-lg);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
     }
 
-    /* Champs de Formulaire / Input */
+    /* Inputs / Selects / Textareas — FIX texte visible dans les select/filtres */
     .ui-input-style,
     .ui-textarea-style,
-    .ui-select-style {
+    .ui-select-style,
+    select, input[type="text"], input[type="search"],
+    input[type="email"], input[type="number"], textarea {
         background-color: var(--color-input-bg);
         border: 1px solid var(--color-input-border);
-        color: var(--color-text);
-        padding: 0.5rem 0.75rem;
+        /* FIX critique : forcer la couleur du texte (évite texte invisible) */
+        color: var(--color-text) !important;
+        padding: var(--sp-sm) var(--sp-md);
         border-radius: 0.5rem;
         transition: border-color 0.2s, box-shadow 0.2s;
         width: 100%;
+        font-family: var(--font-body);
+        font-size: 0.875rem;
+        appearance: auto; /* Garder l'apparence native pour la flèche select */
+    }
+
+    /* FIX : options dans les select héritent aussi la couleur */
+    select option {
+        background-color: var(--color-input-bg);
+        color: var(--color-text);
     }
 
     .ui-input-style:focus,
     .ui-textarea-style:focus,
-    .ui-select-style:focus {
+    .ui-select-style:focus,
+    select:focus, input:focus, textarea:focus {
         outline: none;
-        border-color: var(--color-primary) !important;
-        box-shadow: 0 0 0 3px rgba(245, 130, 32, 0.4);
+        border-color: var(--color-primary);
+        box-shadow: 0 0 0 3px rgba(245, 130, 32, 0.25);
     }
 
-    /* Tableau */
+    /* Table */
     .ui-table-container {
         overflow-x: auto;
         border-radius: 0.5rem;
@@ -365,38 +567,61 @@
     .ui-table {
         width: 100%;
         border-collapse: collapse;
+        font-size: 0.85rem;
     }
 
     .ui-table th {
-        font-family: var(--font-family);
+        font-family: var(--font-display);
+        font-size: 0.75rem;
         background-color: var(--color-border-subtle);
-        /* Utilisation de la couleur de bordure/fond secondaire */
         color: var(--color-text);
-        padding: 0.75rem 1rem;
+        padding: var(--sp-md) var(--sp-lg);
         text-align: left;
         border-bottom: 2px solid var(--color-primary);
+        white-space: nowrap;
     }
 
     .ui-table td {
-        padding: 0.75rem 1rem;
+        padding: var(--sp-sm) var(--sp-lg);
         border-bottom: 1px solid var(--color-border-subtle);
+        color: var(--color-text);
     }
 
-    .ui-table tr:hover {
-        background-color: var(--color-sidebar-active-bg);
+    .ui-table tr:hover td { background-color: var(--color-sidebar-active-bg); }
 
-        color: black;
+    /* FIX DataTables footer centré */
+    .dataTables_wrapper .dataTables_paginate,
+    .dataTables_wrapper .dataTables_info {
+        display: flex;
+        justify-content: center;
+        margin-top: var(--sp-md);
+        color: var(--color-secondary-text);
+        font-size: 0.8rem;
     }
 
-    /* Styles des boutons (conservés) */
+    .dataTables_wrapper .dataTables_filter input,
+    .dataTables_wrapper .dataTables_length select {
+        color: var(--color-text) !important;
+        background-color: var(--color-input-bg);
+        border-color: var(--color-input-border);
+    }
+
+    /* Boutons */
     .btn-primary {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--sp-xs);
         background-color: var(--color-primary);
         color: white;
-        padding: 0.5rem 1.5rem;
+        padding: var(--sp-sm) var(--sp-lg);
         border-radius: 0.5rem;
         font-weight: 600;
+        font-family: var(--font-display);
+        font-size: 0.8rem;
+        border: none;
+        cursor: pointer;
         transition: background-color 0.2s, transform 0.1s;
-        font-family: var(--font-family);
+        text-decoration: none;
     }
 
     .btn-primary:hover {
@@ -405,107 +630,133 @@
     }
 
     .btn-secondary {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--sp-xs);
         color: var(--color-primary);
         border: 1px solid var(--color-primary);
-        padding: 0.5rem 1.5rem;
+        padding: var(--sp-sm) var(--sp-lg);
         border-radius: 0.5rem;
         font-weight: 600;
-        transition: background-color 0.2s;
+        font-family: var(--font-display);
+        font-size: 0.8rem;
         background-color: transparent;
-        font-family: var(--font-family);
-    }
-
-    .btn-secondary:hover {
-        background-color: rgba(245, 130, 32, 0.1);
-    }
-
-    /* Styles divers (conservés) */
-    .navbar-icon-btn {
-        width: 40px;
-        height: 40px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 50%;
-        font-size: 1.1rem;
-        color: var(--color-text);
-        transition: background-color 0.2s, color 0.2s;
         cursor: pointer;
+        transition: background-color 0.2s;
+        text-decoration: none;
     }
 
-    .navbar-icon-btn:hover {
-        background-color: var(--color-sidebar-active-bg);
+    .btn-secondary:hover { background-color: rgba(245, 130, 32, 0.10); }
+
+    /* FIX "Espace partenaire" : lien stylé comme bouton */
+    .btn-partner-login {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--sp-xs);
+        background-color: transparent;
         color: var(--color-primary);
+        border: 1.5px solid var(--color-primary);
+        padding: var(--sp-sm) var(--sp-lg);
+        border-radius: 0.5rem;
+        font-weight: 700;
+        font-family: var(--font-display);
+        font-size: 0.78rem;
+        cursor: pointer;
+        transition: background-color 0.2s, color 0.2s;
+        text-decoration: none;
     }
 
-    .text-primary {
-        color: var(--color-primary);
+    .btn-partner-login:hover {
+        background-color: var(--color-primary);
+        color: white;
     }
 
-    .text-secondary {
-        color: var(--color-secondary-text);
-    }
+    /* ============================================================
+       TEXTE UTILITAIRES
+       ============================================================ */
+    .text-primary { color: var(--color-primary); }
+    .text-secondary { color: var(--color-secondary-text); }
 
-
-    map {
+    /* ============================================================
+       MAP
+       ============================================================ */
+    #fleetMap, map {
         width: 100%;
         height: 400px;
-        /* Hauteur fixe pour que Leaflet sache où dessiner */
         min-height: 300px;
+        border-radius: 0.5rem;
     }
 
-    /* Toggle formulaire */
-    #vehicle-form.hidden {
+    /* ============================================================
+       MOBILE TOGGLE BUTTON
+       ============================================================ */
+    .toggle-sidebar-mobile {
         display: none;
+        position: fixed;
+        top: calc((var(--navbar-h) - 36px) / 2);
+        left: var(--sp-md);
+        width: 36px;
+        height: 36px;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.1rem;
+        border-radius: 50%;
+        cursor: pointer;
+        z-index: calc(var(--z-navbar) + 1);
+        background-color: var(--color-card);
+        color: var(--color-primary);
+        border: 1px solid var(--color-primary);
+        transition: background-color 0.2s, color 0.2s;
     }
 
+    .toggle-sidebar-mobile:hover {
+        background-color: var(--color-primary);
+        color: #fff;
+    }
 
+    /* ============================================================
+       OVERLAY MOBILE
+       ============================================================ */
+    .overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background-color: rgba(0, 0, 0, 0.5);
+        z-index: var(--z-overlay);
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
 
+    .overlay.visible { display: block; }
+    .overlay.active  { opacity: 1; }
 
-    /* --- MOBILE STYLES (md: 768px) --- */
+    /* ============================================================
+       RESPONSIVE — MOBILE (< 768px)
+       ============================================================ */
     @media (max-width: 767px) {
         .sidebar {
             transform: translateX(-100%);
             width: var(--sidebar-width);
+            z-index: calc(var(--z-overlay) + 1);
         }
 
-        .sidebar.active {
+        .sidebar.mobile-open {
             transform: translateX(0);
-            box-shadow: 5px 0 10px rgba(0, 0, 0, 0.2);
+            box-shadow: 4px 0 16px rgba(0, 0, 0, 0.2);
         }
 
         .main-content {
-            margin-left: 0;
+            margin-left: 0 !important;
         }
 
         .navbar {
-            left: 0;
-            padding-left: 5rem;
+            left: 0 !important;
+            padding-left: calc(var(--sp-xl) + 2.5rem); /* espace pour le bouton mobile */
         }
 
-        .toggle-sidebar {
-            display: flex !important;
-        }
+        .toggle-sidebar-mobile { display: flex !important; }
 
-        .overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: rgba(0, 0, 0, 0.5);
-            z-index: 19;
-            opacity: 0;
-            pointer-events: none;
-            transition: opacity 0.3s ease;
-        }
-
-        .overlay.active {
-            opacity: 1;
-            pointer-events: auto;
-        }
-
-        /* Désactiver les classes 'expanded' sur mobile */
+        /* Pas de collapsed sur mobile */
         .main-content.expanded,
         .navbar.expanded {
             margin-left: 0 !important;
@@ -513,673 +764,559 @@
         }
     }
 
+    /* Cache le bouton mobile sur desktop */
     @media (min-width: 768px) {
-        .toggle-sidebar {
-            display: none !important;
-        }
-
-        .sidebar.collapsed .sidebar-nav a .icon {
-            margin-left: -0.25rem;
-        }
+        .toggle-sidebar-mobile { display: none !important; }
     }
 
-    .toggle-sidebar {
+    /* ============================================================
+       TOAST NOTIFICATIONS
+       ============================================================ */
+    #toast-container {
         position: fixed;
-        top: 1rem;
-        left: 1rem;
-        width: 40px;
-        height: 40px;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.25rem;
-        border-radius: 50%;
-        cursor: pointer;
-        z-index: 25;
-        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-        background-color: var(--color-card);
-        color: var(--color-primary);
-        border: 1px solid var(--color-primary);
-        transition: background-color 0.2s, color 0.2s;
+        top: calc(var(--navbar-h) + var(--sp-sm));
+        right: var(--sp-lg);
+        z-index: var(--z-toast);
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-sm);
+        pointer-events: none;
+        max-width: min(520px, calc(100vw - 2rem));
     }
 
-    .toggle-sidebar:hover {
-        background-color: var(--color-primary);
-        color: var(--color-card);
-    }
-
-
-.brand{
-  height: 190px;
-  display: flex;
-  align-items: center;    
-  justify-content: center; 
-}
-
-.brand-logo{
-  display: flex;
-  flex-direction: column; 
-  align-items: center;    
-  justify-content: center;
-  gap: 10px;               
-  text-align: center;   
-}
-
-/* image */
-.brand-logo img{
-  height: 90px;           
-  width: auto;
-  display: block;
-}
-
-/* texte */
-.brand-logo h1{
-  margin: 0;
-  font-size: 2rem;
-  line-height: 1.1;
-}
-
-
-
-
-    /* ===== Toasts Modern (light/dark via CSS variables) ===== */
-    /* ===== Toast base ===== */
     .toast {
-        width: min(520px, calc(100vw - 28px));
         pointer-events: auto;
-
         display: flex;
         align-items: flex-start;
-        gap: 14px;
-
-        padding: 16px 16px 14px 16px;
-        border-radius: 18px;
+        gap: var(--sp-md);
+        padding: 14px 14px 12px;
+        border-radius: 16px;
         border: 1px solid var(--color-border-subtle);
         background: var(--color-card);
         color: var(--color-text);
-
-        box-shadow:
-            0 18px 50px rgba(0, 0, 0, .20),
-            0 2px 10px rgba(0, 0, 0, .12);
-
-        transform: translateY(-10px) scale(.98);
+        box-shadow: 0 12px 40px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.10);
+        transform: translateY(-8px) scale(0.98);
         opacity: 0;
-        transition: transform .25s ease, opacity .25s ease, box-shadow .25s ease;
+        transition: transform 0.25s ease, opacity 0.25s ease;
         position: relative;
         overflow: hidden;
     }
 
-    .toast.show {
-        transform: translateY(0) scale(1);
-        opacity: 1;
-    }
+    .toast.show { transform: translateY(0) scale(1); opacity: 1; }
+    .toast.hide { transform: translateY(-8px) scale(0.98); opacity: 0; }
 
-    .toast.hide {
-        transform: translateY(-10px) scale(.98);
-        opacity: 0;
-    }
-
-    /* Barre gauche + halo (plus visible) */
     .toast::before {
         content: "";
         position: absolute;
-        left: 0;
-        top: 0;
-        bottom: 0;
-        width: 6px;
-        border-radius: 18px 0 0 18px;
-        opacity: .95;
+        left: 0; top: 0; bottom: 0;
+        width: 5px;
+        border-radius: 16px 0 0 16px;
     }
 
-    /* Barre de progression (5s) */
     .toast::after {
         content: "";
         position: absolute;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        height: 4px;
-        opacity: .9;
+        left: 0; right: 0; bottom: 0;
+        height: 3px;
         transform-origin: left center;
-        transform: scaleX(1);
     }
 
-    .toast.show::after {
-        animation: toastProgress 5s linear forwards;
-    }
+    .toast.show::after { animation: toastProgress 5s linear forwards; }
 
     @keyframes toastProgress {
-        from {
-            transform: scaleX(1);
-        }
-
-        to {
-            transform: scaleX(0);
-        }
+        from { transform: scaleX(1); }
+        to   { transform: scaleX(0); }
     }
 
-    /* Layout interne */
     .toast-icon {
-        width: 46px;
-        height: 46px;
-        border-radius: 16px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: #fff;
-        flex: 0 0 auto;
-        font-size: 1.25rem;
+        width: 40px; height: 40px;
+        border-radius: 12px;
+        display: flex; align-items: center; justify-content: center;
+        color: #fff; flex-shrink: 0; font-size: 1.1rem;
     }
 
     .toast-title {
-        font-family: var(--font-family);
-        font-weight: 900;
-        letter-spacing: .3px;
-        font-size: 1.05rem;
-        line-height: 1.1;
-        margin-top: 2px;
+        font-family: var(--font-display);
+        font-weight: 800;
+        font-size: 0.9rem;
+        line-height: 1.2;
+        margin-top: 1px;
     }
 
-    .toast-msg {
-        margin-top: 4px;
-        font-size: .98rem;
-        color: var(--color-secondary-text);
-    }
+    .toast-msg { margin-top: 3px; font-size: 0.85rem; color: var(--color-secondary-text); }
 
     .toast-close {
-        margin-left: auto;
-        width: 38px;
-        height: 38px;
-        border-radius: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-
-        border: 1px solid var(--color-border-subtle);
-        background: transparent;
-        color: var(--color-text);
-        opacity: .75;
-        cursor: pointer;
-
-        transition: transform .12s ease, opacity .2s ease, background .2s ease;
+        margin-left: auto; width: 32px; height: 32px;
+        border-radius: 10px; border: 1px solid var(--color-border-subtle);
+        background: transparent; color: var(--color-text);
+        opacity: 0.7; cursor: pointer; flex-shrink: 0;
+        display: flex; align-items: center; justify-content: center;
+        transition: opacity 0.2s, transform 0.1s;
     }
 
-    .toast-close:hover {
-        opacity: 1;
-        background: rgba(255, 255, 255, .06);
-        transform: translateY(-1px);
-    }
+    .toast-close:hover { opacity: 1; transform: translateY(-1px); }
 
-    /* ===== SUCCESS (Vert premium) ===== */
-    .toast-success {
-        border-color: rgba(34, 197, 94, .35);
-        background: linear-gradient(135deg,
-                rgba(34, 197, 94, .18),
-                rgba(255, 255, 255, 0) 45%), var(--color-card);
+    /* Success */
+    .toast-success { border-color: rgba(34,197,94,.3); }
+    .toast-success::before { background: linear-gradient(180deg, #22c55e, #16a34a); }
+    .toast-success::after  { background: linear-gradient(90deg, #22c55e, #16a34a); }
+    .toast-success .toast-icon { background: linear-gradient(135deg, #22c55e, #16a34a); }
+    .toast-success .toast-title { color: #16a34a; }
 
-        box-shadow:
-            0 18px 50px rgba(0, 0, 0, .18),
-            0 0 0 2px rgba(34, 197, 94, .16),
-            0 16px 40px rgba(34, 197, 94, .10);
-    }
+    /* Error */
+    .toast-error { border-color: rgba(239,68,68,.3); }
+    .toast-error::before { background: linear-gradient(180deg, #ef4444, #b91c1c); }
+    .toast-error::after  { background: linear-gradient(90deg, #ef4444, #b91c1c); }
+    .toast-error .toast-icon { background: linear-gradient(135deg, #ef4444, #b91c1c); }
+    .toast-error .toast-title { color: #ef4444; }
 
-    .toast-success::before {
-        background: linear-gradient(180deg, #22c55e, #16a34a);
-    }
-
-    .toast-success::after {
-        background: linear-gradient(90deg, #22c55e, #16a34a);
-    }
-
-    .toast-success .toast-icon {
-        background: linear-gradient(135deg, #22c55e, #16a34a);
-        box-shadow: 0 14px 30px rgba(34, 197, 94, .25);
-    }
-
-    .toast-success .toast-title {
-        color: #16a34a;
-    }
-
-    /* ===== ERROR (Rouge premium) ===== */
-    .toast-error {
-        border-color: rgba(239, 68, 68, .35);
-        background: linear-gradient(135deg,
-                rgba(239, 68, 68, .16),
-                rgba(255, 255, 255, 0) 45%), var(--color-card);
-
-        box-shadow:
-            0 18px 50px rgba(0, 0, 0, .18),
-            0 0 0 2px rgba(239, 68, 68, .14),
-            0 16px 40px rgba(239, 68, 68, .10);
-    }
-
-    .toast-error::before {
-        background: linear-gradient(180deg, #ef4444, #b91c1c);
-    }
-
-    .toast-error::after {
-        background: linear-gradient(90deg, #ef4444, #b91c1c);
-    }
-
-    .toast-error .toast-icon {
-        background: linear-gradient(135deg, #ef4444, #b91c1c);
-        box-shadow: 0 14px 30px rgba(239, 68, 68, .22);
-    }
-
-    .toast-error .toast-title {
-        color: #ef4444;
-    }
-
-    /* Dark mode: on augmente un peu la lisibilité */
-    .dark-mode .toast {
-        box-shadow:
-            0 18px 55px rgba(0, 0, 0, .45),
-            0 2px 12px rgba(0, 0, 0, .35);
-    }
-   </style>
-
-    <!-- DataTables CSS -->
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/jquery.dataTables.min.css">
-
+    /* Warning */
+    .toast-warning { border-color: rgba(234,179,8,.3); }
+    .toast-warning::before { background: linear-gradient(180deg, #eab308, #ca8a04); }
+    .toast-warning::after  { background: linear-gradient(90deg, #eab308, #ca8a04); }
+    .toast-warning .toast-icon { background: linear-gradient(135deg, #eab308, #ca8a04); }
+    .toast-warning .toast-title { color: #ca8a04; }
+    </style>
 </head>
 
 <body class="light-mode" id="theme-container">
 
-    <!-- Sidebar Section -->
-    <div class="sidebar" id="sidebar">
-        <!-- Logo et Titre -->
+    {{-- ====================================================
+         SIDEBAR
+         ==================================================== --}}
+    <aside class="sidebar" id="sidebar" role="navigation" aria-label="Navigation principale">
+
+        {{-- Logo --}}
         <div class="brand">
-            
             <div class="brand-logo">
-                <div class="logo-text">
-                    <img src="{{ asset('assets/images/logo_tracking.png') }}" alt="">
-                   
-                </div>
-                <div class="logo-text">
-                    <h1>Fleetra</h1>
-                </div>
+                {{-- Image : toujours visible, même en collapsed --}}
+                <img src="{{ asset('assets/images/logo_tracking.png') }}" alt="Fleetra logo">
+                {{-- Texte masqué en collapsed --}}
+                <h1 class="logo-text">Fleetra</h1>
             </div>
         </div>
 
-        <!-- Bouton pour Rétracter la sidebar sur Desktop -->
-        <div class="hidden md:flex justify-end px-4 mb-4">
-            <button id="toggle-sidebar-desktop" class="navbar-icon-btn">
-                <i class="fas fa-chevron-left transition-transform duration-300" id="toggle-icon-desktop"></i>
+        {{-- Bouton collapse (desktop uniquement) --}}
+        <div class="toggle-collapse-btn hidden md:flex">
+            <button id="toggle-sidebar-desktop" class="navbar-icon-btn" title="Rétracter/étendre la sidebar">
+                {{-- Pointe à gauche par défaut (sidebar ouverte) --}}
+                <i class="fas fa-chevron-left" id="toggle-icon-desktop"></i>
             </button>
         </div>
 
-        <!-- Liens de Navigation -->
+        {{-- Navigation --}}
         <ul class="sidebar-nav">
+
             <li>
-                <a href="{{ route('dashboard') ?? '#' }}" class="{{ request()->is('dashboard') ? 'active' : '' }}">
-                    <span class="icon"><i class="fas fa-tachometer-alt"></i></span>
-                    <span class="title">Dashboard</span>
+                <a href="{{ route('dashboard') }}" class="{{ request()->routeIs('dashboard') ? 'active' : '' }}">
+                    <span class="nav-icon"><i class="fas fa-tachometer-alt"></i></span>
+                    <span class="nav-label">Dashboard</span>
                 </a>
             </li>
 
-            <!-- Lien avec Sous-Menu (Module de Suivi) -->
+            {{-- Sous-menu Suivi & Localisation --}}
             <li class="nav-item">
-                <a href="#" class="dropdown-toggle" data-dropdown="tracking-menu">
-                    <span class="icon"><i class="fas fa-satellite-dish"></i></span>
-                    <span class="title">Suivi & Localisation</span>
-                    <i class="fas fa-chevron-right text-xs ml-auto"></i>
+                {{-- FIX : data-dropdown correspond bien à l'id de la liste --}}
+                <a href="#" class="dropdown-toggle {{ request()->is('tracking*') || request()->is('users*') || request()->is('trajets*') ? 'active' : '' }}"
+                   data-dropdown="tracking-menu"
+                   aria-expanded="false">
+                    <span class="nav-icon"><i class="fas fa-satellite-dish"></i></span>
+                    <span class="nav-label">Suivi &amp; Localisation</span>
+                    {{-- FIX : classe dropdown-arrow (pointe droite au repos, tourne en .open) --}}
+                    <i class="fas fa-chevron-right dropdown-arrow" aria-hidden="true"></i>
                 </a>
-                <ul class="nav-dropdown" id="tracking-menu">
-                   
-                    <li><i class="fas fa-chevron-right text-xs ml-auto"></i> <a href="{{ route('tracking.vehicles') ?? '#' }}"
-                            class="{{ request()->is('tracking.vehicles') ? 'active' : '' }}">Véhicules</a></li>
-                    <li><a href="{{ route('users.index') }}" class="{{ request()->is('users') ? 'active' : '' }}">Chauffeurs</a></li>
-                    <li><a href="{{ route('trajets.index') }}" class="{{ request()->is('tracking.zones') ? 'active' : '' }}">Trajets</a></li>
+                <ul class="nav-dropdown {{ request()->is('tracking*') || request()->is('users*') || request()->is('trajets*') ? 'open' : '' }}"
+                    id="tracking-menu">
+                    <li>
+                        <a href="{{ route('tracking.vehicles') }}"
+                           class="{{ request()->routeIs('tracking.vehicles') ? 'active' : '' }}">
+                            <span class="nav-icon"><i class="fas fa-car"></i></span>
+                            <span class="nav-label">Véhicules</span>
+                        </a>
+                    </li>
+                    <li>
+                        {{-- FIX : cet onglet était perdu après clic Associations → routeIs corrigé --}}
+                        <a href="{{ route('users.index') }}"
+                           class="{{ request()->routeIs('users.*') ? 'active' : '' }}">
+                            <span class="nav-icon"><i class="fas fa-users"></i></span>
+                            <span class="nav-label">Chauffeurs</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="{{ route('trajets.index') }}"
+                           class="{{ request()->routeIs('trajets.*') ? 'active' : '' }}">
+                            <span class="nav-icon"><i class="fas fa-route"></i></span>
+                            <span class="nav-label">Trajets</span>
+                        </a>
+                    </li>
                 </ul>
             </li>
 
-           
             <li>
-                <a href="{{ route('alerts.view') ?? '#' }}"
-                    class="{{ request()->routeIs('alerts.index') ? 'active' : '' }}">
-                    <span class="icon"><i class="fas fa-exclamation-triangle"></i></span>
-                    <span class="title">Alertes</span>
+                <a href="{{ route('alerts.view') }}"
+                   class="{{ request()->routeIs('alerts.*') ? 'active' : '' }}">
+                    <span class="nav-icon"><i class="fas fa-exclamation-triangle"></i></span>
+                    <span class="nav-label">Alertes</span>
                 </a>
             </li>
 
-             <li>
-                <a href="{{ route('engine.action.index') ?? '#' }}"
-                    class="{{ request()->routeIs('engine.actions') ? 'active' : '' }}">
-                    <span class="icon"><i class="fas fa-power-off"></i></span>
-                    <span class="title">Coupure Moteur</span>
+            <li>
+                <a href="{{ route('engine.action.index') }}"
+                   class="{{ request()->routeIs('engine.*') ? 'active' : '' }}">
+                    <span class="nav-icon"><i class="fas fa-power-off"></i></span>
+                    <span class="nav-label">Coupure Moteur</span>
                 </a>
             </li>
+
         </ul>
 
-        <!-- Section Pied de page de la Sidebar (Déconnexion) -->
-        <div class="absolute bottom-0 left-0 w-full p-2 border-t border-solid border-border-subtle"
-            style="background-color: var(--color-sidebar-bg);">
-            <a href="#" onclick="event.preventDefault(); document.getElementById('logout-form').submit();"
-                class="flex items-center p-2 rounded-lg text-secondary hover:text-red-500 transition-colors sidebar-logout-link"
-                title="Déconnexion">
-                <span class="icon"><i class="fas fa-sign-out-alt"></i></span>
-                <span class="title font-bold profile-text">Déconnexion</span>
+        {{-- Footer déconnexion --}}
+        <div class="sidebar-footer">
+            <a href="#" onclick="event.preventDefault(); document.getElementById('logout-form-sidebar').submit();" title="Déconnexion">
+                <span class="nav-icon"><i class="fas fa-sign-out-alt"></i></span>
+                <span class="nav-label profile-text">Déconnexion</span>
+            </a>
+            <form id="logout-form-sidebar" action="{{ route('logout') }}" method="POST" class="hidden">@csrf</form>
+        </div>
+
+    </aside>
+
+    {{-- Bouton ouvrir sidebar mobile --}}
+    <button class="toggle-sidebar-mobile" id="toggle-btn" aria-label="Ouvrir le menu">
+        <i class="fas fa-bars"></i>
+    </button>
+
+    {{-- Overlay mobile --}}
+    <div class="overlay" id="mobile-overlay" aria-hidden="true"></div>
+
+    {{-- ====================================================
+         NAVBAR
+         ==================================================== --}}
+    <header class="navbar" id="navbar">
+
+        {{-- Titre page --}}
+        <h1 class="navbar-title hidden sm:block">@yield('title', 'Dashboard')</h1>
+
+        <div style="display:flex;align-items:center;gap:1rem;flex-shrink:0;">
+
+            {{-- Toggle dark/light --}}
+            <div style="display:flex;align-items:center;gap:0.5rem;">
+                <span class="text-secondary hidden lg:block" style="font-family:var(--font-display);font-size:0.72rem;" id="mode-label">Mode Clair</span>
+                <div id="theme-toggle" class="toggle-switch" role="switch" aria-checked="false" tabindex="0" title="Basculer le thème"></div>
+            </div>
+
+            {{-- Cloche notifications — FIX : lien actif vers alerts.view --}}
+            <a href="{{ route('alerts.view') }}" class="navbar-icon-btn" title="Alertes &amp; Notifications" style="position:relative;">
+                <i class="fas fa-bell"></i>
+                {{-- Point rouge si des alertes existent --}}
+                <span style="position:absolute;top:6px;right:6px;width:8px;height:8px;background:#ef4444;border-radius:50%;border:2px solid var(--color-card);"></span>
             </a>
 
-            <form id="logout-form" action="{{ route('logout') }}" method="POST" class="hidden">
-                @csrf
-            </form>
-
-        </div>
-    </div>
-
-    <!-- Toggle Button for Mobile -->
-    <div class="toggle-sidebar" id="toggle-btn">
-        <i class="fas fa-bars"></i>
-    </div>
-
-    <!-- NAVBAR (Barre de Navigation Supérieure) -->
-    <div class="navbar" id="navbar">
-
-        <div class="flex-grow">
-            <!-- Exemple de titre de page -->
-            <h1 class="text-xl font-bold font-orbitron hidden sm:block" style="color: var(--color-text); font-size: 2rem;">@yield('title',
-                'Dashboard')</h1>
-        </div>
-
-        <div class="flex items-center space-x-4">
-
-            <!-- 1. Toggle Mode Sombre/Clair (TOUJOURS PRÉSENT) -->
-            <div class="flex items-center">
-                <span class="text-sm mr-2 pt-0.5 font-orbitron hidden lg:block"
-                    style="color: var(--color-secondary-text);" id="mode-label">Mode Clair</span>
-                <div id="theme-toggle" class="toggle-switch"></div>
-            </div>
-
-            <!-- 2. Notifications -->
-            <div class="relative">
-                <button class="navbar-icon-btn" title="Notifications">
-                    <i class="fas fa-bell"></i>
-                    <span class="absolute top-1 right-1 h-2 w-2 bg-red-500 rounded-full border"
-                        style="border-color: var(--color-card);"></span>
-                </button>
-                <!-- Menu de notifications (caché) -->
-            </div>
-
-            <!-- 3. Menu Utilisateur -->
-            <div class="relative" id="user-menu-container">
+            {{-- Menu utilisateur --}}
+            <div class="user-menu-wrapper" id="user-menu-container">
                 <button
-                    class="flex items-center space-x-2 p-1 rounded-full hover:bg-sidebar-active-bg transition-colors"
-                    id="user-menu-toggle">
-                    <img src="https://placehold.co/36x36/F58220/ffffff?text=U" alt="Profile"
-                        class="h-9 w-9 rounded-full object-cover border-2 border-primary">
-                    <span class="font-semibold hidden lg:block profile-text" style="color: var(--color-text);">{{ auth()->user()->prenom }} {{ auth()->user()->nom }}</span>
+                    style="display:flex;align-items:center;gap:0.5rem;padding:4px;border-radius:9999px;background:transparent;border:none;cursor:pointer;transition:background-color 0.2s;"
+                    id="user-menu-toggle"
+                    aria-haspopup="true"
+                    aria-expanded="false">
+                    <img src="https://placehold.co/36x36/F58220/ffffff?text={{ substr(auth()->user()->prenom ?? 'U', 0, 1) }}"
+                         alt="Profil"
+                         style="width:34px;height:34px;border-radius:50%;object-fit:cover;border:2px solid var(--color-primary);">
+                    <span class="hidden lg:block" style="font-weight:600;font-size:0.85rem;color:var(--color-text);white-space:nowrap;">
+                        {{ auth()->user()->prenom }} {{ auth()->user()->nom }}
+                    </span>
+                    <i class="fas fa-chevron-down" style="font-size:0.65rem;color:var(--color-secondary-text);"></i>
                 </button>
 
-                <!-- Dropdown Utilisateur -->
-                <div class="user-dropdown-menu" id="user-menu">
-                    <div class="p-3 border-b" style="border-color: var(--color-border-subtle);">
-                        <p class="font-semibold">{{ auth()->user()->prenom }} {{ auth()->user()->nom }}</p>
-                        <p class="text-xs text-secondary">{{ auth()->user()->email }} </p>
+                {{-- Dropdown utilisateur --}}
+                <div class="user-dropdown-menu" id="user-menu" role="menu">
+                    <div class="user-info">
+                        <p style="font-weight:600;font-size:0.85rem;margin:0;">{{ auth()->user()->prenom }} {{ auth()->user()->nom }}</p>
+                        <p style="font-size:0.75rem;color:var(--color-secondary-text);margin:2px 0 0;">{{ auth()->user()->email }}</p>
                     </div>
-                    <a href="{{ route('profile.edit') ?? '#' }}"><i class="fas fa-user-circle mr-2"></i> Mon Profil</a>
-                    <a href="#"><i class="fas fa-cog mr-2"></i> Paramètres</a>
-                    <a href="#" class="text-red-500"
-                        onclick="event.preventDefault(); document.getElementById('logout-form').submit();">
-                        <i class="fas fa-sign-out-alt mr-2"></i> Déconnexion
+                    <a href="{{ route('profile.edit') }}" role="menuitem">
+                        <i class="fas fa-user-circle" style="width:16px;"></i> Mon Profil
                     </a>
-
-                    <form id="logout-form" action="{{ route('logout') }}" method="POST" class="hidden">
-                        @csrf
-                    </form>
-
+                    <a href="#" role="menuitem">
+                        <i class="fas fa-cog" style="width:16px;"></i> Paramètres
+                    </a>
+                    <a href="#" class="text-red-500" role="menuitem"
+                       onclick="event.preventDefault(); document.getElementById('logout-form-navbar').submit();"
+                       style="color:#ef4444 !important;">
+                        <i class="fas fa-sign-out-alt" style="width:16px;"></i> Déconnexion
+                    </a>
+                    <form id="logout-form-navbar" action="{{ route('logout') }}" method="POST" class="hidden">@csrf</form>
                 </div>
             </div>
 
         </div>
-    </div>
+    </header>
 
-    <!-- MAIN CONTENT AREA -->
-    <div class="main-content" id="main-content">
-        <!-- Contenu de la page -->
-        <div class="p-8">
-            <div class="page-content">
+    {{-- ====================================================
+         MAIN CONTENT
+         ==================================================== --}}
+    <main class="main-content" id="main-content">
+        <div class="page-inner">
 
-             {{-- Toast container --}}
-                <div id="toast-container" class="fixed top-5 right-5 z-[9999] space-y-3 pointer-events-none"></div>
+            {{-- Toast container --}}
+            <div id="toast-container" aria-live="polite" aria-atomic="false"></div>
 
-                @if(session('success'))
-                <div class="toast toast-success pointer-events-auto" role="alert">
-                    <div class="toast-icon">
-                        <i class="fas fa-check-circle"></i>
-                    </div>
-                    <div class="toast-body">
-                        <div class="toast-title">Succès</div>
-                        <div class="toast-msg">{{ session('success') }}</div>
-                    </div>
-                    <button type="button" class="toast-close" aria-label="Fermer">&times;</button>
+            {{-- Toasts session --}}
+            @if(session('success'))
+            <div class="toast toast-success" role="alert" aria-live="assertive">
+                <div class="toast-icon"><i class="fas fa-check-circle"></i></div>
+                <div class="toast-body">
+                    <div class="toast-title">Succès</div>
+                    <div class="toast-msg">{{ session('success') }}</div>
                 </div>
-                @endif
-
-                @if(session('error'))
-                <div class="toast toast-error pointer-events-auto" role="alert">
-                    <div class="toast-icon">
-                        <i class="fas fa-exclamation-triangle"></i>
-                    </div>
-                    <div class="toast-body">
-                        <div class="toast-title">Erreur</div>
-                        <div class="toast-msg">{{ session('error') }}</div>
-                    </div>
-                    <button type="button" class="toast-close" aria-label="Fermer">&times;</button>
-                </div>
-                @endif
-
-
-
-
-                @yield('content')
+                <button type="button" class="toast-close" aria-label="Fermer">&times;</button>
             </div>
+            @endif
 
+            @if(session('error'))
+            <div class="toast toast-error" role="alert" aria-live="assertive">
+                <div class="toast-icon"><i class="fas fa-exclamation-triangle"></i></div>
+                <div class="toast-body">
+                    <div class="toast-title">Erreur</div>
+                    <div class="toast-msg">{{ session('error') }}</div>
+                </div>
+                <button type="button" class="toast-close" aria-label="Fermer">&times;</button>
+            </div>
+            @endif
 
-
-
+            @yield('content')
 
         </div>
+        <div style="height:2rem;"></div>
+    </main>
 
-        <!-- Pour s'assurer que le bas de la page n'est pas caché par la barre de déconnexion de la sidebar -->
-        <div class="h-10"></div>
-    </div>
-
-    <!-- JavaScript for Sidebar Toggle, Theme, and Dropdowns -->
-
-
+    {{-- ====================================================
+         SCRIPTS
+         ==================================================== --}}
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-
     <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
 
-   
     <script>
-    $(function() { // équivalent de $(document).ready()
-        if ($.fn.DataTable) { // Vérifie que DataTables est chargé
+    /* ============================================================
+       DATATABLES INIT
+       ============================================================ */
+    $(function () {
+        if ($.fn.DataTable && document.getElementById('myTable')) {
             $('#myTable').DataTable({
                 responsive: true,
                 processing: true,
                 serverSide: false,
-                language: {
-                    url: "/datatables/i18n/fr-FR.json"
-                }
+                language: { url: '/datatables/i18n/fr-FR.json' },
+                // FIX footer centré via CSS, mais on fixe aussi dom pour cohérence
+                dom: '<"flex flex-wrap items-center justify-between gap-2 mb-3"lf>t<"flex flex-wrap items-center justify-center gap-4 mt-3"ip>'
             });
-        } else {
-            console.error("DataTables non chargé !");
         }
     });
     </script>
 
     <script>
-    const themeContainer = document.getElementById('theme-container');
-    const themeToggle = document.getElementById('theme-toggle');
-    const modeLabel = document.getElementById('mode-label');
-    const sidebar = document.getElementById('sidebar');
-    const mainContent = document.getElementById('main-content');
-    const toggleBtn = document.getElementById('toggle-btn');
-    const navbar = document.getElementById('navbar');
-    const desktopToggle = document.getElementById('toggle-sidebar-desktop');
-    const desktopToggleIcon = document.getElementById('toggle-icon-desktop');
+    /* ============================================================
+       RÉFÉRENCES DOM
+       ============================================================ */
+    const themeContainer   = document.getElementById('theme-container');
+    const themeToggle      = document.getElementById('theme-toggle');
+    const modeLabel        = document.getElementById('mode-label');
+    const sidebar          = document.getElementById('sidebar');
+    const mainContent      = document.getElementById('main-content');
+    const navbar           = document.getElementById('navbar');
+    const desktopToggleBtn = document.getElementById('toggle-sidebar-desktop');
+    const desktopToggleIcon= document.getElementById('toggle-icon-desktop');
+    const mobileTrigger    = document.getElementById('toggle-btn');
+    const mobileOverlay    = document.getElementById('mobile-overlay');
+    const userMenuToggle   = document.getElementById('user-menu-toggle');
+    const userMenu         = document.getElementById('user-menu');
 
-    // --- THÈME ---
+    /* ============================================================
+       THÈME CLAIR / SOMBRE
+       ============================================================ */
     function setTheme(theme) {
-        if (theme === 'dark') {
-            themeContainer.classList.remove('light-mode');
-            themeContainer.classList.add('dark-mode');
-            themeToggle.classList.add('toggled');
-            modeLabel.textContent = 'Mode Sombre';
-        } else {
-            themeContainer.classList.remove('dark-mode');
-            themeContainer.classList.add('light-mode');
-            themeToggle.classList.remove('toggled');
-            modeLabel.textContent = 'Mode Clair';
-        }
+        const isDark = theme === 'dark';
+        themeContainer.classList.toggle('dark-mode',  isDark);
+        themeContainer.classList.toggle('light-mode', !isDark);
+        themeToggle.classList.toggle('toggled', isDark);
+        themeToggle.setAttribute('aria-checked', isDark);
+        if (modeLabel) modeLabel.textContent = isDark ? 'Mode Sombre' : 'Mode Clair';
         localStorage.setItem('theme', theme);
     }
 
     function initTheme() {
-        const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-        const savedTheme = localStorage.getItem('theme') || (prefersDark ? 'dark' : 'light');
-        setTheme(savedTheme);
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        setTheme(localStorage.getItem('theme') || (prefersDark ? 'dark' : 'light'));
     }
 
     themeToggle.addEventListener('click', () => {
-        const currentTheme = themeContainer.classList.contains('dark-mode') ? 'dark' : 'light';
-        setTheme(currentTheme === 'light' ? 'dark' : 'light');
+        setTheme(themeContainer.classList.contains('dark-mode') ? 'light' : 'dark');
+    });
+    themeToggle.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); themeToggle.click(); }
     });
 
-    // --- SIDEBAR : LOGIQUE D'ÉTAT PRINCIPAL (Desktop) ---
-
-    function toggleSidebarDesktop() {
-        // Applique l'état 'collapsed' à la sidebar et l'état 'expanded' au contenu/navbar
-        const isCollapsed = sidebar.classList.toggle('collapsed');
-        mainContent.classList.toggle('expanded', isCollapsed);
-        navbar.classList.toggle('expanded', isCollapsed);
-        desktopToggleIcon.classList.toggle('rotate-180', !isCollapsed);
-        localStorage.setItem('sidebarCollapsed', isCollapsed ? 'true' : 'false');
+    /* ============================================================
+       SIDEBAR — DESKTOP COLLAPSE
+       ============================================================ */
+    function collapseDesktop(force) {
+        const willCollapse = force !== undefined ? force : !sidebar.classList.contains('collapsed');
+        sidebar.classList.toggle('collapsed', willCollapse);
+        mainContent.classList.toggle('expanded', willCollapse);
+        navbar.classList.toggle('expanded', willCollapse);
+        /* FIX flèche : en collapsed la flèche pointe à droite (rotate-180) */
+        desktopToggleIcon.style.transform = willCollapse ? 'rotate(180deg)' : 'rotate(0deg)';
+        localStorage.setItem('sidebarCollapsed', willCollapse ? 'true' : 'false');
     }
 
-    // --- SIDEBAR : LOGIQUE Mobile ---
-    function toggleSidebarMobile() {
-        const isActive = sidebar.classList.toggle('active');
-        handleOverlay(isActive);
+    desktopToggleBtn.addEventListener('click', () => collapseDesktop());
+
+    /* ============================================================
+       SIDEBAR — MOBILE
+       ============================================================ */
+    function openMobileSidebar() {
+        sidebar.classList.add('mobile-open');
+        mobileOverlay.classList.add('visible');
+        requestAnimationFrame(() => mobileOverlay.classList.add('active'));
+        document.body.style.overflow = 'hidden';
     }
 
-    desktopToggle.addEventListener('click', toggleSidebarDesktop);
-    toggleBtn.addEventListener('click', toggleSidebarMobile);
-
-    // Gérer l'overlay (uniquement sur mobile)
-    function handleOverlay(isActive) {
-        let overlay = document.querySelector('.overlay');
-
-        if (isActive && window.innerWidth <= 767) {
-            if (!overlay) {
-                overlay = document.createElement('div');
-                overlay.className = 'overlay';
-                document.body.appendChild(overlay);
-
-                overlay.addEventListener('click', () => {
-                    toggleSidebarMobile();
-                });
-            }
-            // Utiliser setTimeout pour s'assurer que l'animation est appliquée après l'ajout à la page
-            setTimeout(() => {
-                if (isActive) {
-                    overlay.classList.add('active');
-                } else {
-                    overlay.classList.remove('active');
-                    // Retirer l'overlay après la transition si besoin, mais le garder pour la performance
-                }
-            }, 10);
-        } else if (overlay) {
-            overlay.classList.remove('active');
-        }
+    function closeMobileSidebar() {
+        sidebar.classList.remove('mobile-open');
+        mobileOverlay.classList.remove('active');
+        setTimeout(() => mobileOverlay.classList.remove('visible'), 300);
+        document.body.style.overflow = '';
     }
 
-    // --- SIDEBAR : LOGIQUE DE REDIMENSIONNEMENT ET INITIALISATION ---
+    mobileTrigger.addEventListener('click', () => {
+        sidebar.classList.contains('mobile-open') ? closeMobileSidebar() : openMobileSidebar();
+    });
+
+    mobileOverlay.addEventListener('click', closeMobileSidebar);
+
+    /* ============================================================
+       RESIZE — SYNC ÉTAT
+       ============================================================ */
     function handleResize() {
-        const isDesktop = window.innerWidth >= 768; // Utiliser le breakpoint de Tailwind (md)
-        const isMobile = window.innerWidth < 768;
-
-        if (isMobile) {
-            // Sur mobile, toujours masqué et désactiver l'état desktop
+        if (window.innerWidth < 768) {
+            /* Mobile : reset états desktop */
             sidebar.classList.remove('collapsed');
             mainContent.classList.remove('expanded');
             navbar.classList.remove('expanded');
         } else {
-            // Sur desktop/tablette, restaurer l'état mémorisé
-            const isCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
-
-            if (isCollapsed) {
-                sidebar.classList.add('collapsed');
-                mainContent.classList.add('expanded');
-                navbar.classList.add('expanded');
-                desktopToggleIcon.classList.add('rotate-180');
-            } else {
-                sidebar.classList.remove('collapsed');
-                mainContent.classList.remove('expanded');
-                navbar.classList.remove('expanded');
-                desktopToggleIcon.classList.remove('rotate-180');
-            }
-            sidebar.classList.remove('active');
-            handleOverlay(false); // S'assurer que l'overlay est retiré si on passe du mode mobile au mode desktop
+            /* Desktop : restaurer état mémorisé */
+            closeMobileSidebar();
+            const saved = localStorage.getItem('sidebarCollapsed') === 'true';
+            collapseDesktop(saved);
         }
     }
 
-    // --- GESTION DES SOUS-MENUS ---
+    window.addEventListener('resize', handleResize);
+
+    /* ============================================================
+       SOUS-MENUS SIDEBAR
+       ============================================================ */
     document.querySelectorAll('.dropdown-toggle').forEach(toggle => {
-        toggle.addEventListener('click', (e) => {
+        toggle.addEventListener('click', e => {
             e.preventDefault();
-            const dropdownId = toggle.getAttribute('data-dropdown');
-            const dropdown = document.getElementById(dropdownId);
+            if (sidebar.classList.contains('collapsed')) return; // Pas en collapsed
 
-            // Les sous-menus ne fonctionnent pas en mode rétracté
-            if (dropdown && !sidebar.classList.contains('collapsed')) {
-                // Fermer les autres menus ouverts
-                document.querySelectorAll('.nav-dropdown.open').forEach(openDropdown => {
-                    if (openDropdown.id !== dropdownId) {
-                        openDropdown.classList.remove('open');
-                        openDropdown.previousElementSibling.classList.remove('open');
-                    }
-                });
+            const dropId = toggle.getAttribute('data-dropdown');
+            const drop   = document.getElementById(dropId);
+            if (!drop) return;
 
-                // Ouvrir/Fermer le menu actuel
-                dropdown.classList.toggle('open');
-                toggle.classList.toggle('open');
-            }
+            const isOpen = drop.classList.contains('open');
+
+            /* Fermer tous les autres */
+            document.querySelectorAll('.nav-dropdown.open').forEach(d => {
+                if (d.id !== dropId) {
+                    d.classList.remove('open');
+                    const t = document.querySelector(`[data-dropdown="${d.id}"]`);
+                    if (t) { t.classList.remove('open'); t.setAttribute('aria-expanded','false'); }
+                }
+            });
+
+            /* Toggle courant */
+            drop.classList.toggle('open', !isOpen);
+            toggle.classList.toggle('open', !isOpen);
+            toggle.setAttribute('aria-expanded', !isOpen);
         });
     });
 
-    // --- GESTION DU MENU UTILISATEUR (NAVBAR) ---
-    const userMenuToggle = document.getElementById('user-menu-toggle');
-    const userMenu = document.getElementById('user-menu');
-
-    userMenuToggle.addEventListener('click', (e) => {
-        e.stopPropagation();
-        userMenu.classList.toggle('open');
+    /* Ouvrir le menu actif au chargement */
+    document.querySelectorAll('.nav-dropdown.open').forEach(drop => {
+        const toggle = document.querySelector(`[data-dropdown="${drop.id}"]`);
+        if (toggle) { toggle.classList.add('open'); toggle.setAttribute('aria-expanded', 'true'); }
     });
 
-    // Fermer le menu utilisateur lorsque l'on clique n'importe où
-    document.addEventListener('click', (e) => {
-        if (userMenu.classList.contains('open') && !userMenu.contains(e.target) && !userMenuToggle.contains(e
-                .target)) {
+    /* ============================================================
+       DROPDOWN UTILISATEUR (NAVBAR)
+       z-index: var(--z-dropdown) = 50, supérieur à KPI sticky (z-index:10)
+       ============================================================ */
+    userMenuToggle.addEventListener('click', e => {
+        e.stopPropagation();
+        const isOpen = userMenu.classList.toggle('open');
+        userMenuToggle.setAttribute('aria-expanded', isOpen);
+    });
+
+    document.addEventListener('click', e => {
+        if (!userMenu.contains(e.target) && !userMenuToggle.contains(e.target)) {
             userMenu.classList.remove('open');
+            userMenuToggle.setAttribute('aria-expanded', 'false');
         }
     });
 
-    document.addEventListener('DOMContentLoaded', function() {
+    /* ============================================================
+       TOASTS — AFFICHAGE AUTOMATIQUE
+       ============================================================ */
+    function showToast(el, duration = 5000) {
+        if (!el) return;
+        requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('show')));
+
+        const close = el.querySelector('.toast-close');
+        const dismiss = () => {
+            el.classList.remove('show');
+            el.classList.add('hide');
+            setTimeout(() => el.remove(), 300);
+        };
+
+        if (close) close.addEventListener('click', dismiss);
+        setTimeout(dismiss, duration);
+    }
+
+    /* Toasts issus de session (déjà dans le DOM) */
+    document.querySelectorAll('.toast').forEach(t => showToast(t));
+
+    /* API publique pour créer des toasts dynamiques :
+       window.showToastMsg('Titre', 'Message', 'success'|'error'|'warning') */
+    window.showToastMsg = function (title, msg, type = 'success') {
+        const container = document.getElementById('toast-container');
+        const icons = { success: 'fa-check-circle', error: 'fa-exclamation-triangle', warning: 'fa-exclamation-circle' };
+        const el = document.createElement('div');
+        el.className = `toast toast-${type}`;
+        el.setAttribute('role', 'alert');
+        el.innerHTML = `
+            <div class="toast-icon"><i class="fas ${icons[type] || icons.success}"></i></div>
+            <div class="toast-body">
+                <div class="toast-title">${title}</div>
+                <div class="toast-msg">${msg}</div>
+            </div>
+            <button type="button" class="toast-close" aria-label="Fermer">&times;</button>
+        `;
+        container.appendChild(el);
+        showToast(el);
+    };
+
+    /* ============================================================
+       INIT AU CHARGEMENT
+       ============================================================ */
+    document.addEventListener('DOMContentLoaded', () => {
         initTheme();
         handleResize();
     });
-
-    window.addEventListener('resize', handleResize);
     </script>
 
     @stack('scripts')
 
-    @push('scripts')
-    {{-- Si vous avez des scripts spécifiques à cette page, placez-les ici --}}
-    @endpush
-
 </body>
-
 </html>

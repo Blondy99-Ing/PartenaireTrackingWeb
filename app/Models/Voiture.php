@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Support\Str;
 
 class Voiture extends Model
 {
@@ -30,21 +31,75 @@ class Voiture extends Model
         'geofence_zone',
     ];
 
+    /* =========================
+     * ✅ NORMALISATION AUTO (Mutators)
+     * ========================= */
+
+    public function setImmatriculationAttribute($value): void
+    {
+        $v = trim((string) $value);
+        $this->attributes['immatriculation'] = $v === '' ? null : mb_strtoupper($v, 'UTF-8');
+    }
+
+    public function setMarqueAttribute($value): void
+    {
+        $v = trim((string) $value);
+        $this->attributes['marque'] = $v === '' ? null : mb_strtoupper($v, 'UTF-8');
+    }
+
+    public function setModelAttribute($value): void
+    {
+        $this->attributes['model'] = $this->titleWords($value);
+    }
+
+    public function setCouleurAttribute($value): void
+    {
+        $this->attributes['couleur'] = $this->titleWords($value);
+    }
+
+    public function setRegionNameAttribute($value): void
+    {
+        $this->attributes['region_name'] = $this->titleWords($value);
+    }
+
+    public function setGeofenceZoneAttribute($value): void
+    {
+        $this->attributes['geofence_zone'] = $this->titleWords($value);
+    }
+
+    public function setMacIdGpsAttribute($value): void
+    {
+        $v = trim((string) $value);
+        $this->attributes['mac_id_gps'] = $v === '' ? null : $v;
+    }
+
+    private function titleWords($value): ?string
+    {
+        $v = trim((string) $value);
+        if ($v === '') return null;
+
+        $v = preg_replace('/\s+/', ' ', $v);
+        $v = mb_strtolower($v, 'UTF-8');
+
+        return Str::title($v);
+    }
+
+    /* =========================
+     * Relations (✅ inchangées)
+     * ========================= */
+
     /**
      * Users linked to this vehicle via association_user_voitures
-     * (partners/admins and/or other linked users depending on your app logic)
      */
-     public function utilisateurS()
-{
-    return $this->belongsToMany(User::class, 'association_user_voitures', 'voiture_id', 'user_id');
-}
+    public function utilisateurS()
+    {
+        return $this->belongsToMany(User::class, 'association_user_voitures', 'voiture_id', 'user_id');
+    }
 
     public function utilisateur()
-{
-    return $this->belongsToMany(User::class, 'association_user_voitures', 'voiture_id', 'user_id');
-}
-
-
+    {
+        return $this->belongsToMany(User::class, 'association_user_voitures', 'voiture_id', 'user_id');
+    }
 
     /**
      * Alias (some code may still call partenaires()).
@@ -52,7 +107,8 @@ class Voiture extends Model
      */
     public function partenaires(): BelongsToMany
     {
-        return $this->utilisateurs();
+        // ⚠️ Ton code avait "utilisateurs()" mais ta relation s'appelle "utilisateurS()"
+        return $this->utilisateurS();
     }
 
     /**
@@ -74,16 +130,15 @@ class Voiture extends Model
 
     /**
      * Current/last chauffeur assignment (partner pivot)
-     * IMPORTANT: ordering ensures you get the latest assignment row.
      */
     public function chauffeurPartnerActuel(): HasOne
     {
         return $this->hasOne(AssociationChauffeurVoiturePartner::class, 'voiture_id')
-            ->orderByDesc('assigned_at'); // or ->orderByDesc('id')
+            ->orderByDesc('assigned_at');
     }
 
     /**
-     * Backward compatibility alias (your error was because some code eager loads this name)
+     * Backward compatibility alias
      */
     public function chauffeurActuelPartner(): HasOne
     {
@@ -91,7 +146,7 @@ class Voiture extends Model
     }
 
     /**
-     * All partner chauffeur assignments (history in same table)
+     * All partner chauffeur assignments
      */
     public function associationsChauffeurPartner(): HasMany
     {
@@ -101,8 +156,6 @@ class Voiture extends Model
 
     /**
      * Trips
-     * NOTE: keep vehicle_id only if your trajets table uses vehicle_id.
-     * If it uses voiture_id, change this to 'voiture_id'.
      */
     public function trajets(): HasMany
     {
