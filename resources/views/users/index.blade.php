@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Utilisateurs secondaires')
+@section('title', 'Chauffeurs')
 
 @push('styles')
 <style>
@@ -531,9 +531,7 @@ table.dataTable {
         {{-- Toolbar --}}
         <div class="table-toolbar">
             <div class="table-toolbar-left">
-                <h2 class="font-orbitron" style="font-size:0.9rem;font-weight:700;color:var(--color-text);margin:0;">
-                    Chauffeurs
-                </h2>
+                
                 <span class="users-count-badge">
                     <i class="fas fa-users" style="font-size:0.6rem;"></i>
                     {{ count($users ?? []) }} enregistré(s)
@@ -552,7 +550,7 @@ table.dataTable {
                 </div>
 
                 <button type="button" id="openAddModalBtn" class="btn-primary" style="white-space:nowrap;">
-                    <i class="fas fa-user-plus"></i> Nouveau chauffeur
+                    <i class="fas fa-user-plus"></i> Chauffeur
                 </button>
             </div>
         </div>
@@ -562,7 +560,6 @@ table.dataTable {
             <table id="usersTable" class="ui-table w-full">
                 <thead>
                     <tr>
-                        <th>Rôle</th>
                         <th>Chauffeur</th>
                         <th>Téléphone</th>
                         <th>Ville</th>
@@ -592,12 +589,7 @@ table.dataTable {
                         ];
                     @endphp
                     <tr>
-                        <td>
-                            <span class="role-badge">
-                                <i class="fas fa-steering-wheel" style="font-size:0.55rem;"></i>
-                                Chauffeur
-                            </span>
-                        </td>
+                        
                         <td>
                             <div class="user-name-cell">
                                 <img src="{{ $thumbUrl }}"
@@ -799,8 +791,7 @@ table.dataTable {
         </div>
 
         <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.75rem;">
-            <input id="affectSearch" type="text" class="ui-input-style" style="flex:1;min-width:160px;" placeholder="Recherche intelligente...">
-            <input id="affectNote" type="text" class="ui-input-style" style="flex:1;min-width:160px;" placeholder="Note (optionnel)">
+            <input id="affectSearch" type="text" class="ui-input-style" style="flex:1;min-width:160px;" placeholder="Recherche immatriculation, modèle...">
         </div>
 
         <div class="ui-table-container">
@@ -1118,7 +1109,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 return `<tr>
                     <td><strong>${esc(v.immatriculation)}</strong></td>
                     <td>${esc((v.marque || '') + ' ' + (v.model || ''))}</td>
-                    <td style="color:var(--color-secondary-text);font-size:0.72rem;">${esc(v.mac_id_gps || '—')}</td>
                     <td style="font-size:0.72rem;">${cur}</td>
                     <td style="text-align:right;">
                         <button type="button" class="btn-primary js-pick" data-voiture-id="${v.id}" style="font-size:0.7rem;padding:0.3rem 0.75rem;">
@@ -1193,7 +1183,7 @@ document.addEventListener('DOMContentLoaded', function () {
         titleEl.textContent = 'Associer un véhicule';
         ctxEl.innerHTML = `<i class="fas fa-user" style="color:var(--color-primary);"></i> ${esc(btn.dataset.userLabel || '')}`;
 
-        headRow.innerHTML = ['Immatriculation', 'Véhicule', 'GPS', 'Statut', '']
+        headRow.innerHTML = ['Immatriculation', 'Véhicule' , 'Statut', '']
             .map(c => `<th>${c}</th>`).join('');
 
         openModal();

@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Support\Str;
 
 class Voiture extends Model
@@ -32,45 +33,79 @@ class Voiture extends Model
     ];
 
     /* =========================
-     * ✅ NORMALISATION AUTO (Mutators)
+     * ✅ NORMALISATION SET + GET
      * ========================= */
 
-    public function setImmatriculationAttribute($value): void
+    protected function immatriculation(): Attribute
+    {
+        return Attribute::make(
+            get: fn ($value) => $this->upperOrNull($value),
+            set: fn ($value) => $this->upperOrNull($value),
+        );
+    }
+
+    protected function marque(): Attribute
+    {
+        return Attribute::make(
+            get: fn ($value) => $this->upperOrNull($value),
+            set: fn ($value) => $this->upperOrNull($value),
+        );
+    }
+
+    protected function model(): Attribute
+    {
+        return Attribute::make(
+            get: fn ($value) => $this->titleWords($value),
+            set: fn ($value) => $this->titleWords($value),
+        );
+    }
+
+    protected function couleur(): Attribute
+    {
+        return Attribute::make(
+            get: fn ($value) => $this->titleWords($value),
+            set: fn ($value) => $this->titleWords($value),
+        );
+    }
+
+    protected function regionName(): Attribute
+    {
+        return Attribute::make(
+            get: fn ($value) => $this->titleWords($value),
+            set: fn ($value) => $this->titleWords($value),
+        );
+    }
+
+    protected function geofenceZone(): Attribute
+    {
+        return Attribute::make(
+            get: fn ($value) => $this->titleWords($value),
+            set: fn ($value) => $this->titleWords($value),
+        );
+    }
+
+    protected function macIdGps(): Attribute
+    {
+        return Attribute::make(
+            get: fn ($value) => $this->trimOrNull($value),
+            set: fn ($value) => $this->trimOrNull($value),
+        );
+    }
+
+    /* =========================
+     * Helpers unicode-safe
+     * ========================= */
+
+    private function trimOrNull($value): ?string
     {
         $v = trim((string) $value);
-        $this->attributes['immatriculation'] = $v === '' ? null : mb_strtoupper($v, 'UTF-8');
+        return $v === '' ? null : $v;
     }
 
-    public function setMarqueAttribute($value): void
+    private function upperOrNull($value): ?string
     {
         $v = trim((string) $value);
-        $this->attributes['marque'] = $v === '' ? null : mb_strtoupper($v, 'UTF-8');
-    }
-
-    public function setModelAttribute($value): void
-    {
-        $this->attributes['model'] = $this->titleWords($value);
-    }
-
-    public function setCouleurAttribute($value): void
-    {
-        $this->attributes['couleur'] = $this->titleWords($value);
-    }
-
-    public function setRegionNameAttribute($value): void
-    {
-        $this->attributes['region_name'] = $this->titleWords($value);
-    }
-
-    public function setGeofenceZoneAttribute($value): void
-    {
-        $this->attributes['geofence_zone'] = $this->titleWords($value);
-    }
-
-    public function setMacIdGpsAttribute($value): void
-    {
-        $v = trim((string) $value);
-        $this->attributes['mac_id_gps'] = $v === '' ? null : $v;
+        return $v === '' ? null : mb_strtoupper($v, 'UTF-8');
     }
 
     private function titleWords($value): ?string
@@ -88,9 +123,6 @@ class Voiture extends Model
      * Relations (✅ inchangées)
      * ========================= */
 
-    /**
-     * Users linked to this vehicle via association_user_voitures
-     */
     public function utilisateurS()
     {
         return $this->belongsToMany(User::class, 'association_user_voitures', 'voiture_id', 'user_id');
@@ -101,70 +133,44 @@ class Voiture extends Model
         return $this->belongsToMany(User::class, 'association_user_voitures', 'voiture_id', 'user_id');
     }
 
-    /**
-     * Alias (some code may still call partenaires()).
-     * Keeps backward compatibility without changing other files.
-     */
     public function partenaires(): BelongsToMany
     {
-        // ⚠️ Ton code avait "utilisateurs()" mais ta relation s'appelle "utilisateurS()"
         return $this->utilisateurS();
     }
 
-    /**
-     * Latest GPS location by mac_id_gps
-     */
     public function latestLocation(): HasOne
     {
         return $this->hasOne(Location::class, 'mac_id_gps', 'mac_id_gps')
             ->orderByDesc('datetime');
     }
 
-    /**
-     * Alerts for this vehicle
-     */
     public function alerts(): HasMany
     {
         return $this->hasMany(Alert::class, 'voiture_id');
     }
 
-    /**
-     * Current/last chauffeur assignment (partner pivot)
-     */
     public function chauffeurPartnerActuel(): HasOne
     {
         return $this->hasOne(AssociationChauffeurVoiturePartner::class, 'voiture_id')
             ->orderByDesc('assigned_at');
     }
 
-    /**
-     * Backward compatibility alias
-     */
     public function chauffeurActuelPartner(): HasOne
     {
         return $this->chauffeurPartnerActuel();
     }
 
-    /**
-     * All partner chauffeur assignments
-     */
     public function associationsChauffeurPartner(): HasMany
     {
         return $this->hasMany(AssociationChauffeurVoiturePartner::class, 'voiture_id')
             ->orderByDesc('assigned_at');
     }
 
-    /**
-     * Trips
-     */
     public function trajets(): HasMany
     {
         return $this->hasMany(Trajet::class, 'vehicle_id');
     }
 
-    /**
-     * Partner chauffeur history table
-     */
     public function historiqueChauffeursPartner(): HasMany
     {
         return $this->hasMany(HistoriqueAssociationChauffeurVoiturePartner::class, 'voiture_id')

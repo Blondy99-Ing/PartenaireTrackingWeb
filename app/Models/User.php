@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Laravel\Sanctum\HasApiTokens;
 use Illuminate\Support\Str;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 
 use App\Models\AssociationChauffeurVoiturePartner;
 use App\Models\HistoriqueAssociationChauffeurVoiturePartner;
@@ -61,34 +62,63 @@ class User extends Authenticatable
     }
 
     /* =========================
-     * ✅ NORMALISATION AUTO (Mutators)
+     * ✅ NORMALISATION SET + GET (Attributes)
      * ========================= */
 
-    public function setNomAttribute($value): void
+    protected function nom(): Attribute
+    {
+        return Attribute::make(
+            get: fn ($value) => $this->upperOrNull($value),
+            set: fn ($value) => $this->upperOrNull($value),
+        );
+    }
+
+    protected function prenom(): Attribute
+    {
+        return Attribute::make(
+            get: fn ($value) => $this->titleWords($value),
+            set: fn ($value) => $this->titleWords($value),
+        );
+    }
+
+    protected function ville(): Attribute
+    {
+        return Attribute::make(
+            get: fn ($value) => $this->titleWords($value),
+            set: fn ($value) => $this->titleWords($value),
+        );
+    }
+
+    protected function quartier(): Attribute
+    {
+        return Attribute::make(
+            get: fn ($value) => $this->titleWords($value),
+            set: fn ($value) => $this->titleWords($value),
+        );
+    }
+
+    protected function email(): Attribute
+    {
+        return Attribute::make(
+            get: fn ($value) => $this->lowerOrNull($value),
+            set: fn ($value) => $this->lowerOrNull($value),
+        );
+    }
+
+    /* =========================
+     * Helpers unicode-safe
+     * ========================= */
+
+    private function upperOrNull($value): ?string
     {
         $v = trim((string) $value);
-        $this->attributes['nom'] = $v === '' ? null : mb_strtoupper($v, 'UTF-8');
+        return $v === '' ? null : mb_strtoupper($v, 'UTF-8');
     }
 
-    public function setPrenomAttribute($value): void
-    {
-        $this->attributes['prenom'] = $this->titleWords($value);
-    }
-
-    public function setVilleAttribute($value): void
-    {
-        $this->attributes['ville'] = $this->titleWords($value);
-    }
-
-    public function setQuartierAttribute($value): void
-    {
-        $this->attributes['quartier'] = $this->titleWords($value);
-    }
-
-    public function setEmailAttribute($value): void
+    private function lowerOrNull($value): ?string
     {
         $v = trim((string) $value);
-        $this->attributes['email'] = $v === '' ? null : mb_strtolower($v, 'UTF-8');
+        return $v === '' ? null : mb_strtolower($v, 'UTF-8');
     }
 
     private function titleWords($value): ?string
@@ -96,16 +126,14 @@ class User extends Authenticatable
         $v = trim((string) $value);
         if ($v === '') return null;
 
-        // minuscules d'abord -> puis Title Case (gère les espaces multiples)
         $v = preg_replace('/\s+/', ' ', $v);
         $v = mb_strtolower($v, 'UTF-8');
 
-        // Str::title gère assez bien les accents (et met la 1ère lettre de chaque mot en majuscule)
         return Str::title($v);
     }
 
     /* =========================
-     * Relations (inchangées)
+     * Relations (✅ inchangées)
      * ========================= */
 
     public function role(): BelongsTo

@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Suivi des Véhicules')
+@section('title', 'Véhicules')
 
 @push('styles')
 <style>
@@ -475,9 +475,6 @@ table.dataTable {
                                 <span class="color-swatch"
                                       style="background-color:{{ $voiture->couleur ?? '#e5e7eb' }};"
                                       title="{{ $voiture->couleur ?? 'N/A' }}"></span>
-                                <span style="font-size:0.7rem;color:var(--color-secondary-text);font-family:monospace;">
-                                    {{ $voiture->couleur ?? '—' }}
-                                </span>
                             </div>
                         </td>
 
