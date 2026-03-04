@@ -78,8 +78,23 @@ Route::post('/voitures/{voiture}/toggle-engine', [ControlGpsController::class, '
     ->name('voitures.toggleEngine');
 
 
-//alerts
+// API JSON - toutes alertes (page alerts.view consomme ça)
+// ✅ Alerts API (all)
 Route::get('/alerts', [AlertController::class, 'index'])->name('alerts.index');
+
+// ✅ Alerts API (today by default + quick filters)
+Route::get('/alerts/day', [AlertController::class, 'day'])->name('alerts.day');
+
+// Poll + actions
+Route::get('/alerts/poll', [AlertController::class, 'poll'])->name('alerts.poll');
+Route::patch('/alerts/{id}/read', [AlertController::class, 'markReadApi'])->name('alerts.markReadApi');
+Route::patch('/alerts/{id}/processed', [AlertController::class, 'markProcessedApi'])->name('alerts.markProcessedApi');
+
+// ✅ Alerts view (blade)
+Route::get('/alerts/view', function () {
+    return view('alerts.index');
+})->name('alerts.view');
+//alerts
 Route::post('/alerts/turnoff/{voiture}', [AlertController::class, 'turnOff'])->name('alerts.turnoff');
 
 
@@ -101,20 +116,21 @@ Route::get('/users/{id}/profile', [ProfileController::class, 'show'])
 
 
 
-// Vue HTML des alertes
-Route::get('/alerts/view', function () {
-    return view('alerts.index'); // le nom du blade fourni
-})->name('alerts.view');
 
 
 //trajets
-Route::get('/trajets', [TrajetController::class, 'index'])->name('trajets.index');
-Route::get('/voitures/{id}/trajets', [TrajetController::class, 'byVoiture'])->name('voitures.trajets');
+  // ✅ 1) Page liste des trajets (par défaut = today via controller)
+    Route::get('/trajets', [TrajetController::class, 'index'])
+        ->name('trajets.index');
 
-Route::get('/trajets/{vehicle_id}/detail/{trajet_id}', 
-    [TrajetController::class, 'showTrajet'])
-    ->name('voitures.trajet.detail');
+    // ✅ 2) Page trajets d’un véhicule (map + liste, default today + filtres)
+    Route::get('/voitures/{id}/trajets', [TrajetController::class, 'byVoiture'])
+        ->name('voitures.trajets');
 
+    // ✅ 3) API JSON détail d’un trajet (points + segments + stats + voiture + chauffeur si dispo)
+    // (tu consommes ça depuis la map / dashboard / modal)
+    Route::get('/trajets/{vehicle_id}/detail/{trajet_id}', [TrajetController::class, 'showTrajet'])
+        ->name('trajets.detail.api');
 
 
     // Alerts JSON API (used by your Blade JS)

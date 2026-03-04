@@ -5,7 +5,6 @@
 @push('styles')
 <style>
 
-    
 /* ════════════════════════════════════════════════════════════════
    DASHBOARD — Styles propres, construits SUR le Design System
    du layout (tokens, classes utilitaires, typographie).
@@ -16,19 +15,20 @@
 .kpi-sticky-bar {
     position: fixed;
     top: var(--navbar-h);
-    left: var(--sidebar-w);
+    left: 0;
     right: 0;
     z-index: var(--z-kpi);
     background-color: var(--color-bg);
     padding: 6px var(--sp-xl) 0px;
     box-shadow: 0 4px 20px -4px rgba(0,0,0,0.08);
-    transition: left 0.3s ease;
+    transition: background-color 0.2s;
     pointer-events: none;
 }
 
 .kpi-sticky-bar > * {
     pointer-events: auto;
 }
+
 .dark-mode .kpi-sticky-bar {
     box-shadow: 0 4px 20px -4px rgba(0,0,0,0.45);
 }
@@ -36,7 +36,6 @@
 @media (max-width: 1023px) {
     .kpi-sticky-bar {
         position: fixed;
-        left: 0;
         padding-block: var(--sp-xs);
     }
 }
@@ -56,7 +55,6 @@
     overflow: hidden;
 }
 
-/* Ligne décorative gauche — identité orange */
 .kpi-card::before {
     content: '';
     position: absolute;
@@ -217,8 +215,12 @@
     flex-direction: column;
     gap: var(--dash-gap);
     margin-top: calc(var(--kpi-h) + var(--sp-sm));
-    /* Animation d'entrée décalée */
     animation: contentFade 0.5s 0.15s ease both;
+}
+
+@keyframes contentFade {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: none; }
 }
 
 /* ── Grille Liste + Carte — Full Height Desktop ──────────────── */
@@ -228,10 +230,10 @@
             100vh
             - var(--navbar-h)
             - var(--kpi-h)
-            - var(--sp-lg)       /* margin-top dashboard-content */
-            - var(--sp-xl)       /* padding-top page-inner */
-            - var(--sp-2xl)      /* padding-bottom page-inner */
-            - var(--dash-gap)    /* gap dashboard-content */
+            - var(--sp-lg)
+            - var(--sp-xl)
+            - var(--sp-2xl)
+            - var(--dash-gap)
         );
         min-height: 440px;
         align-items: stretch;
@@ -276,7 +278,7 @@
     #fleetMap { height: 280px !important; }
 }
 
-/* ── Panel cards (liste et carte) ───────────────────────────── */
+/* ── Panel cards ─────────────────────────────────────────────── */
 .panel-card {
     background: var(--color-card);
     border: 1px solid var(--color-border-subtle);
@@ -296,6 +298,7 @@
     padding: var(--sp-lg) var(--sp-lg) var(--sp-md);
     border-bottom: 1px solid var(--color-border-subtle);
     flex-shrink: 0;
+    gap: var(--sp-sm);
 }
 
 .panel-title {
@@ -333,7 +336,53 @@
     gap: var(--sp-sm);
 }
 
-/* ── Search input dans la liste ─────────────────────────────── */
+/* ── View toggle (compact / detailed) ───────────────────────── */
+.view-toggle {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--r-sm);
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.view-toggle-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 4px 8px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-family: var(--font-display);
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    color: var(--color-secondary-text);
+    transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
+    line-height: 1;
+}
+
+.view-toggle-btn i { font-size: 0.65rem; }
+
+.view-toggle-btn:hover {
+    background: var(--color-primary-light);
+    color: var(--color-primary);
+}
+
+.view-toggle-btn.active {
+    background: var(--color-primary);
+    color: #fff;
+}
+
+.view-toggle-btn.active:hover {
+    background: var(--color-primary-hover);
+    color: #fff;
+}
+
+/* ── Search input ────────────────────────────────────────────── */
 .search-wrap {
     position: relative;
     flex-shrink: 0;
@@ -355,7 +404,7 @@
     height: 34px;
 }
 
-/* ── Compteur flotte ────────────────────────────────────────── */
+/* ── Compteur flotte ─────────────────────────────────────────── */
 .fleet-meta {
     display: flex;
     align-items: center;
@@ -375,7 +424,7 @@
     flex-shrink: 0;
 }
 
-/* ── Scrollbar vehicleList ──────────────────────────────────── */
+/* ── Scrollbar vehicleList ───────────────────────────────────── */
 #vehicleList {
     scrollbar-width: thin;
     scrollbar-color: var(--color-border-subtle) transparent;
@@ -384,10 +433,12 @@
 #vehicleList::-webkit-scrollbar       { width: 4px; }
 #vehicleList::-webkit-scrollbar-thumb { background: var(--color-border-subtle); border-radius: 2px; }
 
-/* ── Vehicle items ──────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════════
+   VEHICLE ITEMS — MODE DÉTAILLÉ
+════════════════════════════════════════════════════════════════ */
 .vehicle-item {
     border: 1px solid var(--color-border-subtle);
-    border-radius: var(--r-md);         /* 6px */
+    border-radius: var(--r-md);
     padding: 0.625rem 0.75rem;
     background: var(--color-card);
     cursor: pointer;
@@ -395,6 +446,8 @@
     margin-bottom: 0.375rem;
     position: relative;
 }
+
+.vehicle-item:last-child { margin-bottom: 0; }
 
 .vehicle-item:hover {
     border-color: var(--color-primary-border);
@@ -408,6 +461,7 @@
     background: var(--color-primary-light);
 }
 
+/* Detailed layout */
 .vehicle-item-row {
     display: flex;
     align-items: flex-start;
@@ -511,10 +565,73 @@
 }
 
 .vehicle-item:hover .vehicle-center-hint { opacity: 1; }
-
 .vehicle-center-hint i { color: var(--color-primary); font-size: 0.58rem; }
 
-/* ── État vide / chargement ─────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════════
+   VEHICLE ITEMS — MODE COMPACT
+════════════════════════════════════════════════════════════════ */
+.vehicle-item-compact {
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--r-sm);
+    padding: 0.4rem 0.65rem;
+    background: var(--color-card);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: box-shadow 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+    margin-bottom: 0.25rem;
+}
+
+.vehicle-item-compact:last-child { margin-bottom: 0; }
+
+.vehicle-item-compact:hover {
+    border-color: var(--color-primary-border);
+    background: var(--color-bg);
+}
+
+.vehicle-item-compact.selected {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 1.5px var(--color-primary-border);
+    background: var(--color-primary-light);
+}
+
+.compact-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--color-primary);
+    flex-shrink: 0;
+}
+
+.compact-immat {
+    font-family: var(--font-display);
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--color-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
+}
+
+.compact-driver {
+    font-family: var(--font-body);
+    font-size: 0.66rem;
+    color: var(--color-secondary-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 0;
+    max-width: 45%;
+}
+
+.compact-driver.unassigned {
+    color: var(--color-text-muted);
+    font-style: italic;
+}
+
+/* ── État vide / chargement ──────────────────────────────────── */
 .empty-state {
     display: flex;
     flex-direction: column;
@@ -577,9 +694,9 @@
     color: var(--color-secondary-text);
 }
 
-/* ── Map container ──────────────────────────────────────────── */
+/* ── Map container ───────────────────────────────────────────── */
 #fleetMap {
-    border-radius: 0;  /* arrondi géré par le panel-card */
+    border-radius: 0;
     border: none;
     display: block;
     width: 100%;
@@ -587,7 +704,7 @@
     min-height: 300px;
 }
 
-/* ── Section alertes ────────────────────────────────────────── */
+/* ── Section alertes ─────────────────────────────────────────── */
 .section-header {
     display: flex;
     align-items: center;
@@ -611,7 +728,7 @@
     margin: 3px 0 0;
 }
 
-/* ── Tableau alertes ────────────────────────────────────────── */
+/* ── Tableau alertes ─────────────────────────────────────────── */
 .alerts-table {
     width: 100%;
     border-collapse: collapse;
@@ -641,7 +758,6 @@
 }
 
 .alerts-table tbody tr:last-child { border-bottom: none; }
-
 .alerts-table tbody tr:hover { background: var(--color-primary-light); }
 
 .alerts-table tbody td {
@@ -657,7 +773,6 @@
     letter-spacing: 0.01em;
 }
 
-/* Badges de statut (pill — autorisé) */
 .status-badge {
     display: inline-flex;
     align-items: center;
@@ -670,7 +785,6 @@
     white-space: nowrap;
 }
 
-/* ── Empty state spécifique au tableau ──────────────────────── */
 .table-empty {
     text-align: center;
     padding: var(--sp-2xl) var(--sp-lg);
@@ -771,12 +885,26 @@
 
                 {{-- Header --}}
                 <div class="panel-header">
-                    <div>
+                    <div style="flex:1;min-width:0;">
                         <h2 class="panel-title">Flotte &amp; Associations</h2>
                         <p class="panel-subtitle">Cliquez pour centrer sur la carte.</p>
                     </div>
-                    <div class="panel-icon" aria-hidden="true">
-                        <i class="fas fa-car-side"></i>
+                    {{-- Toggle mode vue --}}
+                    <div class="view-toggle" role="group" aria-label="Mode d'affichage de la liste">
+                        <button class="view-toggle-btn active"
+                                id="btn-view-compact"
+                                title="Vue compacte"
+                                aria-pressed="true">
+                            <i class="fas fa-list" aria-hidden="true"></i>
+                            <span>Compact</span>
+                        </button>
+                        <button class="view-toggle-btn"
+                                id="btn-view-detailed"
+                                title="Vue détaillée"
+                                aria-pressed="false">
+                            <i class="fas fa-th-list" aria-hidden="true"></i>
+                            <span>Détail</span>
+                        </button>
                     </div>
                 </div>
 
@@ -795,7 +923,7 @@
                         />
                     </div>
 
-                    {{-- Meta (légende + compteur) --}}
+                    {{-- Meta --}}
                     <div class="fleet-meta">
                         <span>
                             <span class="fleet-meta-dot" aria-hidden="true"></span>
@@ -838,7 +966,7 @@
                     </div>
                 </div>
 
-                {{-- Carte Google Maps (prend tout l'espace restant) --}}
+                {{-- Carte Google Maps --}}
                 <div id="fleetMap" role="application" aria-label="Carte de localisation de la flotte"></div>
 
             </div>
@@ -847,68 +975,12 @@
     </div>
     {{-- /list-map-grid --}}
 
-    {{-- ── Tableau des dernières alertes ───────────────────── --}}
-    <div class="panel-card">
-        <div style="padding:var(--sp-lg);">
 
-            {{-- Header section --}}
-            <div class="section-header">
-                <div>
-                    <h2 class="section-title">Dernières alertes</h2>
-                    <p class="section-subtitle">Alertes non traitées — mise à jour automatique.</p>
-                </div>
-                <a href="{{ route('alerts.view') }}" class="btn-secondary" style="font-size:0.75rem;padding:0.35rem 0.875rem;min-height:32px;">
-                    <i class="fas fa-arrow-right" aria-hidden="true"></i>
-                    Tout voir
-                </a>
-            </div>
-
-            {{-- Table --}}
-            <div class="ui-table-container">
-                <table class="alerts-table">
-                    <thead>
-                        <tr>
-                            <th scope="col">Véhicule</th>
-                            <th scope="col">Type</th>
-                            <th scope="col">Heure</th>
-                            <th scope="col">Statut</th>
-                        </tr>
-                    </thead>
-                    <tbody id="alerts-table-body">
-                        @forelse(($alerts ?? []) as $a)
-                        <tr>
-                            <td>{{ $a['vehicle'] ?? '—' }}</td>
-                            <td>{{ $a['type']    ?? '—' }}</td>
-                            <td style="font-family:var(--font-mono);font-size:0.75rem;color:var(--color-secondary-text);">
-                                {{ $a['time'] ?? '—' }}
-                            </td>
-                            <td>
-                                <span class="status-badge" style="background:{{ $a['status_bg'] ?? '#6b7280' }};">
-                                    {{ $a['status'] ?? '—' }}
-                                </span>
-                            </td>
-                        </tr>
-                        @empty
-                        <tr>
-                            <td colspan="4" class="table-empty">
-                                <i class="fas fa-bell-slash" aria-hidden="true"></i>
-                                <p>Aucune alerte pour le moment.</p>
-                            </td>
-                        </tr>
-                        @endforelse
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
 
 </div>
 {{-- /dashboard-content --}}
 
 
-{{-- ════════════════════════════════════════════════════════════
-     SCRIPTS DASHBOARD
-════════════════════════════════════════════════════════════════ --}}
 @push('scripts')
 <script>
 /* ────────────────────────────────────────────────────────────
@@ -930,6 +1002,10 @@
 
     let vehiclesData = @json($vehicles ?? []);
 
+    /* ── Mode d'affichage (compact | detailed) ──────────────── */
+    const VIEW_KEY = 'fleetra-vehicle-view';
+    let currentView = localStorage.getItem(VIEW_KEY) || 'compact';
+
     const ALERT_TYPES = {
         stolen:    { label: 'Vol',       icon: 'fa-mask'          },
         geofence:  { label: 'Geofence',  icon: 'fa-draw-polygon'  },
@@ -939,7 +1015,36 @@
     };
 
     /* ════════════════════════════════════════════════════════
-       MESURE KPI — met à jour --kpi-h pour le calcul full-height
+       VIEW TOGGLE — Compact / Detailed
+    ════════════════════════════════════════════════════════ */
+    function initViewToggle() {
+        const btnCompact  = document.getElementById('btn-view-compact');
+        const btnDetailed = document.getElementById('btn-view-detailed');
+        if (!btnCompact || !btnDetailed) return;
+
+        function applyView(view) {
+            currentView = view;
+            localStorage.setItem(VIEW_KEY, view);
+
+            const isCompact = (view === 'compact');
+            btnCompact.classList.toggle('active', isCompact);
+            btnCompact.setAttribute('aria-pressed', String(isCompact));
+            btnDetailed.classList.toggle('active', !isCompact);
+            btnDetailed.setAttribute('aria-pressed', String(!isCompact));
+
+            /* Re-render la liste avec le nouveau mode */
+            renderVehicleList(vehiclesData);
+        }
+
+        btnCompact.addEventListener('click',  function () { applyView('compact'); });
+        btnDetailed.addEventListener('click', function () { applyView('detailed'); });
+
+        /* Appliquer l'état initial depuis localStorage */
+        applyView(currentView);
+    }
+
+    /* ════════════════════════════════════════════════════════
+       MESURE KPI
     ════════════════════════════════════════════════════════ */
     function measureKpi() {
         const kpi    = document.getElementById('kpi-bar');
@@ -962,7 +1067,6 @@
             styles:    getMapStyle(),
         });
 
-        /* Exposer au layout JS pour triggerMapResize */
         window.map = map;
 
         renderVehicleList(vehiclesData);
@@ -970,7 +1074,6 @@
         initVehicleSearch();
         startDashSSE();
 
-        /* Mesure après que la carte est initialisée */
         setTimeout(measureKpi, 300);
     };
 
@@ -983,15 +1086,10 @@
         document.head.appendChild(s);
     }
 
-    /* Style carte : sobre, cohérent avec le dark mode */
-function getMapStyle() {
-  const dark = document.getElementById('app-root')?.classList.contains('dark-mode');
+    function getMapStyle() {
+        return [];
+    }
 
-  // Même en dark mode UI, on garde la carte claire
-  if (dark) return [];
-
-  return [];
-}
     /* ════════════════════════════════════════════════════════
        SSE
     ════════════════════════════════════════════════════════ */
@@ -1038,7 +1136,6 @@ function getMapStyle() {
         window.addEventListener('beforeunload', () => dashSSE?.close());
     }
 
-    /* Mettre à jour le badge SSE visible */
     function setSseState(state) {
         const dot   = document.getElementById('sse-dot');
         const label = document.getElementById('sse-label');
@@ -1055,7 +1152,6 @@ function getMapStyle() {
         dot.style.background = cfg.color;
         label.textContent    = cfg.text;
 
-        /* Exposer pour le patch d'animation du layout JS */
         if (typeof window.setSseIndicator === 'function') window.setSseIndicator(state);
     }
 
@@ -1075,7 +1171,6 @@ function getMapStyle() {
         });
     }
 
-    /* Animation compteur numérique (simple, CSS-free) */
     function animateNumber(el, target) {
         const current = parseInt(el.textContent, 10) || 0;
         if (current === target) return;
@@ -1144,13 +1239,15 @@ function getMapStyle() {
             return;
         }
 
-        list.innerHTML = fleet.map(buildVehicleItem).join('');
+        /* Générer selon le mode courant */
+        const isCompact = (currentView === 'compact');
+        list.innerHTML = fleet.map(v => isCompact ? buildVehicleItemCompact(v) : buildVehicleItemDetailed(v)).join('');
 
         /* Events click */
-        list.querySelectorAll('.vehicle-item').forEach(item => {
+        const itemSelector = isCompact ? '.vehicle-item-compact' : '.vehicle-item';
+        list.querySelectorAll(itemSelector).forEach(item => {
             item.addEventListener('click', function () {
-                /* Désélectionner le précédent */
-                list.querySelectorAll('.vehicle-item.selected').forEach(i => i.classList.remove('selected'));
+                list.querySelectorAll('.vehicle-item.selected, .vehicle-item-compact.selected').forEach(i => i.classList.remove('selected'));
                 this.classList.add('selected');
                 focusVehicle(parseInt(this.dataset.id, 10));
             });
@@ -1161,7 +1258,25 @@ function getMapStyle() {
         if (q) applyFilter(q);
     }
 
-    function buildVehicleItem(v) {
+    /* ── Mode Compact ────────────────────────────────────────── */
+    function buildVehicleItemCompact(v) {
+        const id     = v.id;
+        const immat  = esc(v.immatriculation ?? '—');
+        const driver = v.driver?.label ?? v.users;
+        const hasDriver = driver && driver !== 'Non associé' && driver !== '';
+        const driverText = hasDriver ? esc(driver) : 'Non associé';
+        const label  = `${v.immatriculation ?? ''} ${driver ?? ''}`.toLowerCase();
+
+        return `
+        <div class="vehicle-item-compact" id="vi-${id}" data-id="${id}" data-label="${esc(label)}" role="listitem" tabindex="0" title="${immat}">
+            <span class="compact-dot" aria-hidden="true"></span>
+            <span class="compact-immat">${immat}</span>
+            <span class="compact-driver${hasDriver ? '' : ' unassigned'}">${driverText}</span>
+        </div>`;
+    }
+
+    /* ── Mode Détaillé ───────────────────────────────────────── */
+    function buildVehicleItemDetailed(v) {
         const id        = v.id;
         const immat     = esc(v.immatriculation ?? '—');
         const brand     = esc(`${v.marque ?? ''} ${v.model ?? ''}`.trim() || '—');
@@ -1178,7 +1293,6 @@ function getMapStyle() {
         const engineText  = engineCut === true  ? 'Moteur coupé'
                           : engineCut === false ? 'Moteur actif'
                           : 'Moteur inconnu';
-        const engineIcon  = 'fa-power-off';
 
         const gpsClass    = gpsOnline === true  ? 'v-badge-gps-on'
                           : gpsOnline === false ? 'v-badge-gps-off'
@@ -1210,7 +1324,7 @@ function getMapStyle() {
             <div class="vehicle-badges">
                 <div class="vehicle-badges-left">
                     <span class="v-badge ${engineClass}">
-                        <i class="fas ${engineIcon}" aria-hidden="true"></i>${engineText}
+                        <i class="fas fa-power-off" aria-hidden="true"></i>${engineText}
                     </span>
                     <span class="v-badge ${gpsClass}">
                         <i class="fas fa-satellite-dish" aria-hidden="true"></i>${gpsText}
@@ -1221,6 +1335,11 @@ function getMapStyle() {
                 </span>
             </div>
         </div>`;
+    }
+
+    /* Alias pour compatibilité SSE (garde l'ancien nom) */
+    function buildVehicleItem(v) {
+        return currentView === 'compact' ? buildVehicleItemCompact(v) : buildVehicleItemDetailed(v);
     }
 
     /* ════════════════════════════════════════════════════════
@@ -1237,7 +1356,8 @@ function getMapStyle() {
     function applyFilter(q) {
         const list  = document.getElementById('vehicleList');
         const count = document.getElementById('fleet-count');
-        const items = list?.querySelectorAll('.vehicle-item') ?? [];
+        /* Sélectionner les items des deux modes */
+        const items = list?.querySelectorAll('.vehicle-item, .vehicle-item-compact') ?? [];
         let visible = 0;
 
         items.forEach(item => {
@@ -1280,8 +1400,7 @@ function getMapStyle() {
                 marker.addListener('click', () => {
                     selectedVehicleId = id;
                     iw.open(map, marker);
-                    /* Sélectionner l'item dans la liste */
-                    document.querySelectorAll('.vehicle-item.selected').forEach(i => i.classList.remove('selected'));
+                    document.querySelectorAll('.vehicle-item.selected, .vehicle-item-compact.selected').forEach(i => i.classList.remove('selected'));
                     document.getElementById('vi-' + id)?.classList.add('selected');
                 });
 
@@ -1294,7 +1413,6 @@ function getMapStyle() {
             bounds.extend(pos);
         });
 
-        /* Supprimer les marqueurs obsolètes */
         Object.keys(markersById).forEach(id => {
             if (!newIds.has(String(id))) {
                 markersById[id].setMap(null);
@@ -1338,12 +1456,8 @@ function getMapStyle() {
                 Chauffeur : <span style="color:#1e293b;font-weight:600;">${esc(driver)}</span>
             </div>
             <div style="display:flex;gap:12px;margin-top:6px;flex-wrap:wrap;">
-                <span style="color:${eColor};font-weight:600;font-size:11px;">
-                    ● ${eLabel}
-                </span>
-                <span style="color:${gColor};font-weight:600;font-size:11px;">
-                    ● ${gLabel}
-                </span>
+                <span style="color:${eColor};font-weight:600;font-size:11px;">● ${eLabel}</span>
+                <span style="color:${gColor};font-weight:600;font-size:11px;">● ${gLabel}</span>
             </div>
             <div style="margin-top:10px;padding-top:8px;border-top:1px solid #e2e8f0;">
                 <a href="${trajetUrl}" style="color:#F58220;font-weight:600;text-decoration:none;font-size:11px;">
@@ -1379,6 +1493,9 @@ function getMapStyle() {
         setTimeout(measureKpi, 250);
         setTimeout(measureKpi, 900);
 
+        /* Init toggle vue avant le chargement de la map */
+        initViewToggle();
+
         /* Debounce resize */
         let rTimer = null;
         window.addEventListener('resize', () => {
@@ -1389,7 +1506,7 @@ function getMapStyle() {
         /* Charger Google Maps */
         loadGoogleMaps();
 
-        /* Observer les changements de thème pour re-styler la carte */
+        /* Observer les changements de thème */
         const appRoot = document.getElementById('app-root');
         if (appRoot && window.MutationObserver) {
             new MutationObserver(function () {

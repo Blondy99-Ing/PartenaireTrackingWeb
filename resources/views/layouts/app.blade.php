@@ -31,11 +31,11 @@
        Source de vérité pour toute l'interface
     ════════════════════════════════════════════════════════════════ */
     :root {
-        font-size: 18px; /* base WCAG 1.4.4 — transforme rem en px lisibles */
+        font-size: 18px;
 
         /* ── Typographie ─────────────────────────────────────────── */
-        --font-logo:    'Orbitron',  sans-serif;          /* logo UNIQUEMENT */
-        --font-display: 'Rajdhani', system-ui, sans-serif; /* titres, menus, labels */
+        --font-logo:    'Orbitron',  sans-serif;
+        --font-display: 'Rajdhani', system-ui, sans-serif;
         --font-body:    'Lato',     ui-sans-serif, system-ui, -apple-system,
                         BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
         --font-mono:    ui-monospace, 'SFMono-Regular', Consolas, monospace;
@@ -66,7 +66,7 @@
         --color-primary-light:   rgba(245, 130, 32, 0.12);
         --color-primary-border:  rgba(245, 130, 32, 0.30);
 
-        /* Sémantiques — usage fonctionnel UNIQUEMENT */
+        /* Sémantiques */
         --color-success:         #16a34a;
         --color-success-bg:      rgba(22, 163, 74, 0.10);
         --color-error:           #dc2626;
@@ -77,14 +77,13 @@
         --color-info-bg:         rgba(37, 99, 235, 0.10);
 
         /* ── Radius system ───────────────────────────────────────── */
-        /* Principe : moins d'arrondis = plus de sérieux/professionnel */
         --r-none: 0;
-        --r-xs:   2px;     /* chips de données, sous-lignes */
-        --r-sm:   4px;     /* badges inline, nav items */
-        --r-md:   6px;     /* inputs, boutons, selects */
-        --r-lg:   8px;     /* cards, panels, modales */
-        --r-xl:   12px;    /* toasts, drawers */
-        --r-pill: 9999px;  /* badges de STATUT uniquement */
+        --r-xs:   2px;
+        --r-sm:   4px;
+        --r-md:   6px;
+        --r-lg:   8px;
+        --r-xl:   12px;
+        --r-pill: 9999px;
 
         /* ── Ombres ──────────────────────────────────────────────── */
         --shadow-xs: 0 1px 2px  rgba(0,0,0,0.06);
@@ -97,9 +96,7 @@
         --focus-ring: 0 0 0 3px rgba(245, 130, 32, 0.40);
 
         /* ── Layout ──────────────────────────────────────────────── */
-        --sidebar-w:         210px;
-        --sidebar-collapsed: 72px;
-        --navbar-h:          72px;   /* override par JS après mesure réelle */
+        --navbar-h:          64px;   /* override par JS après mesure réelle */
         --kpi-h:             0px;    /* override par JS */
         --page-pad:          28px;
         --dash-gap:          16px;
@@ -115,7 +112,6 @@
         /* ── Z-index ─────────────────────────────────────────────── */
         --z-map:      1;
         --z-kpi:      9;
-        --z-sidebar:  25;
         --z-overlay:  19;
         --z-navbar:   30;
         --z-dropdown: 50;
@@ -147,9 +143,6 @@
 
     /* ════════════════════════════════════════════════════════════════
        SECTION 3 — DARK MODE
-       Palette reconstruite pour WCAG AA :
-       bg #0d1117 / card #1c2333 → delta luminosité suffisant
-       textes secondaires #b0bec5 → ratio ~5.2:1 sur #1c2333 ✓
     ════════════════════════════════════════════════════════════════ */
     .dark-mode {
         --color-bg:               #0d1117;
@@ -157,7 +150,7 @@
         --color-card:             #1c2333;
         --color-text:             #e6edf3;
         --color-text-muted:       #8b949e;
-        --color-secondary-text:   #b0bec5;  /* ← rehaussé vs #9ca3af original */
+        --color-secondary-text:   #b0bec5;
         --color-sidebar-bg:       #161b22;
         --color-sidebar-text:     #e6edf3;
         --color-sidebar-active:   rgba(245, 130, 32, 0.15);
@@ -192,14 +185,12 @@
         overflow-x: hidden;
     }
 
-    /* ── Corps de texte → Lato ──────────────────────────────────── */
     p, li, td, label,
     .toast-msg, .text-secondary,
     input, select, textarea {
         font-family: var(--font-body);
     }
 
-    /* ── Titres / Menus / Labels → Rajdhani ─────────────────────── */
     h1, h2, h3, h4, h5, h6,
     .font-orbitron,
     .navbar-title,
@@ -226,13 +217,11 @@
         font-family: var(--font-display);
     }
 
-    /* ── Logo → Orbitron UNIQUEMENT ─────────────────────────────── */
     .brand-logo h1,
     .brand-logo .logo-text {
         font-family: var(--font-logo);
     }
 
-    /* ── Valeurs KPI / Stats → Rajdhani bold ────────────────────── */
     .kpi-value, .stat-value, .alert-type-value {
         font-family: var(--font-display);
         font-weight: 700;
@@ -270,266 +259,13 @@
     #theme-toggle:focus-visible { box-shadow: var(--focus-ring); }
 
     /* ════════════════════════════════════════════════════════════════
-       SECTION 6 — SIDEBAR
-    ════════════════════════════════════════════════════════════════ */
-    .sidebar {
-        position: fixed;
-        top: 0; left: 0; bottom: 0;
-        width: var(--sidebar-w);
-        z-index: var(--z-sidebar);
-        background-color: var(--color-sidebar-bg);
-        border-right: 1px solid var(--color-border-subtle);
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-        transition: width 0.3s ease, transform 0.3s ease, background-color 0.2s;
-    }
-
-    /* Scrollbar fine sur le contenu nav */
-    .sidebar-scroll {
-        flex: 1;
-        overflow-y: auto;
-        overflow-x: hidden;
-        padding-bottom: 4rem;
-        scrollbar-width: thin;
-        scrollbar-color: var(--color-border-subtle) transparent;
-    }
-    .sidebar-scroll::-webkit-scrollbar       { width: 3px; }
-    .sidebar-scroll::-webkit-scrollbar-thumb { background: var(--color-border-subtle); border-radius: 2px; }
-
-    .sidebar.collapsed { width: var(--sidebar-collapsed); }
-
-    /* ── Éléments masqués en mode collapsed ─────────────────────── */
-    .sidebar.collapsed .nav-label,
-    .sidebar.collapsed .logo-text,
-    .sidebar.collapsed .profile-text,
-    .sidebar.collapsed .sidebar-section-title {
-        opacity: 0;
-        visibility: hidden;
-        width: 0;
-        white-space: nowrap;
-        overflow: hidden;
-        transition: opacity 0.15s ease, width 0.3s ease;
-    }
-
-    .sidebar.collapsed .dropdown-arrow   { display: none !important; }
-    .sidebar.collapsed .nav-dropdown     { display: none; }
-
-
-    .sidebar.collapsed ~ .main-content .kpi-sticky-bar,
-.navbar.expanded ~ .main-content .kpi-sticky-bar {
-    left: var(--sidebar-collapsed);
-}
-
-    /* ── Brand / Logo ─────────────────────────────────────────── */
-    .sidebar-brand {
-        height: 100px; /* réduit de 160px */
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-bottom: 1px solid var(--color-border-subtle);
-        flex-shrink: 0;
-        overflow: hidden;
-        padding: 0 var(--sp-md);
-    }
-
-    .brand-logo {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: var(--sp-xs);
-        text-align: center;
-    }
-
-    .brand-logo img {
-        height: 44px;
-        width: auto;
-        display: block;
-        transition: height 0.3s ease;
-        flex-shrink: 0;
-    }
-
-    .sidebar.collapsed .brand-logo img { height: 32px; }
-
-    .brand-logo h1, .brand-logo .logo-text {
-        font-family: var(--font-logo) !important;
-        font-size: clamp(0.9rem, 1.4vw, 1.2rem);
-        font-weight: 800;
-        color: var(--color-primary);
-        margin: 0;
-        letter-spacing: 0.06em;
-        line-height: 1;
-        white-space: nowrap;
-        transition: opacity 0.15s ease, width 0.3s ease;
-    }
-
-    /* ── Bouton collapse (desktop) ──────────────────────────────── */
-    .sidebar-collapse-bar {
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        padding: var(--sp-xs) var(--sp-md);
-        border-bottom: 1px solid var(--color-border-subtle);
-        flex-shrink: 0;
-    }
-
-    #btn-collapse-desktop {
-        width: 26px; height: 26px;
-        display: flex; align-items: center; justify-content: center;
-        border-radius: 50%;
-        border: 1px solid var(--color-border-subtle);
-        background: transparent;
-        color: var(--color-secondary-text);
-        cursor: pointer;
-        transition: background 0.15s, color 0.15s, border-color 0.15s;
-        flex-shrink: 0;
-        font-size: 0.65rem;
-    }
-
-    #btn-collapse-desktop:hover {
-        background: var(--color-primary-light);
-        color: var(--color-primary);
-        border-color: var(--color-primary-border);
-    }
-
-    #icon-collapse { transition: transform 0.3s ease; }
-
-    /* ── Section titles ─────────────────────────────────────────── */
-    .sidebar-section-title {
-        font-family: var(--font-display);
-        font-size: 0.6rem;
-        font-weight: 700;
-        letter-spacing: var(--ls-widest);
-        text-transform: uppercase;
-        color: var(--color-secondary-text);
-        opacity: 0.65;
-        padding: 0.875rem var(--sp-lg) 0.25rem;
-        white-space: nowrap;
-    }
-
-    /* ── Nav items ──────────────────────────────────────────────── */
-    .sidebar-nav {
-        list-style: none;
-        margin: 0;
-        padding: var(--sp-xs) 0;
-    }
-
-    .sidebar-nav li { position: relative; }
-
-    .sidebar-nav a {
-        display: flex;
-        align-items: center;
-        gap: 0.625rem;
-        padding: 0.55rem var(--sp-lg);
-        margin: 1px var(--sp-xs);
-        color: var(--color-sidebar-text);
-        text-decoration: none;
-        border-radius: var(--r-sm); /* 4px — réduit de 0.5rem */
-        font-family: var(--font-display);
-        font-weight: 600;
-        font-size: 0.82rem;
-        letter-spacing: 0.01em;
-        white-space: nowrap;
-        transition: background 0.15s, color 0.15s;
-        position: relative;
-    }
-
-    .sidebar-nav a:hover,
-    .sidebar-nav a.active {
-        background: var(--color-sidebar-active);
-        color: var(--color-primary);
-    }
-
-    /* ── Icônes en ORANGE par défaut (fix #5) ───────────────────── */
-    .sidebar-nav a .nav-icon {
-        min-width: 1.375rem;
-        text-align: center;
-        font-size: 0.875rem;
-        color: var(--color-primary);  /* ← orange, pas gris */
-        opacity: 0.80;
-        flex-shrink: 0;
-        transition: opacity 0.15s;
-    }
-
-    .sidebar-nav a:hover .nav-icon,
-    .sidebar-nav a.active .nav-icon { opacity: 1; }
-
-    .sidebar.collapsed .sidebar-nav a {
-        justify-content: center;
-        padding: 0.625rem 0;
-        margin: 1px 4px;
-    }
-
-    /* ── Sous-menus dropdown ────────────────────────────────────── */
-    .nav-dropdown {
-        list-style: none;
-        margin: 0;
-        padding: 0;
-        max-height: 0;
-        overflow: hidden;
-        transition: max-height 0.3s ease;
-    }
-
-    .nav-dropdown.open { max-height: 500px; }
-
-    .nav-dropdown li a {
-        padding-left: calc(var(--sp-lg) + 1.625rem);
-        font-size: 0.78rem;
-        font-weight: 500;
-        border-radius: var(--r-xs);
-    }
-
-    .dropdown-arrow {
-        position: absolute;
-        right: var(--sp-lg);
-        font-size: 0.6rem;
-        color: var(--color-secondary-text);
-        transition: transform 0.3s ease;
-    }
-
-    .dropdown-toggle.open .dropdown-arrow { transform: rotate(90deg); }
-
-    /* ── Footer sidebar (déconnexion) ───────────────────────────── */
-    .sidebar-footer {
-        flex-shrink: 0;
-        border-top: 1px solid var(--color-border-subtle);
-        padding: var(--sp-xs) var(--sp-xs);
-        background: var(--color-sidebar-bg);
-    }
-
-    .sidebar-footer a {
-        display: flex;
-        align-items: center;
-        gap: var(--sp-sm);
-        padding: var(--sp-sm) var(--sp-md);
-        border-radius: var(--r-sm);
-        color: var(--color-secondary-text);
-        text-decoration: none;
-        font-family: var(--font-display);
-        font-size: 0.75rem;
-        font-weight: 600;
-        transition: color 0.15s, background 0.15s;
-        white-space: nowrap;
-    }
-
-    .sidebar-footer a:hover {
-        color: var(--color-error);
-        background: var(--color-error-bg);
-    }
-
-    .sidebar.collapsed .sidebar-footer a {
-        justify-content: center;
-        padding: var(--sp-sm) 0;
-    }
-
-    /* ════════════════════════════════════════════════════════════════
-       SECTION 7 — NAVBAR
+       SECTION 6 — NAVBAR HORIZONTALE (remplace la sidebar)
     ════════════════════════════════════════════════════════════════ */
     .navbar {
         position: fixed;
         top: 0;
+        left: 0;
         right: 0;
-        left: var(--sidebar-w);
         height: var(--navbar-h);
         z-index: var(--z-navbar);
         background-color: var(--color-navbar-bg);
@@ -537,31 +273,197 @@
         display: flex;
         align-items: center;
         padding: 0 var(--sp-xl);
-        gap: 0.75rem;
-        transition: left 0.3s ease, background-color 0.2s;
-        isolation: isolate; /* stacking context pour les dropdowns z-index 50 */
+        gap: 0;
+        transition: background-color 0.2s;
+        isolation: isolate;
     }
 
-    .navbar.expanded { left: var(--sidebar-collapsed); }
+    /* ── Brand / Logo ─────────────────────────────────────────── */
+    .navbar-brand {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        text-decoration: none;
+        flex-shrink: 0;
+        margin-right: var(--sp-xl);
+    }
 
-    .navbar-title {
-        font-family: var(--font-display);
-        font-weight: 700;
-        font-size: clamp(1rem, 2vw, 1.35rem);
-        color: var(--color-text);
-        flex: 1;
+    .navbar-brand img {
+        height: 36px;
+        width: auto;
+        display: block;
+    }
+
+    .navbar-brand .logo-text {
+        font-family: var(--font-logo) !important;
+        font-size: 1.1rem;
+        font-weight: 800;
+        color: var(--color-primary);
         margin: 0;
-        letter-spacing: 0.01em;
+        letter-spacing: 0.06em;
+        line-height: 1;
         white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
     }
 
+    /* ── Navigation principale (desktop) ──────────────────────── */
+    .navbar-nav {
+        display: flex;
+        align-items: center;
+        gap: 0.125rem;
+        flex: 1;
+        list-style: none;
+        margin: 0;
+        padding: 0;
+    }
+
+    .navbar-nav > li {
+        position: relative;
+    }
+
+    .navbar-nav > li > a,
+    .navbar-nav > li > .nav-dropdown-toggle {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.4rem 0.75rem;
+        color: var(--color-text);
+        text-decoration: none;
+        font-family: var(--font-display);
+        font-weight: 600;
+        font-size: 0.8rem;
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+        border-radius: var(--r-sm);
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        transition: background 0.15s, color 0.15s;
+        position: relative;
+    }
+
+    .navbar-nav > li > a:hover,
+    .navbar-nav > li > .nav-dropdown-toggle:hover {
+        background: var(--color-primary-light);
+        color: var(--color-primary);
+    }
+
+    .navbar-nav > li > a.active,
+    .navbar-nav > li > .nav-dropdown-toggle.active {
+        background: var(--color-primary-light);
+        color: var(--color-primary);
+    }
+
+    /* Underline actif */
+    .navbar-nav > li > a.active::after,
+    .navbar-nav > li > .nav-dropdown-toggle.active::after {
+        content: '';
+        position: absolute;
+        bottom: -2px;
+        left: 0.5rem;
+        right: 0.5rem;
+        height: 2px;
+        background: var(--color-primary);
+        border-radius: var(--r-pill);
+    }
+
+    .navbar-nav .nav-icon {
+        color: var(--color-primary);
+        font-size: 0.78rem;
+        opacity: 0.85;
+        flex-shrink: 0;
+    }
+
+    .navbar-nav > li > a:hover .nav-icon,
+    .navbar-nav > li > a.active .nav-icon,
+    .navbar-nav > li > .nav-dropdown-toggle:hover .nav-icon,
+    .navbar-nav > li > .nav-dropdown-toggle.active .nav-icon {
+        opacity: 1;
+    }
+
+    /* ── Séparateur vertical ───────────────────────────────────── */
+    .navbar-sep {
+        width: 1px;
+        height: 20px;
+        background: var(--color-border-subtle);
+        margin: 0 0.5rem;
+        flex-shrink: 0;
+    }
+
+    /* ── Flèche dropdown ───────────────────────────────────────── */
+    .nav-dropdown-arrow {
+        font-size: 0.55rem;
+        color: var(--color-secondary-text);
+        margin-left: 1px;
+        transition: transform 0.25s ease;
+    }
+
+    .nav-dropdown-toggle.open .nav-dropdown-arrow {
+        transform: rotate(180deg);
+    }
+
+    /* ── Dropdown menu ─────────────────────────────────────────── */
+    .nav-dropdown-menu {
+        position: absolute;
+        top: calc(100% + 8px);
+        left: 0;
+        min-width: 200px;
+        background: var(--color-card);
+        border: 1px solid var(--color-border-subtle);
+        border-radius: var(--r-lg);
+        box-shadow: var(--shadow-lg);
+        z-index: var(--z-dropdown);
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(-6px);
+        transition: opacity 0.18s, transform 0.18s, visibility 0s 0.18s;
+        list-style: none;
+        margin: 0;
+        padding: var(--sp-xs) 0;
+        overflow: hidden;
+    }
+
+    .nav-dropdown-menu.open {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+        transition: opacity 0.18s, transform 0.18s, visibility 0s;
+    }
+
+    .nav-dropdown-menu li a {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem var(--sp-lg);
+        color: var(--color-text);
+        text-decoration: none;
+        font-family: var(--font-display);
+        font-weight: 600;
+        font-size: 0.8rem;
+        transition: background 0.12s, color 0.12s;
+        white-space: nowrap;
+    }
+
+    .nav-dropdown-menu li a:hover,
+    .nav-dropdown-menu li a.active {
+        background: var(--color-sidebar-active);
+        color: var(--color-primary);
+    }
+
+    .nav-dropdown-menu li a .nav-icon {
+        color: var(--color-primary);
+        font-size: 0.75rem;
+        width: 1rem;
+        text-align: center;
+        flex-shrink: 0;
+    }
+
+    /* ── Actions navbar droite ─────────────────────────────────── */
     .navbar-actions {
         display: flex;
         align-items: center;
-        gap: 0.75rem;
+        gap: 0.625rem;
         flex-shrink: 0;
+        margin-left: auto;
     }
 
     /* ── Bouton icône navbar ────────────────────────────────────── */
@@ -715,8 +617,7 @@
         border-radius: 0;
     }
 
-    .user-dropdown a:first-of-type { border-radius: 0 0 0 0; }
-    .user-dropdown a:last-of-type  { border-radius: 0 0 var(--r-lg) var(--r-lg); }
+    .user-dropdown a:last-of-type { border-radius: 0 0 var(--r-lg) var(--r-lg); }
 
     .user-dropdown a:hover {
         background: var(--color-sidebar-active);
@@ -732,17 +633,133 @@
         flex-shrink: 0;
     }
 
+    /* ── Hamburger mobile ───────────────────────────────────────── */
+    .btn-mobile-menu {
+        display: none;
+        width: 36px; height: 36px;
+        align-items: center; justify-content: center;
+        font-size: 1rem;
+        border-radius: var(--r-sm);
+        cursor: pointer;
+        background: transparent;
+        color: var(--color-text);
+        border: 1px solid var(--color-border-subtle);
+        transition: background 0.15s, color 0.15s, border-color 0.15s;
+        flex-shrink: 0;
+    }
+
+    .btn-mobile-menu:hover {
+        background: var(--color-primary-light);
+        color: var(--color-primary);
+        border-color: var(--color-primary-border);
+    }
+
+    /* ════════════════════════════════════════════════════════════════
+       SECTION 7 — DRAWER MOBILE
+    ════════════════════════════════════════════════════════════════ */
+    .mobile-drawer {
+        position: fixed;
+        top: var(--navbar-h);
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: calc(var(--z-navbar) - 1);
+        background: var(--color-card);
+        border-top: 1px solid var(--color-border-subtle);
+        transform: translateY(-100%);
+        opacity: 0;
+        visibility: hidden;
+        transition: transform 0.3s ease, opacity 0.25s ease, visibility 0s 0.3s;
+        overflow-y: auto;
+        padding: var(--sp-lg);
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-xs);
+    }
+
+    .mobile-drawer.open {
+        transform: translateY(0);
+        opacity: 1;
+        visibility: visible;
+        transition: transform 0.3s ease, opacity 0.25s ease, visibility 0s;
+    }
+
+    .mobile-drawer .drawer-section-title {
+        font-family: var(--font-display);
+        font-size: 0.6rem;
+        font-weight: 700;
+        letter-spacing: var(--ls-widest);
+        text-transform: uppercase;
+        color: var(--color-secondary-text);
+        opacity: 0.65;
+        padding: 0.75rem 0.5rem 0.25rem;
+    }
+
+    .mobile-drawer a {
+        display: flex;
+        align-items: center;
+        gap: 0.625rem;
+        padding: 0.6rem 0.75rem;
+        color: var(--color-text);
+        text-decoration: none;
+        font-family: var(--font-display);
+        font-weight: 600;
+        font-size: 0.85rem;
+        border-radius: var(--r-sm);
+        transition: background 0.15s, color 0.15s;
+    }
+
+    .mobile-drawer a:hover,
+    .mobile-drawer a.active {
+        background: var(--color-primary-light);
+        color: var(--color-primary);
+    }
+
+    .mobile-drawer a .nav-icon {
+        color: var(--color-primary);
+        font-size: 0.85rem;
+        width: 1.25rem;
+        text-align: center;
+        flex-shrink: 0;
+    }
+
+    .mobile-drawer .drawer-logout {
+        margin-top: auto;
+        padding-top: var(--sp-lg);
+        border-top: 1px solid var(--color-border-subtle);
+    }
+
+    .mobile-drawer .drawer-logout a {
+        color: var(--color-error);
+    }
+
+    .mobile-drawer .drawer-logout a:hover {
+        background: var(--color-error-bg);
+        color: var(--color-error);
+    }
+
+    .mobile-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        top: var(--navbar-h);
+        background: rgba(0,0,0,0.45);
+        z-index: calc(var(--z-navbar) - 2);
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
+
+    .mobile-overlay.visible { display: block; }
+    .mobile-overlay.active  { opacity: 1; }
+
     /* ════════════════════════════════════════════════════════════════
        SECTION 8 — MAIN CONTENT WRAPPER
     ════════════════════════════════════════════════════════════════ */
     .main-content {
-        margin-left: var(--sidebar-w);
+        margin-left: 0;
         padding-top: var(--navbar-h);
         min-height: 100vh;
-        transition: margin-left 0.3s ease;
     }
-
-    .main-content.expanded { margin-left: var(--sidebar-collapsed); }
 
     .page-inner {
         padding: var(--sp-xl);
@@ -751,7 +768,6 @@
 
     /* ════════════════════════════════════════════════════════════════
        SECTION 9 — STICKY KPI BAR
-       z-index 10 : en dessous du navbar (30) mais au-dessus du contenu
     ════════════════════════════════════════════════════════════════ */
     .kpi-sticky-bar {
         position: sticky;
@@ -774,7 +790,6 @@
         }
     }
 
-    /* KPI values — taille augmentée pour lisibilité */
     .kpi-value {
         font-family: var(--font-display) !important;
         font-size: clamp(1.5rem, 2.5vw, 2rem) !important;
@@ -791,7 +806,6 @@
         text-transform: uppercase;
     }
 
-    /* Tablette : KPI en 2 colonnes */
     @media (min-width: 768px) and (max-width: 1023px) {
         .kpi-sticky-bar .grid { grid-template-columns: repeat(2, 1fr) !important; }
         .kpi-value { font-size: 1.5rem !important; }
@@ -799,45 +813,36 @@
 
     /* ════════════════════════════════════════════════════════════════
        SECTION 10 — FULL-HEIGHT LISTE + CARTE (dashboard desktop)
-       Résout le problème #1 : hauteur dynamique correcte
     ════════════════════════════════════════════════════════════════ */
-  @media (min-width: 1024px) {
+    @media (min-width: 1024px) {
+        .dashboard-content .list-map-grid {
+            display: grid;
+            grid-template-columns: minmax(350px, 1fr) 3fr;
+            gap: 1rem;
+            align-items: stretch;
+        }
 
-  /* ✅ 25%/75% MAIS la colonne gauche ne descend jamais < 350px */
-  .dashboard-content .list-map-grid{
-    display: grid;
-    grid-template-columns: minmax(350px, 1fr) 3fr; /* gauche >= 350, sinon 25% */
-    gap: 1rem; /* garde ton gap-4 Tailwind */
-    align-items: stretch;
-  }
+        .dashboard-content .list-map-grid > div.lg\:col-span-1 {
+            grid-column: 1 / 2 !important;
+            min-width: 0;
+        }
 
-  /* ✅ On neutralise les col-span Tailwind en desktop (sans toucher au HTML) */
-  .dashboard-content .list-map-grid > div.lg\:col-span-1{
-    grid-column: 1 / 2 !important;
-    min-width: 0;
-  }
-  .dashboard-content .list-map-grid > div.lg\:col-span-3{
-    grid-column: 2 / 3 !important;
-    min-width: 0; /* CRITIQUE pour éviter que la map “saute” */
-  }
+        .dashboard-content .list-map-grid > div.lg\:col-span-3 {
+            grid-column: 2 / 3 !important;
+            min-width: 0;
+        }
 
-  /* ✅ IMPORTANT : évite que la map disparaisse quand la colonne rétrécit */
-  .dashboard-content .list-map-grid > div.lg\:col-span-3 .panel-card{
-    height: 100%;
-    min-width: 0;
-  }
-  #fleetMap{
-    width: 100%;
-    height: 100%;
-    min-width: 0;
-  }
+        .dashboard-content .list-map-grid > div.lg\:col-span-3 .panel-card {
+            height: 100%;
+            min-width: 0;
+        }
 
-  /* (optionnel) si tu veux garder ton full-height existant, tu peux conserver
-     ton calcul height ici, mais NE TOUCHE PAS aux flex internes si ça cassait la carte */
-}
-
-
-    
+        #fleetMap {
+            width: 100%;
+            height: 100%;
+            min-width: 0;
+        }
+    }
 
     @media (min-width: 768px) and (max-width: 1023px) {
         #vehicleList { max-height: 50vh; overflow-y: auto; }
@@ -854,7 +859,7 @@
     .ui-card {
         background: var(--color-card);
         border: 1px solid var(--color-border-subtle);
-        border-radius: var(--r-lg); /* 8px — réduit vs 0.75rem original */
+        border-radius: var(--r-lg);
         padding: var(--sp-lg);
         box-shadow: var(--shadow-sm);
         color: var(--color-text);
@@ -879,7 +884,7 @@
         background-color: var(--color-input-bg);
         border: 1px solid var(--color-input-border);
         color: var(--color-text) !important;
-        border-radius: var(--r-md); /* 6px */
+        border-radius: var(--r-md);
         padding: var(--sp-sm) var(--sp-md);
         font-family: var(--font-body);
         font-size: 0.875rem;
@@ -968,7 +973,6 @@
 
     .btn-partner-login:hover { background: var(--color-primary); color: #fff; }
 
-    /* Cibles tactiles 44px sur mobile */
     @media (max-width: 767px) {
         .btn-primary, .btn-secondary { min-height: 44px; }
     }
@@ -1017,7 +1021,6 @@
     .dark-mode .ui-table th { background: #161b22; }
     .dark-mode .ui-table td { border-color: #30363d; }
 
-    /* DataTables : override global */
     .dataTables_wrapper { font-family: var(--font-body); font-size: 0.82rem; color: var(--color-text); }
     .dataTables_wrapper .dataTables_filter { display: none !important; }
 
@@ -1153,14 +1156,13 @@
     .immat-badge,
     .vehicles-count-badge,
     .users-count-badge,
-    .nav-tab       { border-radius: var(--r-sm); } /* 4px */
+    .nav-tab       { border-radius: var(--r-sm); }
 
     .role-badge,
-    .alert-badge   { border-radius: var(--r-pill); } /* pills statut */
+    .alert-badge   { border-radius: var(--r-pill); }
 
-    .modal-panel   { border-radius: var(--r-lg); } /* 8px */
+    .modal-panel   { border-radius: var(--r-lg); }
 
-    /* Zone de clic étendue sur les actions de tableau */
     .tbl-action {
         position: relative;
         min-width: 32px; min-height: 32px;
@@ -1169,7 +1171,7 @@
     .tbl-action::after {
         content: '';
         position: absolute;
-        inset: -6px; /* zone tactile ~44px */
+        inset: -6px;
     }
 
     /* ════════════════════════════════════════════════════════════════
@@ -1220,7 +1222,7 @@
         align-items: flex-start;
         gap: var(--sp-md);
         padding: 14px;
-        border-radius: var(--r-xl); /* 12px — autorisé pour les toasts */
+        border-radius: var(--r-xl);
         border: 1px solid var(--color-border-subtle);
         background: var(--color-card);
         color: var(--color-text);
@@ -1296,7 +1298,6 @@
 
     .toast-close:hover { opacity: 1; }
 
-    /* Variantes */
     .toast-success { border-color: rgba(34,197,94,.22); }
     .toast-success::before { background: #22c55e; }
     .toast-success::after  { background: linear-gradient(90deg, #22c55e, rgba(34,197,94,0)); }
@@ -1335,73 +1336,29 @@
     .skeleton-line.medium { width: 75%; }
 
     /* ════════════════════════════════════════════════════════════════
-       SECTION 20 — MOBILE TRIGGER + OVERLAY
+       SECTION 20 — RESPONSIVE MOBILE
     ════════════════════════════════════════════════════════════════ */
-    .btn-mobile-menu {
-        display: none;
-        position: fixed;
-        top: calc((var(--navbar-h) - 34px) / 2);
-        left: var(--sp-md);
-        width: 34px; height: 34px;
-        align-items: center; justify-content: center;
-        font-size: 1rem;
-        border-radius: 50%;
-        cursor: pointer;
-        z-index: calc(var(--z-navbar) + 1);
-        background: var(--color-card);
-        color: var(--color-primary);
-        border: 1px solid var(--color-primary-border);
-        transition: background 0.15s, color 0.15s;
-    }
-
-    .btn-mobile-menu:hover { background: var(--color-primary); color: #fff; }
-
-    .mobile-overlay {
-        display: none;
-        position: fixed;
-        inset: 0;
-        background: rgba(0,0,0,0.55);
-        z-index: var(--z-overlay);
-        opacity: 0;
-        transition: opacity 0.3s ease;
-    }
-
-    .mobile-overlay.visible { display: block; }
-    .mobile-overlay.active  { opacity: 1; }
-
-    /* ════════════════════════════════════════════════════════════════
-       SECTION 21 — RESPONSIVE MOBILE
-    ════════════════════════════════════════════════════════════════ */
-    @media (max-width: 767px) {
-        .sidebar {
-            transform: translateX(-100%);
-            width: var(--sidebar-w);
-            z-index: calc(var(--z-overlay) + 1);
-        }
-
-        .sidebar.mobile-open {
-            transform: translateX(0);
-            box-shadow: 4px 0 24px rgba(0,0,0,0.25);
-        }
-
-        .main-content { margin-left: 0 !important; }
-
-        .navbar {
-            left: 0 !important;
-            padding-left: calc(var(--sp-xl) + 2.5rem);
-        }
-
+    @media (max-width: 1023px) {
+        .navbar-nav { display: none !important; }
         .btn-mobile-menu { display: flex !important; }
     }
 
-    @media (min-width: 768px) { .btn-mobile-menu { display: none !important; } }
+    @media (min-width: 1024px) {
+        .btn-mobile-menu { display: none !important; }
+        .mobile-drawer   { display: none !important; }
+        .mobile-overlay  { display: none !important; }
+    }
 
     @media (min-width: 768px) and (max-width: 1023px) {
         .page-inner { padding: 1rem; }
     }
 
+    @media (max-width: 767px) {
+        .page-inner { padding: 0.75rem; }
+    }
+
     /* ════════════════════════════════════════════════════════════════
-       SECTION 22 — UTILITAIRES
+       SECTION 21 — UTILITAIRES
     ════════════════════════════════════════════════════════════════ */
     .text-primary   { color: var(--color-primary); }
     .text-secondary { color: var(--color-secondary-text); font-family: var(--font-body); }
@@ -1412,56 +1369,42 @@
     }
 
     /* ════════════════════════════════════════════════════════════════
-       SECTION 23 — PRINT
+       SECTION 22 — PRINT
     ════════════════════════════════════════════════════════════════ */
     @media print {
-        .sidebar, .navbar, .kpi-sticky-bar,
-        #toast-container, .btn-mobile-menu { display: none !important; }
+        .navbar, .kpi-sticky-bar,
+        #toast-container, .btn-mobile-menu,
+        .mobile-drawer, .mobile-overlay { display: none !important; }
         .main-content { margin-left: 0 !important; padding-top: 0 !important; }
         .page-inner   { padding: 0 !important; }
     }
     </style>
-
-
 
     @stack('styles')
 </head>
 
 {{-- ================================================================
      BODY
-     La classe light-mode / dark-mode contrôle les tokens couleurs
 ================================================================ --}}
 <body class="light-mode" id="app-root">
 
-    {{-- Annonces pour lecteurs d'écran (SSE, thème, sidebar) --}}
+    {{-- Annonces pour lecteurs d'écran --}}
     <div id="sr-live" aria-live="polite" aria-atomic="true" class="sr-only"></div>
 
     {{-- ════════════════════════════════════════════════════════
-         SIDEBAR
+         NAVBAR HORIZONTALE
     ════════════════════════════════════════════════════════════ --}}
-    <aside class="sidebar" id="sidebar" role="navigation" aria-label="Navigation principale">
+    <header class="navbar" id="navbar" role="banner">
 
-        {{-- ── Logo ─────────────────────────────────────────── --}}
-        <div class="sidebar-brand">
-            <div class="brand-logo">
-                <img src="{{ asset('assets/images/logo_tracking.png') }}" alt="Logo Fleetra">
-                <h1 class="logo-text">Fleetra</h1>
-            </div>
-        </div>
+        {{-- ── Brand Logo ────────────────────────────────────── --}}
+        <a href="{{ route('dashboard') }}" class="navbar-brand" aria-label="Fleetra — Accueil">
+            <img src="{{ asset('assets/images/logo_tracking.png') }}" alt="Logo Fleetra">
+            <span class="logo-text">Fleetra</span>
+        </a>
 
-        {{-- ── Bouton collapse (desktop uniquement) ─────────── --}}
-        <div class="sidebar-collapse-bar hidden md:flex">
-            <button id="btn-collapse-desktop"
-                    aria-label="Réduire ou agrandir le menu"
-                    title="Réduire/agrandir">
-                <i class="fas fa-chevron-left" id="icon-collapse" aria-hidden="true"></i>
-            </button>
-        </div>
-
-        {{-- ── Contenu scrollable ───────────────────────────── --}}
-        <div class="sidebar-scroll">
-
-            <ul class="sidebar-nav" role="list">
+        {{-- ── Navigation principale (desktop) ─────────────── --}}
+        <nav aria-label="Navigation principale">
+            <ul class="navbar-nav" role="list">
 
                 {{-- Dashboard --}}
                 <li>
@@ -1473,55 +1416,51 @@
                     </a>
                 </li>
 
-                {{-- Suivi & Flotte (sous-menu) --}}
-                <li>
-                    <div class="sidebar-section-title">Flotte</div>
-                </li>
+                {{-- Séparateur --}}
+                <li aria-hidden="true"><div class="navbar-sep"></div></li>
 
+                {{-- Suivi & Flotte (dropdown) --}}
                 <li>
-                    <a href="#"
-                       class="dropdown-toggle {{ request()->is('tracking*') || request()->is('users*') || request()->is('trajets*') ? 'active open' : '' }}"
-                       data-target="menu-flotte"
-                       aria-expanded="{{ request()->is('tracking*') || request()->is('users*') || request()->is('trajets*') ? 'true' : 'false' }}"
-                       aria-controls="menu-flotte"
-                       aria-haspopup="true">
+                    <button class="nav-dropdown-toggle {{ request()->is('tracking*') || request()->is('users*') || request()->is('trajets*') ? 'active' : '' }}"
+                            id="nav-toggle-flotte"
+                            data-target="nav-drop-flotte"
+                            aria-haspopup="true"
+                            aria-expanded="false"
+                            aria-controls="nav-drop-flotte">
                         <span class="nav-icon" aria-hidden="true"><i class="fas fa-satellite-dish"></i></span>
                         <span class="nav-label">Suivi &amp; Flotte</span>
-                        <i class="fas fa-chevron-right dropdown-arrow" aria-hidden="true"></i>
-                    </a>
+                        <i class="fas fa-chevron-down nav-dropdown-arrow" aria-hidden="true"></i>
+                    </button>
 
-                    <ul class="nav-dropdown {{ request()->is('tracking*') || request()->is('users*') || request()->is('trajets*') ? 'open' : '' }}"
-                        id="menu-flotte" role="list">
-                        <li>
+                    <ul class="nav-dropdown-menu" id="nav-drop-flotte" role="menu">
+                        <li role="none">
                             <a href="{{ route('tracking.vehicles') }}"
+                               role="menuitem"
                                class="{{ request()->routeIs('tracking.vehicles') ? 'active' : '' }}"
                                aria-current="{{ request()->routeIs('tracking.vehicles') ? 'page' : 'false' }}">
                                 <span class="nav-icon" aria-hidden="true"><i class="fas fa-car"></i></span>
-                                <span class="nav-label">Véhicules</span>
+                                Véhicules
                             </a>
                         </li>
-                        <li>
+                        <li role="none">
                             <a href="{{ route('users.index') }}"
+                               role="menuitem"
                                class="{{ request()->routeIs('users.*') ? 'active' : '' }}"
                                aria-current="{{ request()->routeIs('users.*') ? 'page' : 'false' }}">
                                 <span class="nav-icon" aria-hidden="true"><i class="fas fa-users"></i></span>
-                                <span class="nav-label">Chauffeurs</span>
+                                Chauffeurs
                             </a>
                         </li>
-                        <li>
+                        <li role="none">
                             <a href="{{ route('trajets.index') }}"
+                               role="menuitem"
                                class="{{ request()->routeIs('trajets.*') ? 'active' : '' }}"
                                aria-current="{{ request()->routeIs('trajets.*') ? 'page' : 'false' }}">
                                 <span class="nav-icon" aria-hidden="true"><i class="fas fa-route"></i></span>
-                                <span class="nav-label">Trajets</span>
+                                Trajets
                             </a>
                         </li>
                     </ul>
-                </li>
-
-                {{-- Séparateur --}}
-                <li>
-                    <div class="sidebar-section-title">Supervision</div>
                 </li>
 
                 {{-- Alertes --}}
@@ -1545,45 +1484,9 @@
                 </li>
 
             </ul>
-        </div>{{-- /sidebar-scroll --}}
+        </nav>
 
-        {{-- ── Footer déconnexion ───────────────────────────── --}}
-        <div class="sidebar-footer">
-            <a href="#"
-               title="Déconnexion"
-               onclick="event.preventDefault(); document.getElementById('form-logout-sidebar').submit();">
-                <span class="nav-icon" aria-hidden="true">
-                    <i class="fas fa-sign-out-alt"></i>
-                </span>
-                <span class="nav-label profile-text">Déconnexion</span>
-            </a>
-            <form id="form-logout-sidebar" action="{{ route('logout') }}" method="POST" class="hidden">
-                @csrf
-            </form>
-        </div>
-
-    </aside>
-
-    {{-- ── Bouton mobile ──────────────────────────────────────── --}}
-    <button class="btn-mobile-menu"
-            id="btn-mobile-menu"
-            aria-label="Ouvrir le menu de navigation"
-            aria-expanded="false"
-            aria-controls="sidebar">
-        <i class="fas fa-bars" aria-hidden="true"></i>
-    </button>
-
-    {{-- ── Overlay mobile ─────────────────────────────────────── --}}
-    <div class="mobile-overlay" id="mobile-overlay" aria-hidden="true"></div>
-
-    {{-- ════════════════════════════════════════════════════════
-         NAVBAR
-    ════════════════════════════════════════════════════════════ --}}
-    <header class="navbar" id="navbar" role="banner">
-
-        {{-- Titre de la page courante --}}
-        <h1 class="navbar-title hidden sm:block">@yield('title', 'Dashboard')</h1>
-
+        {{-- ── Actions droite ───────────────────────────────── --}}
         <div class="navbar-actions">
 
             {{-- Toggle dark / light --}}
@@ -1606,7 +1509,6 @@
                aria-label="Voir les alertes et notifications"
                title="Alertes">
                 <i class="fas fa-bell" aria-hidden="true"></i>
-                {{-- Pastille rouge (présence d'alertes non lues) --}}
                 <span aria-hidden="true" style="
                     position:absolute; top:6px; right:6px;
                     width:6px; height:6px; border-radius:50%;
@@ -1657,8 +1559,75 @@
                 </div>
             </div>
 
+            {{-- Hamburger mobile ─────────────────────────────── --}}
+            <button class="btn-mobile-menu"
+                    id="btn-mobile-menu"
+                    aria-label="Ouvrir le menu de navigation"
+                    aria-expanded="false"
+                    aria-controls="mobile-drawer">
+                <i class="fas fa-bars" aria-hidden="true"></i>
+            </button>
+
         </div>
     </header>
+
+    {{-- ════════════════════════════════════════════════════════
+         DRAWER MOBILE
+    ════════════════════════════════════════════════════════════ --}}
+    <div class="mobile-drawer" id="mobile-drawer" role="dialog" aria-modal="true" aria-label="Menu de navigation">
+
+        <a href="{{ route('dashboard') }}"
+           class="{{ request()->routeIs('dashboard') ? 'active' : '' }}">
+            <span class="nav-icon" aria-hidden="true"><i class="fas fa-tachometer-alt"></i></span>
+            Dashboard
+        </a>
+
+        <div class="drawer-section-title">Flotte</div>
+
+        <a href="{{ route('tracking.vehicles') }}"
+           class="{{ request()->routeIs('tracking.vehicles') ? 'active' : '' }}">
+            <span class="nav-icon" aria-hidden="true"><i class="fas fa-car"></i></span>
+            Véhicules
+        </a>
+        <a href="{{ route('users.index') }}"
+           class="{{ request()->routeIs('users.*') ? 'active' : '' }}">
+            <span class="nav-icon" aria-hidden="true"><i class="fas fa-users"></i></span>
+            Chauffeurs
+        </a>
+        <a href="{{ route('trajets.index') }}"
+           class="{{ request()->routeIs('trajets.*') ? 'active' : '' }}">
+            <span class="nav-icon" aria-hidden="true"><i class="fas fa-route"></i></span>
+            Trajets
+        </a>
+
+        <div class="drawer-section-title">Supervision</div>
+
+        <a href="{{ route('alerts.view') }}"
+           class="{{ request()->routeIs('alerts.*') ? 'active' : '' }}">
+            <span class="nav-icon" aria-hidden="true"><i class="fas fa-bell"></i></span>
+            Alertes
+        </a>
+        <a href="{{ route('engine.action.index') }}"
+           class="{{ request()->routeIs('engine.*') ? 'active' : '' }}">
+            <span class="nav-icon" aria-hidden="true"><i class="fas fa-power-off"></i></span>
+            Moteur
+        </a>
+
+        <div class="drawer-logout">
+            <a href="#"
+               onclick="event.preventDefault(); document.getElementById('form-logout-drawer').submit();">
+                <span class="nav-icon" aria-hidden="true"><i class="fas fa-sign-out-alt"></i></span>
+                Déconnexion
+            </a>
+            <form id="form-logout-drawer" action="{{ route('logout') }}" method="POST" class="hidden">
+                @csrf
+            </form>
+        </div>
+
+    </div>
+
+    {{-- Overlay mobile --}}
+    <div class="mobile-overlay" id="mobile-overlay" aria-hidden="true"></div>
 
     {{-- ════════════════════════════════════════════════════════
          MAIN CONTENT
@@ -1666,10 +1635,10 @@
     <main class="main-content" id="main-content" role="main">
         <div class="page-inner">
 
-            {{-- ── Conteneur toast (dynamiques) ─────────────── --}}
+            {{-- Conteneur toast --}}
             <div id="toast-container" aria-live="polite" aria-atomic="false" role="status"></div>
 
-            {{-- ── Toast session : succès ──────────────────── --}}
+            {{-- Toast session : succès --}}
             @if(session('success'))
             <div class="toast toast-success" role="alert" aria-live="assertive">
                 <div class="toast-icon" aria-hidden="true"><i class="fas fa-check-circle"></i></div>
@@ -1681,7 +1650,7 @@
             </div>
             @endif
 
-            {{-- ── Toast session : erreur ───────────────────── --}}
+            {{-- Toast session : erreur --}}
             @if(session('error'))
             <div class="toast toast-error" role="alert" aria-live="assertive">
                 <div class="toast-icon" aria-hidden="true"><i class="fas fa-exclamation-triangle"></i></div>
@@ -1704,7 +1673,6 @@
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
 
-    {{-- DataTables init global (overridable par les views) --}}
     <script>
     $(function () {
         if ($.fn.DataTable && $('#myTable').length) {
@@ -1723,25 +1691,22 @@
 
     <script>
     /* ════════════════════════════════════════════════════════════════
-       FLEETRA LAYOUT — JAVASCRIPT PRINCIPAL
-       Toutes les fonctions sont encapsulées dans une IIFE pour
-       éviter les collisions de variables globales.
+       FLEETRA LAYOUT — JAVASCRIPT PRINCIPAL (navbar horizontale)
 
        Responsabilités :
          1.  Thème clair / sombre (persist localStorage + system pref)
-         2.  Sidebar desktop : collapse / expand
-         3.  Sidebar mobile : open / close + overlay
-         4.  Sous-menus sidebar (dropdowns)
-         5.  Dropdown utilisateur navbar
-         6.  Mesure navbar + KPI bar → CSS vars --navbar-h / --kpi-h
-         7.  ResizeObserver sur KPI bar
-         8.  Debounce window.resize
-         9.  Google Maps resize après collapse / resize fenêtre
-         10. SSE indicator : patch classes CSS animation
-         11. Focus trap modales (WCAG 2.4.3)
-         12. Escape key : ferme modales + sidebar mobile
-         13. Toasts : affichage session + API window.showToast()
-         14. Annonces aria-live pour lecteurs d'écran
+         2.  Dropdowns nav (Suivi & Flotte)
+         3.  Mobile drawer : open / close + overlay
+         4.  Dropdown utilisateur navbar
+         5.  Mesure navbar + KPI bar → CSS vars --navbar-h / --kpi-h
+         6.  ResizeObserver sur KPI bar
+         7.  Debounce window.resize
+         8.  Google Maps resize après resize fenêtre
+         9.  SSE indicator : patch classes CSS animation
+         10. Focus trap modales (WCAG 2.4.3)
+         11. Escape key : ferme modales + drawer mobile
+         12. Toasts : affichage session + API window.showToast()
+         13. Annonces aria-live pour lecteurs d'écran
     ════════════════════════════════════════════════════════════════ */
     (function () {
         'use strict';
@@ -1750,12 +1715,10 @@
         var ROOT          = document.documentElement;
         var APP           = document.getElementById('app-root');
         var SR_LIVE        = document.getElementById('sr-live');
-        var SIDEBAR        = document.getElementById('sidebar');
         var MAIN           = document.getElementById('main-content');
         var NAVBAR         = document.getElementById('navbar');
-        var BTN_COLLAPSE   = document.getElementById('btn-collapse-desktop');
-        var ICON_COLLAPSE  = document.getElementById('icon-collapse');
         var BTN_MOBILE     = document.getElementById('btn-mobile-menu');
+        var DRAWER         = document.getElementById('mobile-drawer');
         var OVERLAY        = document.getElementById('mobile-overlay');
         var BTN_USER       = document.getElementById('btn-user-menu');
         var USER_DROPDOWN  = document.getElementById('user-dropdown');
@@ -1793,7 +1756,6 @@
             applyTheme(saved);
         }
 
-        /* Suivi des préférences système en temps réel */
         window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
             if (!localStorage.getItem('fleetra-theme')) applyTheme(e.matches ? 'dark' : 'light');
         });
@@ -1806,96 +1768,88 @@
             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); THEME_TOGGLE.click(); }
         });
 
-/* ══════════════════════════════════════════════════════════
-   2. SIDEBAR DESKTOP — COLLAPSE / EXPAND
-══════════════════════════════════════════════════════════ */
-function sidebarCollapse(force) {
-    var collapse = (force !== undefined) ? force : !SIDEBAR.classList.contains('collapsed');
-    SIDEBAR.classList.toggle('collapsed', collapse);
-    MAIN.classList.toggle('expanded', collapse);
-    NAVBAR.classList.toggle('expanded', collapse);
-    ICON_COLLAPSE.style.transform = collapse ? 'rotate(180deg)' : 'rotate(0deg)';
-    localStorage.setItem('fleetra-sidebar', collapse ? '1' : '0');
-    var kpiBar = document.querySelector('.kpi-sticky-bar');
-    if (kpiBar) kpiBar.style.left = collapse ? 'var(--sidebar-collapsed)' : 'var(--sidebar-w)';
-    setTimeout(function () { triggerMapResize(); measureHeights(); }, 320);
-    announce(collapse ? 'Menu rétracté' : 'Menu étendu');
-}
+        /* ══════════════════════════════════════════════════════════
+           2. DROPDOWNS NAV DESKTOP
+        ══════════════════════════════════════════════════════════ */
+        function closeAllNavDropdowns(except) {
+            document.querySelectorAll('.nav-dropdown-toggle').forEach(function (btn) {
+                if (btn === except) return;
+                var targetId = btn.getAttribute('data-target');
+                var menu = document.getElementById(targetId);
+                if (menu) {
+                    menu.classList.remove('open');
+                    btn.classList.remove('open');
+                    btn.setAttribute('aria-expanded', 'false');
+                }
+            });
+        }
 
-if (BTN_COLLAPSE) {
-    BTN_COLLAPSE.addEventListener('click', function () { sidebarCollapse(); });
-}
+        document.querySelectorAll('.nav-dropdown-toggle').forEach(function (btn) {
+            btn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                var targetId = btn.getAttribute('data-target');
+                var menu = document.getElementById(targetId);
+                if (!menu) return;
+
+                var opening = !menu.classList.contains('open');
+                closeAllNavDropdowns(btn);
+
+                menu.classList.toggle('open', opening);
+                btn.classList.toggle('open', opening);
+                btn.setAttribute('aria-expanded', String(opening));
+            });
+        });
+
+        /* Fermer les dropdowns nav au clic extérieur */
+        document.addEventListener('click', function (e) {
+            var inside = e.target.closest('.navbar-nav li');
+            if (!inside) closeAllNavDropdowns(null);
+        });
 
         /* ══════════════════════════════════════════════════════════
-           3. SIDEBAR MOBILE — OPEN / CLOSE
+           3. DRAWER MOBILE — OPEN / CLOSE
         ══════════════════════════════════════════════════════════ */
-        function mobileOpen() {
-            SIDEBAR.classList.add('mobile-open');
+        function drawerOpen() {
+            if (!DRAWER) return;
+            DRAWER.classList.add('open');
             OVERLAY.classList.add('visible');
             requestAnimationFrame(function () {
                 requestAnimationFrame(function () { OVERLAY.classList.add('active'); });
             });
             document.body.style.overflow = 'hidden';
-            BTN_MOBILE.setAttribute('aria-expanded', 'true');
-            OVERLAY.setAttribute('aria-hidden', 'false');
+            if (BTN_MOBILE) BTN_MOBILE.setAttribute('aria-expanded', 'true');
+            if (OVERLAY) OVERLAY.setAttribute('aria-hidden', 'false');
         }
 
-        function mobileClose() {
-            SIDEBAR.classList.remove('mobile-open');
+        function drawerClose() {
+            if (!DRAWER) return;
+            DRAWER.classList.remove('open');
             OVERLAY.classList.remove('active');
             setTimeout(function () {
                 OVERLAY.classList.remove('visible');
-                OVERLAY.setAttribute('aria-hidden', 'true');
+                if (OVERLAY) OVERLAY.setAttribute('aria-hidden', 'true');
             }, 300);
             document.body.style.overflow = '';
-            BTN_MOBILE.setAttribute('aria-expanded', 'false');
+            if (BTN_MOBILE) BTN_MOBILE.setAttribute('aria-expanded', 'false');
         }
 
         if (BTN_MOBILE) {
             BTN_MOBILE.addEventListener('click', function () {
-                SIDEBAR.classList.contains('mobile-open') ? mobileClose() : mobileOpen();
+                DRAWER && DRAWER.classList.contains('open') ? drawerClose() : drawerOpen();
             });
         }
 
-        if (OVERLAY) OVERLAY.addEventListener('click', mobileClose);
+        if (OVERLAY) OVERLAY.addEventListener('click', drawerClose);
 
-        /* ══════════════════════════════════════════════════════════
-           4. SOUS-MENUS SIDEBAR (dropdowns)
-        ══════════════════════════════════════════════════════════ */
-        document.querySelectorAll('.dropdown-toggle').forEach(function (toggle) {
-            toggle.addEventListener('click', function (e) {
-                e.preventDefault();
-                if (SIDEBAR.classList.contains('collapsed')) return;
-
-                var targetId = toggle.getAttribute('data-target');
-                var drop     = document.getElementById(targetId);
-                if (!drop) return;
-
-                var opening = !drop.classList.contains('open');
-
-                /* Fermer tous les autres */
-                document.querySelectorAll('.nav-dropdown.open').forEach(function (d) {
-                    if (d.id !== targetId) {
-                        d.classList.remove('open');
-                        var t = document.querySelector('[data-target="' + d.id + '"]');
-                        if (t) { t.classList.remove('open'); t.setAttribute('aria-expanded', 'false'); }
-                    }
-                });
-
-                drop.classList.toggle('open', opening);
-                toggle.classList.toggle('open', opening);
-                toggle.setAttribute('aria-expanded', String(opening));
+        /* Fermer drawer au clic sur un lien */
+        if (DRAWER) {
+            DRAWER.querySelectorAll('a').forEach(function (a) {
+                a.addEventListener('click', drawerClose);
             });
-        });
-
-        /* Initialiser les menus actifs */
-        document.querySelectorAll('.nav-dropdown.open').forEach(function (d) {
-            var t = document.querySelector('[data-target="' + d.id + '"]');
-            if (t) { t.classList.add('open'); t.setAttribute('aria-expanded', 'true'); }
-        });
+        }
 
         /* ══════════════════════════════════════════════════════════
-           5. DROPDOWN UTILISATEUR NAVBAR
+           4. DROPDOWN UTILISATEUR NAVBAR
         ══════════════════════════════════════════════════════════ */
         if (BTN_USER && USER_DROPDOWN) {
             BTN_USER.addEventListener('click', function (e) {
@@ -1921,11 +1875,10 @@ if (BTN_COLLAPSE) {
         }
 
         /* ══════════════════════════════════════════════════════════
-           6. MESURE HAUTEURS → CSS VARS
-           Garantit que --navbar-h et --kpi-h sont exacts à tout moment
+           5. MESURE HAUTEURS → CSS VARS
         ══════════════════════════════════════════════════════════ */
         function measureHeights() {
-            var navH = NAVBAR ? Math.round(NAVBAR.getBoundingClientRect().height) : 72;
+            var navH = NAVBAR ? Math.round(NAVBAR.getBoundingClientRect().height) : 64;
             var kpiEl = document.querySelector('.kpi-sticky-bar');
             var kpiH  = kpiEl  ? Math.round(kpiEl.getBoundingClientRect().height) : 0;
             ROOT.style.setProperty('--navbar-h', navH + 'px');
@@ -1933,8 +1886,7 @@ if (BTN_COLLAPSE) {
         }
 
         /* ══════════════════════════════════════════════════════════
-           7. RESIZEOBSERVER SUR KPI BAR
-           Réagit aux changements de hauteur (fonts chargées, contenu)
+           6. RESIZEOBSERVER SUR KPI BAR
         ══════════════════════════════════════════════════════════ */
         (function () {
             if (!window.ResizeObserver) return;
@@ -1948,18 +1900,13 @@ if (BTN_COLLAPSE) {
         })();
 
         /* ══════════════════════════════════════════════════════════
-           8. WINDOW RESIZE — debounce 120ms
+           7. WINDOW RESIZE — debounce 120ms
         ══════════════════════════════════════════════════════════ */
         function syncOnResize() {
-            if (window.innerWidth < 768) {
-                /* Mobile : retirer le collapsed desktop */
-                SIDEBAR.classList.remove('collapsed');
-                MAIN.classList.remove('expanded');
-                NAVBAR.classList.remove('expanded');
-            } else {
-                mobileClose();
-                var saved = (localStorage.getItem('fleetra-sidebar') === '1');
-                sidebarCollapse(saved);
+            /* Fermer le drawer si on passe en desktop */
+            if (window.innerWidth >= 1024) {
+                drawerClose();
+                closeAllNavDropdowns(null);
             }
             measureHeights();
             triggerMapResize();
@@ -1972,8 +1919,7 @@ if (BTN_COLLAPSE) {
         });
 
         /* ══════════════════════════════════════════════════════════
-           9. GOOGLE MAPS RESIZE
-           Nécessaire après collapse sidebar + resize fenêtre
+           8. GOOGLE MAPS RESIZE
         ══════════════════════════════════════════════════════════ */
         function triggerMapResize() {
             if (window.google && window.google.maps && window.map) {
@@ -1982,9 +1928,7 @@ if (BTN_COLLAPSE) {
         }
 
         /* ══════════════════════════════════════════════════════════
-           10. SSE INDICATOR — PATCH CLASSES CSS
-           Wrappe la fonction setSseIndicator() définie dans dashboard.blade
-           pour y ajouter les classes d'animation pulse CSS
+           9. SSE INDICATOR — PATCH CLASSES CSS
         ══════════════════════════════════════════════════════════ */
         (function () {
             var sseEl = document.getElementById('sse-indicator');
@@ -2010,7 +1954,6 @@ if (BTN_COLLAPSE) {
                 if (SSE_LABELS[state])  announce(SSE_LABELS[state]);
             }
 
-            /* Wrapper non-destructif : préserve la fonction existante */
             var _orig = window.setSseIndicator;
             window.setSseIndicator = function (state) {
                 if (typeof _orig === 'function') _orig(state);
@@ -2019,7 +1962,7 @@ if (BTN_COLLAPSE) {
         })();
 
         /* ══════════════════════════════════════════════════════════
-           11. FOCUS TRAP MODALES (WCAG 2.4.3)
+           10. FOCUS TRAP MODALES (WCAG 2.4.3)
         ══════════════════════════════════════════════════════════ */
         function trapFocus(panel) {
             if (!panel) return;
@@ -2043,7 +1986,6 @@ if (BTN_COLLAPSE) {
             first.focus();
         }
 
-        /* Observer l'ouverture des modales pour activer le trap */
         if (window.MutationObserver) {
             document.querySelectorAll('.modal-overlay').forEach(function (overlay) {
                 new MutationObserver(function (muts) {
@@ -2057,28 +1999,26 @@ if (BTN_COLLAPSE) {
         }
 
         /* ══════════════════════════════════════════════════════════
-           12. ESCAPE KEY — ferme modales + sidebar mobile
+           11. ESCAPE KEY
         ══════════════════════════════════════════════════════════ */
         document.addEventListener('keydown', function (e) {
             if (e.key !== 'Escape') return;
-            /* Modales ouvertes */
             document.querySelectorAll('.modal-overlay').forEach(function (m) {
                 if (m.style.display === 'flex') {
                     var btn = m.querySelector('.modal-close, [data-modal-close]');
                     if (btn) btn.click();
                 }
             });
-            /* Sidebar mobile */
-            if (SIDEBAR.classList.contains('mobile-open')) mobileClose();
-            /* Dropdown utilisateur */
+            if (DRAWER && DRAWER.classList.contains('open')) drawerClose();
             if (USER_DROPDOWN && USER_DROPDOWN.classList.contains('open')) {
                 USER_DROPDOWN.classList.remove('open');
                 if (BTN_USER) { BTN_USER.setAttribute('aria-expanded', 'false'); BTN_USER.focus(); }
             }
+            closeAllNavDropdowns(null);
         });
 
         /* ══════════════════════════════════════════════════════════
-           13. TOASTS
+           12. TOASTS
         ══════════════════════════════════════════════════════════ */
         function animateToast(el, duration) {
             if (!el) return;
@@ -2100,14 +2040,8 @@ if (BTN_COLLAPSE) {
             setTimeout(dismiss, duration);
         }
 
-        /* Toasts issus de session (dans le DOM au chargement) */
         document.querySelectorAll('.toast').forEach(function (t) { animateToast(t); });
 
-        /**
-         * API publique : window.showToast(title, message, type)
-         * type : 'success' | 'error' | 'warning'
-         * Utilisable depuis n'importe quelle view JavaScript
-         */
         window.showToast = function (title, msg, type) {
             type = type || 'success';
             var container = document.getElementById('toast-container');
@@ -2134,14 +2068,12 @@ if (BTN_COLLAPSE) {
         };
 
         /* ══════════════════════════════════════════════════════════
-           14. INITIALISATION
+           13. INITIALISATION
         ══════════════════════════════════════════════════════════ */
         function boot() {
             initTheme();
-            syncOnResize();
             measureHeights();
 
-            /* Re-mesurer quand toutes les fonts sont prêtes */
             if (document.fonts && document.fonts.ready) {
                 document.fonts.ready.then(function () {
                     measureHeights();
@@ -2149,8 +2081,6 @@ if (BTN_COLLAPSE) {
                 });
             }
 
-            /* Sécurité : re-mesurer à 400ms et 1300ms
-               (Google Fonts async, Google Maps init, ressources lazy) */
             setTimeout(measureHeights, 400);
             setTimeout(function () { measureHeights(); triggerMapResize(); }, 1300);
         }
@@ -2162,13 +2092,6 @@ if (BTN_COLLAPSE) {
         }
 
     })(); /* fin IIFE Fleetra Layout */
-
-
-
-
-
-
-    
     </script>
 
     @stack('scripts')
