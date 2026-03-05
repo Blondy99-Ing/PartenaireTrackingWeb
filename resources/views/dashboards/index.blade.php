@@ -1,1522 +1,1762 @@
+{{-- resources/views/dashboard/live.blade.php --}}
 @extends('layouts.app')
 
-@section('title', 'Dashboard')
+@section('title', 'Dashboard Live')
 
 @push('styles')
 <style>
-
-/* ════════════════════════════════════════════════════════════════
-   DASHBOARD — Styles propres, construits SUR le Design System
-   du layout (tokens, classes utilitaires, typographie).
-   Aucun token redéfini ici — tout vient de app.blade.php.
-════════════════════════════════════════════════════════════════ */
-
-/* ── KPI Sticky bar ──────────────────────────────────────────── */
-.kpi-sticky-bar {
-    position: fixed;
-    top: var(--navbar-h);
-    left: 0;
-    right: 0;
-    z-index: var(--z-kpi);
-    background-color: var(--color-bg);
-    padding: 6px var(--sp-xl) 0px;
-    box-shadow: 0 4px 20px -4px rgba(0,0,0,0.08);
-    transition: background-color 0.2s;
-    pointer-events: none;
-}
-
-.kpi-sticky-bar > * {
-    pointer-events: auto;
-}
-
-.dark-mode .kpi-sticky-bar {
-    box-shadow: 0 4px 20px -4px rgba(0,0,0,0.45);
-}
-
-@media (max-width: 1023px) {
-    .kpi-sticky-bar {
-        position: fixed;
-        padding-block: var(--sp-xs);
-    }
-}
-
-/* ── KPI Cards ───────────────────────────────────────────────── */
-.kpi-card {
-    background-color: var(--color-card);
-    border: 1px solid var(--color-border-subtle);
-    border-radius: var(--r-lg);
-    padding: 0.35rem 0.75rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--sp-sm);
-    transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
-    position: relative;
-    overflow: hidden;
-}
-
-.kpi-card::before {
-    content: '';
-    position: absolute;
-    left: 0; top: 20%; bottom: 20%;
-    width: 3px;
-    background: var(--color-primary);
-    border-radius: 0 var(--r-pill) var(--r-pill) 0;
-    opacity: 0;
-    transition: opacity 0.2s ease, top 0.2s ease, bottom 0.2s ease;
-}
-
-.kpi-card:hover {
-    box-shadow: var(--shadow-md);
-    border-color: var(--color-primary-border);
-    transform: translateY(-1px);
-}
-
-.kpi-card:hover::before {
-    opacity: 1;
-    top: 8%; bottom: 8%;
-}
-
-.kpi-label {
-    font-family: var(--font-display);
-    font-size: 0.6rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: var(--ls-wider);
-    color: var(--color-secondary-text);
-    line-height: 1;
-    margin: 0;
-}
-
-.kpi-value {
-    font-family: var(--font-display);
-    font-size: 1.1rem;
-    font-weight: 700;
-    line-height: 1;
-    letter-spacing: var(--ls-tight);
-    color: var(--color-primary);
-    margin: 1px 0 0;
-    transition: color 0.3s ease;
-}
-
-.kpi-value.neutral { color: var(--color-text); }
-
-.kpi-icon-wrap {
-    width: 40px; height: 40px;
-    border-radius: var(--r-md);
-    display: flex; align-items: center; justify-content: center;
-    background: var(--color-primary-light);
-    flex-shrink: 0;
-    transition: background 0.2s ease, transform 0.2s ease;
-}
-
-.kpi-card:hover .kpi-icon-wrap {
-    background: rgba(245,130,32,0.20);
-    transform: scale(1.08);
-}
-
-.kpi-icon-wrap i {
-    font-size: 0.95rem;
-    color: var(--color-primary);
-}
-
-/* ── Alert type mini-cards ───────────────────────────────────── */
-.kpi-alerts-panel {
-    background-color: var(--color-card);
-    border: 1px solid var(--color-border-subtle);
-    border-radius: var(--r-lg);
-    padding: 0.35rem 0.75rem;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    transition: box-shadow 0.2s ease, border-color 0.2s ease;
-}
-
-.kpi-alerts-panel:hover {
-    box-shadow: var(--shadow-sm);
-    border-color: var(--color-primary-border);
-}
-
-.kpi-alerts-header {
-    font-family: var(--font-display);
-    font-size: 0.65rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: var(--ls-wide);
-    color: var(--color-text);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin: 0;
-}
-
-.kpi-alerts-header span:last-child {
-    font-family: var(--font-body);
-    font-size: 0.65rem;
-    font-weight: 400;
-    letter-spacing: 0;
-    color: var(--color-secondary-text);
-    text-transform: none;
-}
-
-.alert-type-card {
-    border-radius: var(--r-sm);
-    border: 1px solid var(--color-border-subtle);
-    background: var(--color-bg-subtle, rgba(0,0,0,0.03));
-    padding: 0.2rem 0.5rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--sp-sm);
-    transition: border-color 0.15s ease, background 0.15s ease;
-}
-
-.dark-mode .alert-type-card { background: rgba(255,255,255,0.03); }
-
-.alert-type-card:hover {
-    border-color: var(--color-primary-border);
-    background: var(--color-primary-light);
-}
-
-.alert-type-label {
-    font-family: var(--font-body);
-    font-size: 0.6rem;
-    font-weight: 400;
-    color: var(--color-secondary-text);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    margin: 0;
-}
-
-.alert-type-value {
-    font-family: var(--font-display);
-    font-size: 1.15rem;
-    font-weight: 700;
-    letter-spacing: var(--ls-tight);
-    line-height: 1;
-    color: var(--color-text);
-    margin: 2px 0 0;
-}
-
-.alert-type-badge {
-    width: 28px; height: 28px;
-    border-radius: var(--r-sm);
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
-    font-size: 0.65rem;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   CONTENU PRINCIPAL
-════════════════════════════════════════════════════════════════ */
-.dashboard-content {
-    display: flex;
-    flex-direction: column;
-    gap: var(--dash-gap);
-    margin-top: calc(var(--kpi-h) + var(--sp-sm));
-    animation: contentFade 0.5s 0.15s ease both;
-}
-
-@keyframes contentFade {
-    from { opacity: 0; transform: translateY(8px); }
-    to   { opacity: 1; transform: none; }
-}
-
-/* ── Grille Liste + Carte — Full Height Desktop ──────────────── */
-@media (min-width: 1024px) {
-    .list-map-grid {
-        height: calc(
-            100vh
-            - var(--navbar-h)
-            - var(--kpi-h)
-            - var(--sp-lg)
-            - var(--sp-xl)
-            - var(--sp-2xl)
-            - var(--dash-gap)
-        );
-        min-height: 440px;
-        align-items: stretch;
-    }
-
-    .list-map-grid > * {
-        display: flex;
-        flex-direction: column;
-        min-height: 0;
-    }
-
-    .list-map-grid > * > .panel-card {
-        flex: 1 1 auto;
-        display: flex;
-        flex-direction: column;
-        min-height: 0;
-        overflow: hidden;
-    }
-
-    #vehicleList {
-        flex: 1 1 auto;
-        min-height: 0 !important;
-        overflow-y: auto;
-        max-height: none !important;
-        padding-right: 3px;
-    }
-
-    #fleetMap {
-        flex: 1 1 auto;
-        min-height: 0 !important;
-        height: auto !important;
-        width: 100%;
-    }
-}
-
-@media (min-width: 768px) and (max-width: 1023px) {
-    #vehicleList { max-height: 45vh; overflow-y: auto; }
-    #fleetMap    { height: 360px !important; }
-}
-
-@media (max-width: 767px) {
-    #fleetMap { height: 280px !important; }
-}
-
-/* ── Panel cards ─────────────────────────────────────────────── */
-.panel-card {
-    background: var(--color-card);
-    border: 1px solid var(--color-border-subtle);
-    border-radius: var(--r-lg);
-    box-shadow: var(--shadow-sm);
-    overflow: hidden;
-    transition: box-shadow 0.2s ease;
-}
-
-.panel-card:hover { box-shadow: var(--shadow-md); }
-.dark-mode .panel-card { box-shadow: 0 2px 8px rgba(0,0,0,0.30); }
-
-.panel-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    padding: var(--sp-lg) var(--sp-lg) var(--sp-md);
-    border-bottom: 1px solid var(--color-border-subtle);
-    flex-shrink: 0;
-    gap: var(--sp-sm);
-}
-
-.panel-title {
-    font-family: var(--font-display);
-    font-size: 0.82rem;
-    font-weight: 700;
-    color: var(--color-text);
-    margin: 0;
-    letter-spacing: 0.01em;
-}
-
-.panel-subtitle {
-    font-family: var(--font-body);
-    font-size: 0.7rem;
-    color: var(--color-secondary-text);
-    margin: 3px 0 0;
-}
-
-.panel-icon {
-    width: 34px; height: 34px;
-    border-radius: var(--r-md);
-    display: flex; align-items: center; justify-content: center;
-    background: var(--color-primary-light);
-    flex-shrink: 0;
-}
-
-.panel-icon i { font-size: 0.85rem; color: var(--color-primary); }
-
-.panel-body {
-    padding: var(--sp-md) var(--sp-lg);
-    flex: 1 1 auto;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    gap: var(--sp-sm);
-}
-
-/* ── View toggle (compact / detailed) ───────────────────────── */
-.view-toggle {
-    display: inline-flex;
-    align-items: center;
-    border: 1px solid var(--color-border-subtle);
-    border-radius: var(--r-sm);
-    overflow: hidden;
-    flex-shrink: 0;
-}
-
-.view-toggle-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    padding: 4px 8px;
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    font-family: var(--font-display);
-    font-size: 0.65rem;
-    font-weight: 600;
-    letter-spacing: 0.03em;
-    color: var(--color-secondary-text);
-    transition: background 0.15s, color 0.15s;
-    white-space: nowrap;
-    line-height: 1;
-}
-
-.view-toggle-btn i { font-size: 0.65rem; }
-
-.view-toggle-btn:hover {
-    background: var(--color-primary-light);
-    color: var(--color-primary);
-}
-
-.view-toggle-btn.active {
-    background: var(--color-primary);
-    color: #fff;
-}
-
-.view-toggle-btn.active:hover {
-    background: var(--color-primary-hover);
-    color: #fff;
-}
-
-/* ── Search input ────────────────────────────────────────────── */
-.search-wrap {
-    position: relative;
-    flex-shrink: 0;
-}
-
-.search-wrap .search-icon {
-    position: absolute;
-    left: 0.625rem;
-    top: 50%;
-    transform: translateY(-50%);
-    color: var(--color-secondary-text);
-    font-size: 0.7rem;
-    pointer-events: none;
-}
-
-.search-wrap input {
-    padding-left: 2rem;
-    font-size: 0.78rem;
-    height: 34px;
-}
-
-/* ── Compteur flotte ─────────────────────────────────────────── */
-.fleet-meta {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    font-family: var(--font-body);
-    font-size: 0.7rem;
-    color: var(--color-secondary-text);
-    flex-shrink: 0;
-}
-
-.fleet-meta-dot {
-    display: inline-block;
-    width: 6px; height: 6px;
-    border-radius: 50%;
-    background: #4ade80;
-    margin-right: 4px;
-    flex-shrink: 0;
-}
-
-/* ── Scrollbar vehicleList ───────────────────────────────────── */
-#vehicleList {
-    scrollbar-width: thin;
-    scrollbar-color: var(--color-border-subtle) transparent;
-}
-
-#vehicleList::-webkit-scrollbar       { width: 4px; }
-#vehicleList::-webkit-scrollbar-thumb { background: var(--color-border-subtle); border-radius: 2px; }
-
-/* ════════════════════════════════════════════════════════════════
-   VEHICLE ITEMS — MODE DÉTAILLÉ
-════════════════════════════════════════════════════════════════ */
-.vehicle-item {
-    border: 1px solid var(--color-border-subtle);
-    border-radius: var(--r-md);
-    padding: 0.625rem 0.75rem;
-    background: var(--color-card);
-    cursor: pointer;
-    transition: box-shadow 0.15s ease, border-color 0.15s ease, background 0.15s ease;
-    margin-bottom: 0.375rem;
-    position: relative;
-}
-
-.vehicle-item:last-child { margin-bottom: 0; }
-
-.vehicle-item:hover {
-    border-color: var(--color-primary-border);
-    box-shadow: var(--shadow-sm);
-    background: var(--color-bg);
-}
-
-.vehicle-item.selected {
-    border-color: var(--color-primary);
-    box-shadow: 0 0 0 2px var(--color-primary-border), var(--shadow-sm);
-    background: var(--color-primary-light);
-}
-
-/* Detailed layout */
-.vehicle-item-row {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.5rem;
-}
-
-.vehicle-avatar {
-    width: 32px; height: 32px;
-    border-radius: 50%;
-    background: var(--color-primary-light);
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
-    margin-top: 1px;
-}
-
-.vehicle-avatar i { font-size: 0.8rem; color: var(--color-primary); }
-
-.vehicle-info { flex: 1; min-width: 0; }
-
-.vehicle-immat {
-    font-family: var(--font-display);
-    font-size: 0.8rem;
-    font-weight: 700;
-    color: var(--color-text);
-    margin: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    letter-spacing: 0.01em;
-}
-
-.vehicle-brand,
-.vehicle-driver {
-    font-family: var(--font-body);
-    font-size: 0.68rem;
-    color: var(--color-secondary-text);
-    margin: 2px 0 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.vehicle-driver i { font-size: 0.6rem; margin-right: 3px; }
-
-.vehicle-link {
-    font-family: var(--font-display);
-    font-size: 0.68rem;
-    font-weight: 600;
-    color: var(--color-primary);
-    text-decoration: none;
-    padding: 4px;
-    border-radius: var(--r-xs);
-    white-space: nowrap;
-    flex-shrink: 0;
-    transition: background 0.12s ease;
-}
-
-.vehicle-link:hover { background: var(--color-primary-light); }
-
-.vehicle-badges {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-top: 0.4rem;
-    flex-wrap: wrap;
-    gap: 4px;
-}
-
-.vehicle-badges-left { display: flex; gap: 4px; flex-wrap: wrap; }
-
-.v-badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 2px 7px;
-    border-radius: var(--r-pill);
-    font-family: var(--font-body);
-    font-size: 0.6rem;
-    font-weight: 600;
-    gap: 3px;
-    line-height: 1.4;
-}
-
-.v-badge i { font-size: 0.55rem; }
-
-.v-badge-engine-off  { background: var(--color-error-bg);   color: var(--color-error); }
-.v-badge-engine-on   { background: var(--color-success-bg); color: var(--color-success); }
-.v-badge-engine-unk  { background: rgba(107,114,128,0.12);  color: #6b7280; }
-.v-badge-gps-on      { background: var(--color-success-bg); color: var(--color-success); }
-.v-badge-gps-off     { background: rgba(107,114,128,0.12);  color: #6b7280; }
-.v-badge-gps-unk     { background: rgba(107,114,128,0.12);  color: #6b7280; }
-
-.vehicle-center-hint {
-    font-family: var(--font-body);
-    font-size: 0.6rem;
-    color: var(--color-secondary-text);
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    opacity: 0;
-    transition: opacity 0.15s ease;
-}
-
-.vehicle-item:hover .vehicle-center-hint { opacity: 1; }
-.vehicle-center-hint i { color: var(--color-primary); font-size: 0.58rem; }
-
-/* ════════════════════════════════════════════════════════════════
-   VEHICLE ITEMS — MODE COMPACT
-════════════════════════════════════════════════════════════════ */
-.vehicle-item-compact {
-    border: 1px solid var(--color-border-subtle);
-    border-radius: var(--r-sm);
-    padding: 0.4rem 0.65rem;
-    background: var(--color-card);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    transition: box-shadow 0.15s ease, border-color 0.15s ease, background 0.15s ease;
-    margin-bottom: 0.25rem;
-}
-
-.vehicle-item-compact:last-child { margin-bottom: 0; }
-
-.vehicle-item-compact:hover {
-    border-color: var(--color-primary-border);
-    background: var(--color-bg);
-}
-
-.vehicle-item-compact.selected {
-    border-color: var(--color-primary);
-    box-shadow: 0 0 0 1.5px var(--color-primary-border);
-    background: var(--color-primary-light);
-}
-
-.compact-dot {
-    width: 7px; height: 7px;
-    border-radius: 50%;
-    background: var(--color-primary);
-    flex-shrink: 0;
-}
-
-.compact-immat {
-    font-family: var(--font-display);
-    font-size: 0.78rem;
-    font-weight: 700;
-    color: var(--color-text);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    flex: 1;
-    min-width: 0;
-}
-
-.compact-driver {
-    font-family: var(--font-body);
-    font-size: 0.66rem;
-    color: var(--color-secondary-text);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    flex-shrink: 0;
-    max-width: 45%;
-}
-
-.compact-driver.unassigned {
-    color: var(--color-text-muted);
-    font-style: italic;
-}
-
-/* ── État vide / chargement ──────────────────────────────────── */
-.empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: var(--sp-2xl) var(--sp-lg);
-    text-align: center;
-    gap: var(--sp-sm);
-    flex: 1 1 auto;
-}
-
-.empty-state-icon {
-    font-size: 2rem;
-    color: var(--color-border-subtle);
-    line-height: 1;
-}
-
-.empty-state-title {
-    font-family: var(--font-display);
-    font-size: 0.82rem;
-    font-weight: 600;
-    color: var(--color-secondary-text);
-    margin: 0;
-}
-
-.empty-state-sub {
-    font-family: var(--font-body);
-    font-size: 0.72rem;
-    color: var(--color-secondary-text);
-    opacity: 0.7;
-    margin: 0;
-}
-
-/* ── Carte header (SSE indicator) ───────────────────────────── */
-.sse-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 3px 8px;
-    border-radius: var(--r-pill);
-    border: 1px solid var(--color-border-subtle);
-    background: var(--color-bg-subtle, rgba(0,0,0,0.04));
-    font-family: var(--font-body);
-    font-size: 0.68rem;
-    color: var(--color-secondary-text);
-    transition: border-color 0.3s, background 0.3s;
-}
-
-.sse-dot {
-    width: 7px; height: 7px;
-    border-radius: 50%;
-    background: #9ca3af;
-    flex-shrink: 0;
-    transition: background 0.3s;
-}
-
-.last-update-label {
-    font-family: var(--font-body);
-    font-size: 0.65rem;
-    color: var(--color-secondary-text);
-}
-
-/* ── Map container ───────────────────────────────────────────── */
-#fleetMap {
-    border-radius: 0;
-    border: none;
-    display: block;
-    width: 100%;
-    height: 100%;
-    min-height: 300px;
-}
-
-/* ── Section alertes ─────────────────────────────────────────── */
-.section-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: var(--sp-md);
-}
-
-.section-title {
-    font-family: var(--font-display);
-    font-size: 0.88rem;
-    font-weight: 700;
-    color: var(--color-text);
-    margin: 0;
-    letter-spacing: 0.01em;
-}
-
-.section-subtitle {
-    font-family: var(--font-body);
-    font-size: 0.7rem;
-    color: var(--color-secondary-text);
-    margin: 3px 0 0;
-}
-
-/* ── Tableau alertes ─────────────────────────────────────────── */
-.alerts-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-family: var(--font-body);
-    font-size: 0.82rem;
-}
-
-.alerts-table thead th {
-    font-family: var(--font-display);
-    font-size: 0.68rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: var(--ls-wide);
-    color: var(--color-secondary-text);
-    padding: 0.5rem 1rem;
-    text-align: left;
-    background: var(--color-bg);
-    border-bottom: 2px solid var(--color-primary);
-    white-space: nowrap;
-}
-
-.dark-mode .alerts-table thead th { background: var(--color-bg-subtle); }
-
-.alerts-table tbody tr {
-    border-bottom: 1px solid var(--color-border-subtle);
-    transition: background 0.12s ease;
-}
-
-.alerts-table tbody tr:last-child { border-bottom: none; }
-.alerts-table tbody tr:hover { background: var(--color-primary-light); }
-
-.alerts-table tbody td {
-    padding: 0.55rem 1rem;
-    color: var(--color-text);
-    vertical-align: middle;
-}
-
-.alerts-table tbody td:first-child {
-    font-family: var(--font-display);
-    font-weight: 600;
-    font-size: 0.8rem;
-    letter-spacing: 0.01em;
-}
-
-.status-badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 2px 8px;
-    border-radius: var(--r-pill);
-    font-family: var(--font-body);
-    font-size: 0.68rem;
-    font-weight: 600;
-    color: #fff;
-    white-space: nowrap;
-}
-
-.table-empty {
-    text-align: center;
-    padding: var(--sp-2xl) var(--sp-lg);
-    color: var(--color-secondary-text);
-}
-
-.table-empty i {
-    display: block;
-    font-size: 1.75rem;
-    margin-bottom: var(--sp-sm);
-    color: var(--color-border-subtle);
-}
-
-.table-empty p {
-    font-family: var(--font-body);
-    font-size: 0.8rem;
-    margin: 0;
-}
+/* ============================================================
+   LIVE DASHBOARD — Light by default (modern minimal)
+   FIXES:
+   - tripModal s'ouvre systématiquement + robustesse backend
+   - vehicleModal ajouté
+   - replay: vitesse 0.25x→16x + follow toggle
+   - switchTab conserve état trajet/polyline
+   - replaySlower min 0.25x, replayFaster max 16x
+   - Follow map centering pendant replay
+   ============================================================ */
+
+:root{
+  --z-kpi:0;
+  --z-map-ui:140;
+  --z-modal:170;
+  --z-legend:130;
+}
+
+/* Sticky KPI bar */
+.kpi-sticky{
+  position:fixed;
+  top:var(--navbar-h,52px);
+  left:0;right:0;
+  z-index:var(--z-kpi);
+  background:var(--color-bg);
+  padding:.5rem 1.25rem .35rem;
+  box-shadow:0 6px 24px rgba(0,0,0,.08);
+}
+.dark-mode .kpi-sticky{box-shadow:0 10px 40px rgba(0,0,0,.45)}
+.kpi-grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:.5rem}
+@media(max-width:1023px){.kpi-grid{grid-template-columns:repeat(1,minmax(0,1fr))}}
+
+.card{background:var(--color-card);border:1px solid var(--color-border-subtle);border-radius:var(--r-lg,10px);box-shadow:var(--shadow-sm);overflow:hidden;}
+.kpi{display:flex;align-items:center;justify-content:space-between;padding:.35rem .55rem;cursor:pointer;transition:.15s}
+.kpi:hover{transform:translateY(-1px);box-shadow:var(--shadow-md);border-color:var(--color-primary-border)}
+.kpi .lbl{font-family:var(--font-display);font-size:.62rem;letter-spacing:.08em;text-transform:uppercase;color:var(--color-secondary-text,#8b949e);margin:0}
+.kpi .val{font-family:var(--font-display);font-weight:800;font-size:1.2rem;line-height:1;color:var(--color-primary);margin:.1rem 0 0}
+.kpi .ico{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:var(--color-primary-light)}
+.kpi .ico i{color:var(--color-primary)}
+
+.kpi-panel{padding:.55rem .75rem}
+.kpi-types{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:.5rem;}
+@media(max-width:1023px){.kpi-types{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.type{border:1px solid var(--color-border-subtle);border-radius:10px;padding:.45rem .55rem;display:flex;align-items:center;justify-content:space-between;gap:.5rem;cursor:pointer;transition:.15s;background:rgba(0,0,0,.03)}
+.dark-mode .type{background:rgba(255,255,255,.03)}
+.type:hover{border-color:var(--color-primary-border);background:var(--color-primary-light)}
+.type .t{font-family:var(--font-body);font-size:.62rem;color:var(--color-secondary-text,#8b949e);margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.type .n{font-family:var(--font-display);font-weight:900;font-size:1.1rem;color:var(--color-text);margin:.05rem 0 0}
+
+/* Content spacing */
+.content{margin-top:calc(var(--kpi-h,96px) + .75rem);display:flex;flex-direction:column;gap:1rem}
+
+/* Layout */
+.grid-main{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem}
+@media(max-width:1023px){.grid-main{grid-template-columns:1fr}}
+@media(min-width:1024px){
+  .grid-main{height:calc(100vh - var(--navbar-h,52px) - var(--kpi-h,96px) - 2.5rem)}
+  .col-left,.col-map{min-height:0}
+}
+
+/* Left panel */
+.tabs{display:flex;border-bottom:1px solid var(--color-border-subtle)}
+.tab{flex:1;text-align:center;padding:.55rem .4rem;font-family:var(--font-display);font-size:.62rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--color-secondary-text,#8b949e);background:transparent;border:none;border-bottom:2px solid transparent;cursor:pointer}
+.tab:hover{color:var(--color-text)}
+.tab.active{color:var(--color-primary);border-bottom-color:var(--color-primary);background:var(--color-primary-light)}
+.badge{background:#dc2626;color:#fff;border-radius:9999px;font-size:.55rem;font-weight:900;padding:0 .35rem;min-width:16px;display:inline-flex;justify-content:center}
+
+.pane{display:none;flex-direction:column;min-height:0;flex:1}
+.pane.active{display:flex}
+.search{padding:.55rem .75rem 0}
+.swrap{position:relative}
+.swrap i{position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:.7rem;color:var(--color-secondary-text,#8b949e)}
+.swrap input{width:100%;border:1px solid var(--color-border-subtle);border-radius:10px;padding:.5rem .6rem .5rem 2rem;font-size:.78rem;background:var(--color-card);color:var(--color-text);outline:none}
+.swrap input:focus{border-color:var(--color-primary)}
+.sclear{position:absolute;right:10px;top:50%;transform:translateY(-50%);display:none;width:18px;height:18px;border-radius:9999px;border:none;background:var(--color-border-subtle);color:var(--color-secondary-text,#8b949e);font-weight:900;cursor:pointer}
+.sclear.show{display:block}
+
+.modebar{display:flex;gap:.35rem;padding:.45rem .75rem 0}
+.mbtn{flex:1;border:1px solid var(--color-border-subtle);background:transparent;border-radius:9999px;padding:.35rem .5rem;font-family:var(--font-display);font-size:.6rem;font-weight:800;color:var(--color-secondary-text,#8b949e);cursor:pointer;transition:.12s}
+.mbtn:hover{border-color:var(--color-primary);color:var(--color-primary)}
+.mbtn.active{background:var(--color-primary-light);border-color:var(--color-primary);color:var(--color-primary)}
+
+.fbar{display:flex;gap:.4rem;align-items:center;justify-content:space-between;padding:.45rem .75rem .15rem}
+.fbtn{border:1px solid var(--color-border-subtle);background:transparent;border-radius:10px;padding:.35rem .55rem;font-family:var(--font-display);font-weight:900;font-size:.62rem;cursor:pointer;}
+.fbtn:hover{border-color:var(--color-primary);color:var(--color-primary)}
+.fbtn2{border:1px solid var(--color-border-subtle);background:var(--color-primary-light);color:var(--color-primary);border-radius:10px;padding:.35rem .55rem;font-family:var(--font-display);font-weight:900;font-size:.62rem;cursor:pointer;}
+.fbtn2:hover{border-color:var(--color-primary)}
+
+.filters,.quickbar,.datebox{display:none}
+.filters.show,.quickbar.show,.datebox.show{display:flex}
+.datebox.show{display:block}
+
+.filters{gap:.35rem;flex-wrap:wrap;padding:.25rem .75rem .35rem}
+.f{border:1px solid var(--color-border-subtle);border-radius:9999px;padding:.22rem .55rem;font-family:var(--font-display);font-size:.58rem;font-weight:800;color:var(--color-secondary-text,#8b949e);cursor:pointer;transition:.12s;background:transparent}
+.f:hover{border-color:var(--color-primary);color:var(--color-primary)}
+.f.active{background:var(--color-primary-light);border-color:var(--color-primary);color:var(--color-primary)}
+
+.quickbar{gap:.35rem;flex-wrap:wrap;padding:.25rem .75rem .1rem}
+.qc{border:1px solid var(--color-border-subtle);border-radius:9999px;padding:.22rem .55rem;font-family:var(--font-display);font-size:.58rem;font-weight:900;color:var(--color-secondary-text,#8b949e);cursor:pointer;transition:.12s;background:transparent;}
+.qc:hover{border-color:var(--color-primary);color:var(--color-primary)}
+.qc.active{background:var(--color-primary-light);border-color:var(--color-primary);color:var(--color-primary)}
+
+.datebox{padding:.35rem .75rem .35rem}
+.dr{display:flex;gap:.35rem;align-items:center;margin-bottom:.35rem}
+.dr input{flex:1;min-width:0;border:1px solid var(--color-border-subtle);border-radius:10px;padding:.42rem .5rem;background:var(--color-card);color:var(--color-text);font-family:var(--font-mono,monospace);font-size:.64rem;outline:none}
+.dr input:focus{border-color:var(--color-primary)}
+.dr span{color:var(--color-secondary-text,#8b949e);font-size:.65rem}
+
+.scroll{flex:1;min-height:0;overflow:auto;border-top:1px solid var(--color-border-subtle)}
+.scroll::-webkit-scrollbar{height:6px;width:6px}
+.scroll::-webkit-scrollbar-thumb{background:var(--color-border-subtle);border-radius:999px}
+
+.item{padding:.65rem .75rem;cursor:pointer;border-left:3px solid transparent;transition:.12s}
+.item:hover{background:rgba(128,128,128,.06)}
+.item.sel{background:var(--color-primary-light);border-left-color:var(--color-primary)}
+.hrow{display:flex;align-items:center;justify-content:space-between;gap:.5rem}
+.title{font-family:var(--font-display);font-weight:900;font-size:.78rem}
+.sub{font-family:var(--font-body);font-size:.66rem;color:var(--color-secondary-text,#8b949e);margin-top:.15rem}
+.tags{display:flex;gap:.35rem;flex-wrap:wrap;margin-top:.35rem}
+.tag{font-family:var(--font-display);font-weight:800;font-size:.55rem;padding:.2rem .45rem;border-radius:9999px;display:inline-flex;align-items:center;gap:.25rem}
+.dot{width:7px;height:7px;border-radius:9999px}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+.empty{padding:2rem 1rem;text-align:center;color:var(--color-secondary-text,#8b949e);font-family:var(--font-display);font-weight:800}
+.sep{height:1px;background:var(--color-border-subtle)}
+
+/* Map */
+.mapwrap{position:relative;min-height:0;display:flex;flex-direction:column}
+.maphead{display:flex;align-items:center;justify-content:space-between;padding:.65rem .75rem;border-bottom:1px solid var(--color-border-subtle)}
+.maphead h2{margin:0;font-family:var(--font-display);font-weight:900;font-size:.85rem}
+#fleetMap{flex:1;min-height:280px}
+@media(min-width:1024px){#fleetMap{min-height:0}}
+.sse{display:inline-flex;align-items:center;gap:.4rem;border:1px solid var(--color-border-subtle);border-radius:9999px;padding:.22rem .5rem;font-size:.65rem;color:var(--color-secondary-text,#8b949e)}
+.ssedot{width:7px;height:7px;border-radius:9999px;background:#9ca3af}
+
+/* Toast */
+#toast{position:absolute;left:50%;bottom:26px;transform:translateX(-50%);display:none;background:#16a34a;color:#fff;border-radius:12px;padding:.55rem .9rem;font-family:var(--font-display);font-weight:900;font-size:.72rem;box-shadow:0 12px 35px rgba(0,0,0,.35);z-index:80;white-space:nowrap}
+
+/* =========================
+   TOP-CENTER Trips KPIs
+   ========================= */
+#topTripsKpis{
+  position:absolute;
+  top:14px;
+  left:50%;
+  transform:translateX(-50%);
+  z-index:var(--z-map-ui);
+  display:none;
+  gap:.45rem;
+  flex-wrap:wrap;
+  justify-content:center;
+  padding:.15rem .15rem;
+  pointer-events:auto;
+}
+#topTripsKpis.show{display:flex}
+.pill{display:inline-flex;align-items:center;gap:.45rem;border:1px solid rgba(255,255,255,.12);background:rgba(17,24,39,.62);color:#fff;border-radius:9999px;padding:.35rem .55rem;backdrop-filter:blur(10px);box-shadow:0 10px 30px rgba(0,0,0,.25);font-family:var(--font-display);font-weight:900;font-size:.62rem;cursor:default;}
+.pill i{opacity:.9}
+.pill .v{font-size:.70rem}
+.pill.clickable{cursor:pointer}
+.pill.clickable:hover{border-color:rgba(255,255,255,.25);transform:translateY(-1px)}
+
+/* =========================
+   Map type dropdown
+   ========================= */
+.maptype{position:absolute;top:70px;left:14px;z-index:var(--z-map-ui);pointer-events:auto;}
+.maptype .btn{width:44px;height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.14);background:rgba(17,24,39,.62);color:#fff;box-shadow:0 10px 30px rgba(0,0,0,.25);backdrop-filter:blur(10px);cursor:pointer;}
+.maptype .btn:hover{border-color:rgba(255,255,255,.28)}
+.maptype .menu{margin-top:.5rem;min-width:180px;display:none;border-radius:16px;overflow:hidden;border:1px solid rgba(255,255,255,.12);background:rgba(17,24,39,.62);box-shadow:0 18px 50px rgba(0,0,0,.35);backdrop-filter:blur(10px);}
+.maptype .menu.show{display:block}
+.maptype .it{display:flex;align-items:center;gap:.6rem;padding:.6rem .7rem;font-family:var(--font-display);font-weight:900;font-size:.62rem;color:#fff;cursor:pointer;}
+.maptype .it:hover{background:rgba(255,255,255,.08)}
+.maptype .it .ck{width:18px;height:18px;border-radius:6px;border:1px solid rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:.6rem;opacity:.9;}
+.maptype .it.active .ck{background:rgba(34,197,94,.25);border-color:rgba(34,197,94,.45)}
+.maptype .it small{opacity:.85;font-family:var(--font-body);font-weight:600}
+
+/* =========================
+   Bottom legend
+   ========================= */
+.legend{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:var(--z-legend);display:flex;gap:.5rem;flex-wrap:wrap;justify-content:center;pointer-events:auto;}
+.leg{display:inline-flex;align-items:center;gap:.45rem;border:1px solid rgba(255,255,255,.12);background:rgba(17,24,39,.62);color:#fff;border-radius:9999px;padding:.35rem .6rem;backdrop-filter:blur(10px);box-shadow:0 10px 30px rgba(0,0,0,.25);font-family:var(--font-display);font-weight:900;font-size:.60rem;}
+.leg .d{width:8px;height:8px;border-radius:999px}
+
+/* =========================
+   Trip detail modal
+   ========================= */
+#tripModal{position:absolute;top:14px;right:14px;width:360px;max-width:calc(100% - 28px);z-index:var(--z-modal);display:none;}
+#tripModal.show{display:block}
+.tm-h{display:flex;align-items:flex-start;justify-content:space-between;gap:.6rem;padding:.75rem;}
+.tm-h strong{font-family:var(--font-display);font-size:.82rem}
+.tm-h small{display:block;color:var(--color-secondary-text,#8b949e);font-size:.65rem;margin-top:.15rem}
+.tm-b{padding:0 .75rem .75rem}
+.tm-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.5rem;margin-top:.35rem;}
+.tm-box{border:1px solid var(--color-border-subtle);border-radius:14px;padding:.55rem .55rem;background:rgba(0,0,0,.03);}
+.dark-mode .tm-box{background:rgba(255,255,255,.03)}
+.tm-box .k{font-family:var(--font-display);font-size:.56rem;font-weight:900;letter-spacing:.06em;text-transform:uppercase;color:var(--color-secondary-text,#8b949e)}
+.tm-box .v{font-family:var(--font-display);font-weight:900;font-size:.92rem;color:var(--color-text);margin-top:.08rem}
+.tm-actions{display:flex;gap:.4rem;margin-top:.6rem}
+.tm-actions button{flex:1;border-radius:12px;padding:.45rem .5rem;font-family:var(--font-display);font-weight:900;font-size:.62rem;cursor:pointer;transition:.15s}
+.tm-actions .b1{background:transparent;border:1px solid var(--color-border-subtle);color:var(--color-secondary-text,#8b949e)}
+.tm-actions .b1:hover{background:rgba(128,128,128,.08);color:var(--color-text)}
+.tm-actions .b2{background:var(--color-primary);border:none;color:#fff}
+.tm-actions .b2:hover{background:var(--color-primary-hover,#e07318)}
+
+/* =========================
+   Vehicle modal (NEW)
+   ========================= */
+#vehicleModal{
+  position:absolute;
+  top:14px;
+  right:14px;
+  width:320px;
+  max-width:calc(100% - 28px);
+  z-index:var(--z-modal);
+  display:none;
+}
+#vehicleModal.show{display:block}
+/* Reuse same tm-h / tm-b / tm-grid / tm-box structure — see HTML below */
+
+/* =========================
+   Replay UI — FIX: vitesse + follow toggle
+   ========================= */
+#tripReplay{position:absolute;left:14px;bottom:56px;right:14px;display:none;z-index:75}
+.rp{padding:.65rem .75rem;display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
+.rp strong{font-family:var(--font-display);font-size:.7rem}
+.rp button{border:1px solid var(--color-border-subtle);background:transparent;border-radius:10px;padding:.35rem .5rem;font-family:var(--font-display);font-weight:900;font-size:.62rem;cursor:pointer}
+.rp button:hover{border-color:var(--color-primary);color:var(--color-primary)}
+.rp button.active-btn{background:var(--color-primary-light);border-color:var(--color-primary);color:var(--color-primary)}
+.rp input[type="range"]{flex:1;min-width:140px}
+.rp small{color:var(--color-secondary-text,#8b949e);font-family:var(--font-mono,monospace);font-size:.62rem}
+.speed-chips{display:flex;gap:.2rem;align-items:center}
+.speed-chip{border:1px solid var(--color-border-subtle);background:transparent;border-radius:8px;padding:.25rem .4rem;font-family:var(--font-display);font-weight:900;font-size:.58rem;cursor:pointer;color:var(--color-secondary-text,#8b949e)}
+.speed-chip:hover{border-color:var(--color-primary);color:var(--color-primary)}
+.speed-chip.active-chip{background:var(--color-primary-light);border-color:var(--color-primary);color:var(--color-primary)}
+
+/* Alert detail */
+#alertDetail{position:absolute;top:14px;right:14px;width:320px;max-width:calc(100% - 28px);display:none;z-index:70}
+.ad-h{display:flex;align-items:flex-start;justify-content:space-between;gap:.5rem;padding:.75rem}
+.ad-h strong{font-family:var(--font-display);font-size:.82rem}
+.ad-h small{display:block;color:var(--color-secondary-text,#8b949e);font-size:.65rem;margin-top:.15rem}
+.ad-b{padding:0 .75rem .75rem}
+.ad-desc{background:rgba(128,128,128,.06);border:1px solid var(--color-border-subtle);border-radius:12px;padding:.6rem;font-size:.72rem;line-height:1.55;color:var(--color-text)}
+.ad-btns{display:flex;gap:.4rem;margin-top:.55rem}
+.ad-btns button{flex:1;border-radius:10px;padding:.45rem .5rem;font-family:var(--font-display);font-weight:900;font-size:.62rem;cursor:pointer;transition:.15s}
+.ad-btns .b1{background:transparent;border:1px solid var(--color-border-subtle);color:var(--color-secondary-text,#8b949e)}
+.ad-btns .b1:hover{background:rgba(128,128,128,.08);color:var(--color-text)}
+.ad-btns .b2{background:var(--color-primary);border:none;color:#fff}
+.ad-btns .b2:hover{background:var(--color-primary-hover,#e07318)}
 </style>
 @endpush
 
 @section('content')
 @php
-    $types = [
-        'stolen'    => ['Vol',       'fa-mask',          'var(--color-error-bg)',   'var(--color-error)'],
-        'geofence'  => ['Geofence',  'fa-draw-polygon',  'rgba(245,130,32,.12)',    'var(--color-primary)'],
-        'safe_zone' => ['Safe Zone', 'fa-shield-halved', 'var(--color-info-bg)',    'var(--color-info)'],
-        'speed'     => ['Vitesse',   'fa-gauge-high',    'var(--color-warning-bg)', 'var(--color-warning)'],
-        'time_zone' => ['Time Zone', 'fa-calendar-alt',  'rgba(99,102,241,.12)',    '#6366f1'],
-    ];
+  $alertTypesMeta = [
+      'stolen'    => ['Vol',       'fa-mask'],
+      'geofence'  => ['Geofence',  'fa-draw-polygon'],
+      'safe_zone' => ['Safe Zone', 'fa-shield-halved'],
+      'speed'     => ['Vitesse',   'fa-gauge-high'],
+      'time_zone' => ['Time Zone', 'fa-calendar-alt'],
+  ];
 @endphp
 
-{{-- ════════════════════════════════════════════════════════════
-     BARRE KPI STICKY
-════════════════════════════════════════════════════════════════ --}}
-<div class="kpi-sticky-bar" id="kpi-bar">
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-2">
-
-        {{-- Chauffeurs --}}
-        <div class="lg:col-span-2 kpi-card" role="figure" aria-label="Nombre de chauffeurs">
-            <div>
-                <p class="kpi-label">Chauffeurs</p>
-                <p class="kpi-value" id="stat-users">{{ (int)($usersCount ?? 0) }}</p>
-            </div>
-            <div class="kpi-icon-wrap" aria-hidden="true">
-                <i class="fas fa-users"></i>
-            </div>
-        </div>
-
-        {{-- Véhicules --}}
-        <div class="lg:col-span-2 kpi-card" role="figure" aria-label="Nombre de véhicules">
-            <div>
-                <p class="kpi-label">Véhicules</p>
-                <p class="kpi-value neutral" id="stat-vehicles">{{ (int)($vehiclesCount ?? 0) }}</p>
-            </div>
-            <div class="kpi-icon-wrap" aria-hidden="true" style="background:rgba(107,114,128,0.10);">
-                <i class="fas fa-car-alt" style="color:var(--color-secondary-text);"></i>
-            </div>
-        </div>
-
-        {{-- Alertes par type --}}
-        <div class="lg:col-span-8 kpi-alerts-panel" role="region" aria-label="Alertes ouvertes par type">
-            <p class="kpi-alerts-header">
-                <span>Alertes ouvertes par type</span>
-                <span>Non traitées</span>
-            </p>
-            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-                @foreach($types as $k => [$label, $icon, $bgColor, $textColor])
-                <div class="alert-type-card">
-                    <div style="min-width:0;">
-                        <p class="alert-type-label">{{ $label }}</p>
-                        <p class="alert-type-value" id="stat-alert-{{ $k }}">
-                            {{ (int)($alertStats[$k] ?? 0) }}
-                        </p>
-                    </div>
-                    <div class="alert-type-badge" style="background:{{ $bgColor }};" aria-hidden="true">
-                        <i class="fas {{ $icon }}" style="color:{{ $textColor }};font-size:0.65rem;"></i>
-                    </div>
-                </div>
-                @endforeach
-            </div>
-        </div>
-
+{{-- ===================== KPI STICKY ===================== --}}
+<div class="kpi-sticky" id="kpiBar">
+  <div class="kpi-grid">
+    <div class="card kpi" style="grid-column:span 2" onclick="window.switchTab('flotte')">
+      <div>
+        <p class="lbl">Chauffeurs</p>
+        <p class="val" id="kUsers">{{ (int)($usersCount ?? 0) }}</p>
+      </div>
+      <div class="ico"><i class="fas fa-users"></i></div>
     </div>
+
+    <div class="card kpi" style="grid-column:span 2" onclick="window.switchTab('flotte')">
+      <div>
+        <p class="lbl">Véhicules</p>
+        <p class="val" style="color:var(--color-text)" id="kVeh">{{ (int)($vehiclesCount ?? 0) }}</p>
+      </div>
+      <div class="ico" style="background:rgba(107,114,128,.1)">
+        <i class="fas fa-car-alt" style="color:var(--color-secondary-text,#8b949e)"></i>
+      </div>
+    </div>
+
+    <div class="card kpi-panel" style="grid-column:span 8">
+      <div class="kpi-types">
+        @foreach($alertTypesMeta as $k => [$label,$icon])
+          <div class="type" onclick="window.switchTab('alertes');window.filterAlertsByType('{{ $k }}')">
+            <div style="min-width:0">
+              <p class="t">{{ $label }}</p>
+              <p class="n" id="kA_{{ $k }}">{{ (int)($alertStats[$k] ?? 0) }}</p>
+            </div>
+            <div style="width:30px;height:25px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:var(--color-primary-light)">
+              <i class="fas {{ $icon }}" style="color:var(--color-primary);font-size:.7rem"></i>
+            </div>
+          </div>
+        @endforeach
+      </div>
+    </div>
+  </div>
 </div>
 
-{{-- ════════════════════════════════════════════════════════════
-     CONTENU PRINCIPAL
-════════════════════════════════════════════════════════════════ --}}
-<div class="dashboard-content">
+{{-- ===================== MAIN ===================== --}}
+<div class="content">
+  <div class="grid-main">
 
-    {{-- ── Grille Liste Flotte + Carte ──────────────────────── --}}
-    <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 list-map-grid">
+    {{-- LEFT --}}
+    <div class="col-left">
+      <div class="card" style="height:100%;display:flex;flex-direction:column;min-height:0">
 
-        {{-- ── Panneau Liste Flotte ─────────────────────────── --}}
-        <div class="lg:col-span-1">
-            <div class="panel-card h-full">
-
-                {{-- Header --}}
-                <div class="panel-header">
-                    <div style="flex:1;min-width:0;">
-                        <h2 class="panel-title">Flotte &amp; Associations</h2>
-                        <p class="panel-subtitle">Cliquez pour centrer sur la carte.</p>
-                    </div>
-                    {{-- Toggle mode vue --}}
-                    <div class="view-toggle" role="group" aria-label="Mode d'affichage de la liste">
-                        <button class="view-toggle-btn active"
-                                id="btn-view-compact"
-                                title="Vue compacte"
-                                aria-pressed="true">
-                            <i class="fas fa-list" aria-hidden="true"></i>
-                            <span>Compact</span>
-                        </button>
-                        <button class="view-toggle-btn"
-                                id="btn-view-detailed"
-                                title="Vue détaillée"
-                                aria-pressed="false">
-                            <i class="fas fa-th-list" aria-hidden="true"></i>
-                            <span>Détail</span>
-                        </button>
-                    </div>
-                </div>
-
-                {{-- Corps --}}
-                <div class="panel-body">
-
-                    {{-- Search --}}
-                    <div class="search-wrap">
-                        <span class="search-icon" aria-hidden="true"><i class="fas fa-search"></i></span>
-                        <input
-                            id="vehicleSearch"
-                            type="search"
-                            placeholder="Immatriculation ou chauffeur…"
-                            aria-label="Rechercher un véhicule"
-                            autocomplete="off"
-                        />
-                    </div>
-
-                    {{-- Meta --}}
-                    <div class="fleet-meta">
-                        <span>
-                            <span class="fleet-meta-dot" aria-hidden="true"></span>
-                            Véhicules suivis
-                        </span>
-                        <span id="fleet-count" aria-live="polite" aria-atomic="true">0 véhicule(s)</span>
-                    </div>
-
-                    {{-- Liste (scroll interne desktop) --}}
-                    <div id="vehicleList" role="list" aria-label="Liste des véhicules">
-                        <div class="empty-state">
-                            <div class="empty-state-icon" aria-hidden="true">
-                                <i class="fas fa-car"></i>
-                            </div>
-                            <p class="empty-state-title">Chargement…</p>
-                        </div>
-                    </div>
-
-                </div>{{-- /panel-body --}}
-            </div>
+        <div class="tabs">
+          <button class="tab active" id="tab-flotte"  onclick="window.switchTab('flotte')">📍 Flotte</button>
+          <button class="tab"        id="tab-trajets" onclick="window.switchTab('trajets')">🛣️ Trajets</button>
+          <button class="tab"        id="tab-alertes" onclick="window.switchTab('alertes')">🚨 <span class="badge" id="bAlerts">0</span></button>
         </div>
 
-        {{-- ── Panneau Carte ────────────────────────────────── --}}
-        <div class="lg:col-span-3">
-            <div class="panel-card h-full" style="overflow:hidden;">
-
-                {{-- Header carte --}}
-                <div class="panel-header">
-                    <div>
-                        <h2 class="panel-title">Localisation de la Flotte</h2>
-                    </div>
-                    <div style="display:flex;align-items:center;gap:0.75rem;">
-                        {{-- SSE Indicator --}}
-                        <div class="sse-badge" id="sse-indicator" aria-live="polite" aria-atomic="true">
-                            <span class="sse-dot" id="sse-dot" aria-hidden="true"></span>
-                            <span id="sse-label">Temps réel</span>
-                        </div>
-                        {{-- Dernière mise à jour --}}
-                        <span class="last-update-label" id="last-update"></span>
-                    </div>
-                </div>
-
-                {{-- Carte Google Maps --}}
-                <div id="fleetMap" role="application" aria-label="Carte de localisation de la flotte"></div>
-
-            </div>
+        <div class="search">
+          <div class="swrap">
+            <i class="fas fa-search"></i>
+            <input id="q" placeholder="Immat., chauffeur…" oninput="window.doSearch()" autocomplete="off">
+            <button id="qClear" class="sclear" onclick="window.clearSearch()">×</button>
+          </div>
         </div>
 
+        {{-- ============ PANE FLOTTE ============ --}}
+        <div class="pane active" id="pane-flotte">
+          <div class="modebar">
+            <button class="mbtn"        id="mode-flotte-simple"   onclick="window.setMode('flotte','simple')">Liste</button>
+            <button class="mbtn active" id="mode-flotte-detailed" onclick="window.setMode('flotte','detailed')">Détaillé</button>
+          </div>
+          <div class="fbar">
+            <button class="fbtn"  onclick="window.togglePaneFilters('flotte')"><i class="fas fa-sliders-h"></i> Filtres</button>
+            <button class="fbtn2" onclick="window.resetFleetFilters()"><i class="fas fa-rotate-left"></i> Reset</button>
+          </div>
+          <div class="filters" id="vf">
+            <span class="f active" data-f="all"     onclick="window.setVehFilter(this,'all')">Tous</span>
+            <span class="f"        data-f="moving"  onclick="window.setVehFilter(this,'moving')">● En mouvement</span>
+            <span class="f"        data-f="idle"    onclick="window.setVehFilter(this,'idle')">● En arrêt</span>
+            <span class="f"        data-f="online"  onclick="window.setVehFilter(this,'online')">● Online</span>
+            <span class="f"        data-f="offline" onclick="window.setVehFilter(this,'offline')">● Offline</span>
+          </div>
+          <div class="scroll" id="vehList">
+            <div class="empty"><i class="fas fa-circle-notch fa-spin"></i><div style="margin-top:.6rem">Chargement…</div></div>
+          </div>
+        </div>
+
+        {{-- ============ PANE TRAJETS ============ --}}
+        <div class="pane" id="pane-trajets">
+          <div class="modebar">
+            <button class="mbtn"        id="mode-trajets-simple"   onclick="window.setMode('trajets','simple')">Liste</button>
+            <button class="mbtn active" id="mode-trajets-detailed" onclick="window.setMode('trajets','detailed')">Détaillé</button>
+          </div>
+          <div class="fbar">
+            <button class="fbtn"  onclick="window.togglePaneFilters('trajets')"><i class="fas fa-sliders-h"></i> Filtres</button>
+            <button class="fbtn2" onclick="window.toggleTripsCustom()"><i class="fas fa-calendar"></i> Personnaliser</button>
+          </div>
+          <div class="quickbar" id="tQuick">
+            <span class="qc active" data-q="today"      onclick="window.setTripsQuick(this,'today')">Aujourd'hui</span>
+            <span class="qc"        data-q="yesterday"  onclick="window.setTripsQuick(this,'yesterday')">Hier</span>
+            <span class="qc"        data-q="this_week"  onclick="window.setTripsQuick(this,'this_week')">Semaine</span>
+            <span class="qc"        data-q="this_month" onclick="window.setTripsQuick(this,'this_month')">Mois</span>
+            <span class="qc"        data-q="this_year"  onclick="window.setTripsQuick(this,'this_year')">Année</span>
+          </div>
+          <div class="datebox" id="tDateBox">
+            <div class="dr">
+              <input type="date" id="tFrom">
+              <span>→</span>
+              <input type="date" id="tTo">
+            </div>
+          </div>
+          <div class="filters" id="tf">
+            <span class="f active" data-f="all"    onclick="window.setTripFilter(this,'all')">Tous</span>
+            <span class="f"        data-f="active" onclick="window.setTripFilter(this,'active')">En cours</span>
+            <span class="f"        data-f="done"   onclick="window.setTripFilter(this,'done')">Terminés</span>
+          </div>
+          <div class="scroll" id="tripList">
+            <div class="empty"><i class="fas fa-route"></i><div style="margin-top:.6rem">Aucun trajet chargé</div></div>
+          </div>
+        </div>
+
+        {{-- ============ PANE ALERTES ============ --}}
+        <div class="pane" id="pane-alertes">
+          <div class="modebar">
+            <button class="mbtn"        id="mode-alertes-simple"   onclick="window.setMode('alertes','simple')">Liste</button>
+            <button class="mbtn active" id="mode-alertes-detailed" onclick="window.setMode('alertes','detailed')">Détaillé</button>
+          </div>
+          <div class="fbar">
+            <button class="fbtn"  onclick="window.togglePaneFilters('alertes')"><i class="fas fa-sliders-h"></i> Filtres</button>
+            <button class="fbtn2" onclick="window.toggleAlertsCustom()"><i class="fas fa-calendar"></i> Personnaliser</button>
+          </div>
+          <div class="quickbar" id="aQuick">
+            <span class="qc active" data-q="today"      onclick="window.setAlertsQuick(this,'today')">Aujourd'hui</span>
+            <span class="qc"        data-q="yesterday"  onclick="window.setAlertsQuick(this,'yesterday')">Hier</span>
+            <span class="qc"        data-q="this_week"  onclick="window.setAlertsQuick(this,'this_week')">Semaine</span>
+            <span class="qc"        data-q="this_month" onclick="window.setAlertsQuick(this,'this_month')">Mois</span>
+            <span class="qc"        data-q="this_year"  onclick="window.setAlertsQuick(this,'this_year')">Année</span>
+          </div>
+          <div class="quickbar" id="aResolveBar">
+            <span class="qc active" data-r="open"     onclick="window.setAlertResolve(this,'open')">Non résolues</span>
+            <span class="qc"        data-r="resolved" onclick="window.setAlertResolve(this,'resolved')">Résolues</span>
+            <span class="qc"        data-r="all"      onclick="window.setAlertResolve(this,'all')">Toutes</span>
+          </div>
+          <div class="filters" id="af">
+            <span class="f active" data-at="all"       onclick="window.setAlertType(this,'all')">Toutes</span>
+            <span class="f"        data-at="stolen"    onclick="window.setAlertType(this,'stolen')">🔴 Vol</span>
+            <span class="f"        data-at="geofence"  onclick="window.setAlertType(this,'geofence')">🔲 Geo</span>
+            <span class="f"        data-at="safe_zone" onclick="window.setAlertType(this,'safe_zone')">🛡️ Safe</span>
+            <span class="f"        data-at="speed"     onclick="window.setAlertType(this,'speed')">⚡ Vitesse</span>
+            <span class="f"        data-at="time_zone" onclick="window.setAlertType(this,'time_zone')">🌙 Time</span>
+          </div>
+          <div class="datebox" id="aDateBox">
+            <div class="dr">
+              <input type="date" id="aFrom">
+              <span>→</span>
+              <input type="date" id="aTo">
+            </div>
+            <div class="dr">
+              <input type="time" id="aHFrom" placeholder="HH:MM">
+              <span>→</span>
+              <input type="time" id="aHTo" placeholder="HH:MM">
+            </div>
+          </div>
+          <div class="scroll" id="alertList">
+            <div class="empty"><i class="fas fa-bell"></i><div style="margin-top:.6rem">Aucune alerte chargée</div></div>
+          </div>
+        </div>
+
+      </div>
     </div>
-    {{-- /list-map-grid --}}
 
+    {{-- MAP --}}
+    <div class="col-map" style="grid-column:span 3;min-height:0">
+      <div class="card mapwrap" style="height:100%">
 
+        <div class="maphead">
+          <h2>Localisation de la flotte</h2>
+          <div style="display:flex;align-items:center;gap:.6rem">
+            <span class="sse"><span class="ssedot" id="sseDot"></span><span id="sseTxt">Connexion…</span></span>
+            <span id="lastUp" style="font-size:.65rem;color:var(--color-secondary-text,#8b949e)"></span>
+          </div>
+        </div>
 
+        <div id="fleetMap"></div>
+
+        {{-- Map type dropdown --}}
+        <div class="maptype" id="mapTypeCtrl">
+          <button class="btn" onclick="window.toggleMapTypeMenu()" title="Type de carte">
+            <i class="fas fa-map"></i>
+          </button>
+          <div class="menu" id="mapTypeMenu">
+            <div class="it active" data-type="roadmap"   onclick="window.setMapType(this,'roadmap')">
+              <span class="ck">✓</span> Carte <small>(Roadmap)</small>
+            </div>
+            <div class="it" data-type="satellite" onclick="window.setMapType(this,'satellite')">
+              <span class="ck">✓</span> Satellite
+            </div>
+            <div class="it" data-type="hybrid"    onclick="window.setMapType(this,'hybrid')">
+              <span class="ck">✓</span> Hybride
+            </div>
+            <div class="it" data-type="terrain"   onclick="window.setMapType(this,'terrain')">
+              <span class="ck">✓</span> Terrain
+            </div>
+          </div>
+        </div>
+
+        {{-- Top-center trips KPIs --}}
+        <div id="topTripsKpis">
+          <div class="pill"><i class="fas fa-route"></i> <span class="v" id="tkCount">0</span> trajets</div>
+          <div class="pill"><i class="fas fa-road"></i> <span class="v" id="tkDist">0.0 km</span></div>
+          <div class="pill"><i class="fas fa-clock"></i> <span class="v" id="tkDur">0m</span></div>
+          <div class="pill"><i class="fas fa-gauge-high"></i> <span class="v" id="tkMax">0 km/h</span></div>
+        </div>
+
+        {{-- Bottom legend --}}
+        <div class="legend">
+          <div class="leg"><span class="d" style="background:#16a34a"></span> En mouvement</div>
+          <div class="leg"><span class="d" style="background:#d97706"></span> En arrêt</div>
+          <div class="leg"><span class="d" style="background:#22c55e"></span> Online</div>
+          <div class="leg"><span class="d" style="background:#6b7280"></span> Offline</div>
+        </div>
+
+        {{-- ===== Trip detail modal ===== --}}
+        <div class="card" id="tripModal">
+          <div class="tm-h">
+            <div style="min-width:0">
+              <strong id="tmTitle">Trajet</strong>
+              <small id="tmSub">—</small>
+            </div>
+            <button class="mbtn" style="flex:0 0 auto;padding:.3rem .55rem;border-radius:10px" onclick="window.closeTripModal()">✕</button>
+          </div>
+          <div class="tm-b">
+            <div class="tm-grid">
+              <div class="tm-box"><div class="k">Distance</div><div class="v" id="tmDist">0.0 km</div></div>
+              <div class="tm-box"><div class="k">Durée</div><div class="v" id="tmDur">0m</div></div>
+              <div class="tm-box"><div class="k">Vitesse max</div><div class="v" id="tmMax">0 km/h</div></div>
+              <div class="tm-box"><div class="k">Points</div><div class="v" id="tmPts">0</div></div>
+            </div>
+            <div class="tm-grid" style="margin-top:.35rem">
+              <div class="tm-box" style="grid-column:span 2"><div class="k">Départ</div><div class="v" id="tmStart" style="font-size:.75rem">—</div></div>
+              <div class="tm-box" style="grid-column:span 2"><div class="k">Arrivée</div><div class="v" id="tmEnd" style="font-size:.75rem">—</div></div>
+            </div>
+            <div class="tm-actions">
+              <button class="b1" onclick="window.replayPlay()">▶ Jouer</button>
+              <button class="b1" onclick="window.replayStop()">⏹ Reset</button>
+              <button class="b2" onclick="window.focusTrip()">📍 Centrer</button>
+            </div>
+          </div>
+        </div>
+
+        {{-- ===== Vehicle modal (NEW) ===== --}}
+        <div class="card" id="vehicleModal">
+          <div class="tm-h">
+            <div style="min-width:0">
+              <strong id="vmTitle">Véhicule</strong>
+              <small id="vmSub">—</small>
+            </div>
+            <button class="mbtn" style="flex:0 0 auto;padding:.3rem .55rem;border-radius:10px" onclick="window.closeVehicleModal()">✕</button>
+          </div>
+          <div class="tm-b">
+            <div class="tm-grid">
+              <div class="tm-box"><div class="k">Immatriculation</div><div class="v" id="vmImmat">—</div></div>
+              <div class="tm-box"><div class="k">Marque / Modèle</div><div class="v" id="vmBrand" style="font-size:.78rem">—</div></div>
+              <div class="tm-box"><div class="k">Chauffeur</div><div class="v" id="vmDriver" style="font-size:.75rem">—</div></div>
+              <div class="tm-box"><div class="k">Vitesse</div><div class="v" id="vmSpeed">— km/h</div></div>
+              <div class="tm-box"><div class="k">Statut</div><div class="v" id="vmStatus">—</div></div>
+              <div class="tm-box"><div class="k">Dernière MàJ</div><div class="v" id="vmUpdated" style="font-size:.72rem">—</div></div>
+            </div>
+            <div class="tm-grid" style="margin-top:.35rem">
+              <div class="tm-box" style="grid-column:span 2">
+                <div class="k">Position</div>
+                <div class="v" id="vmPos" style="font-size:.72rem;font-family:var(--font-mono,monospace)">—</div>
+              </div>
+            </div>
+            <div class="tm-actions">
+              <button class="b2" onclick="window.locateVehicleFromModal()">📍 Localiser</button>
+            </div>
+          </div>
+        </div>
+
+        {{-- ===== Replay panel (FIXED: speed chips + follow toggle) ===== --}}
+        <div class="card" id="tripReplay">
+          <div class="rp">
+            <strong>Replay</strong>
+            <button onclick="window.replayPlay()">▶</button>
+            <button onclick="window.replayPause()">⏸</button>
+            <button onclick="window.replayStop()">⏹</button>
+
+            {{-- Speed chips --}}
+            <div class="speed-chips">
+              <button class="speed-chip" data-spd="0.25" onclick="window.replaySetSpeed(0.25)">¼x</button>
+              <button class="speed-chip" data-spd="0.5"  onclick="window.replaySetSpeed(0.5)">½x</button>
+              <button class="speed-chip active-chip" data-spd="1" onclick="window.replaySetSpeed(1)">1x</button>
+              <button class="speed-chip" data-spd="2"  onclick="window.replaySetSpeed(2)">2x</button>
+              <button class="speed-chip" data-spd="4"  onclick="window.replaySetSpeed(4)">4x</button>
+              <button class="speed-chip" data-spd="8"  onclick="window.replaySetSpeed(8)">8x</button>
+              <button class="speed-chip" data-spd="16" onclick="window.replaySetSpeed(16)">16x</button>
+            </div>
+
+            {{-- +/- buttons --}}
+            <button onclick="window.replaySlower()" title="Ralentir">−</button>
+            <small>x<span id="rpSpeed">1</span></small>
+            <button onclick="window.replayFaster()" title="Accélérer">+</button>
+
+            {{-- Follow toggle --}}
+            <button id="rpFollow" class="active-btn" onclick="window.toggleFollow()" title="Suivre le véhicule">
+              🎯 Suivre
+            </button>
+
+            <input id="rpRange" type="range" min="0" max="0" value="0" oninput="window.replaySeek(this.value)">
+            <small id="rpMeta">0/0</small>
+            <button onclick="window.closeReplay()">✕</button>
+          </div>
+        </div>
+
+        {{-- Alert detail --}}
+        <div class="card" id="alertDetail">
+          <div class="ad-h">
+            <div style="min-width:0">
+              <strong id="adTitle">—</strong>
+              <small id="adVeh">—</small>
+            </div>
+            <button class="mbtn" style="flex:0 0 auto;padding:.3rem .55rem;border-radius:10px" onclick="window.closeAlertDetail()">✕</button>
+          </div>
+          <div class="ad-b">
+            <div class="ad-desc" id="adDesc">—</div>
+            <div class="ad-btns">
+              <button class="b1" onclick="window.markAlertRead()">✓ Lu</button>
+              <button class="b1" onclick="window.markAlertProcessed()">🛠️ Traiter</button>
+              <button class="b2" onclick="window.locateAlert()">📍 Localiser</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="toast"></div>
+      </div>
+    </div>
+
+  </div>
 </div>
-{{-- /dashboard-content --}}
-
+@endsection
 
 @push('scripts')
 <script>
-/* ────────────────────────────────────────────────────────────
-   DASHBOARD JS — encapsulé dans une IIFE
-   Dépend du layout pour :
-     - window.showToast(title, msg, type)
-     - window.map (référence carte partagée avec triggerMapResize)
-     - --navbar-h / --kpi-h (mesurés par le layout JS)
-──────────────────────────────────────────────────────────── */
-(function () {
-    'use strict';
+(() => {
+'use strict';
 
-    /* ── État global ────────────────────────────────────────── */
-    let map              = null;
-    let markersById      = {};
-    let infoWindowsById  = {};
-    let selectedVehicleId = null;
-    let dashSSE          = null;
+/* ========================= ROUTES ========================= */
+const R = {
+  stream:      @json(route('dashboard.stream')),
+  alertsDay:   @json(url('/alerts')),
+  trajetsList: @json(route('trajets.index')),
+  trajetDetail: (vId, tId) => {
+    const base = @json(url('/trajets/show'));
+    return `${base}/${encodeURIComponent(vId)}/${encodeURIComponent(tId)}?format=json`;
+  },
+};
 
-    let vehiclesData = @json($vehicles ?? []);
+/* ========================= COLORS ========================= */
+const COLORS = {
+  moving:  '#16a34a',
+  online:  '#2563eb',
+  idle:    '#d97706',
+  offline: '#6b7280',
+};
 
-    /* ── Mode d'affichage (compact | detailed) ──────────────── */
-    const VIEW_KEY = 'fleetra-vehicle-view';
-    let currentView = localStorage.getItem(VIEW_KEY) || 'compact';
+/* ========================= STATE ========================= */
+const ALLOWED_ALERT_TYPES = new Set(['stolen','geofence','safe_zone','time_zone','speed']);
+let map    = null;
+let sse    = null;
+let markers = {};
+let selectedVehicleId = null;
 
-    const ALERT_TYPES = {
-        stolen:    { label: 'Vol',       icon: 'fa-mask'          },
-        geofence:  { label: 'Geofence',  icon: 'fa-draw-polygon'  },
-        safe_zone: { label: 'Safe Zone', icon: 'fa-shield-halved' },
-        speed:     { label: 'Vitesse',   icon: 'fa-gauge-high'    },
-        time_zone: { label: 'Time Zone', icon: 'fa-calendar-alt'  },
-    };
+let vehicles = @json($vehicles ?? []);
+let trips    = [];
+let alerts   = [];
 
-    /* ════════════════════════════════════════════════════════
-       VIEW TOGGLE — Compact / Detailed
-    ════════════════════════════════════════════════════════ */
-    function initViewToggle() {
-        const btnCompact  = document.getElementById('btn-view-compact');
-        const btnDetailed = document.getElementById('btn-view-detailed');
-        if (!btnCompact || !btnDetailed) return;
+let vehFilter     = 'all';
+let tripFilter    = 'all';
+let alertType     = 'all';
+let alertsQuick   = 'today';
+let tripsQuick    = 'today';
+let resolvedFilter = 'open';
+let viewMode      = { flotte:'detailed', trajets:'detailed', alertes:'detailed' };
+let currentAlert  = null;
 
-        function applyView(view) {
-            currentView = view;
-            localStorage.setItem(VIEW_KEY, view);
+/* Trip state — FIX: persist across tab switches */
+let currentTrip      = null;  // { vehicle_id, id, points, bounds }
+let tripPolyline     = null;
+let tripCursor       = null;
+let replayPoints     = [];
+let replayIndex      = 0;
+let replayTimer      = null;
+let replaySpeedFactor = 1;    // 0.25 → 16
+let replayFollow     = true;  // FIX: follow toggle state
 
-            const isCompact = (view === 'compact');
-            btnCompact.classList.toggle('active', isCompact);
-            btnCompact.setAttribute('aria-pressed', String(isCompact));
-            btnDetailed.classList.toggle('active', !isCompact);
-            btnDetailed.setAttribute('aria-pressed', String(!isCompact));
+/* Speed steps for +/- buttons */
+const SPEED_STEPS = [0.25, 0.5, 1, 2, 4, 8, 16];
 
-            /* Re-render la liste avec le nouveau mode */
-            renderVehicleList(vehiclesData);
-        }
+/* ========================= UTILS ========================= */
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g,
+  m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
 
-        btnCompact.addEventListener('click',  function () { applyView('compact'); });
-        btnDetailed.addEventListener('click', function () { applyView('detailed'); });
+const fmtMin = (m) => {
+  m = parseInt(m||0,10);
+  const h = Math.floor(m/60), r = m%60;
+  if (h<=0) return r+'m';
+  return h+'h'+String(r).padStart(2,'0');
+};
 
-        /* Appliquer l'état initial depuis localStorage */
-        applyView(currentView);
+function toast(msg, ok=true){
+  const t = document.getElementById('toast');
+  t.style.background = ok ? '#16a34a' : '#dc2626';
+  t.textContent = msg;
+  t.style.display = 'block';
+  clearTimeout(window.__toastT);
+  window.__toastT = setTimeout(()=>t.style.display='none', 2200);
+}
+
+function debounce(fn, ms=350){
+  let t=null;
+  return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), ms); };
+}
+
+const ymd = (d) => {
+  const z = (n)=>String(n).padStart(2,'0');
+  return d.getFullYear()+'-'+z(d.getMonth()+1)+'-'+z(d.getDate());
+};
+
+function setDateRangeInputs(fromId,toId,from,to){
+  const a = document.getElementById(fromId);
+  const b = document.getElementById(toId);
+  if (a) a.value = from || '';
+  if (b) b.value = to   || '';
+}
+
+/* ========================= KPI HEIGHT ========================= */
+function measureHeights(){
+  const k = document.getElementById('kpiBar');
+  const n = document.getElementById('navbar');
+  if (k) document.documentElement.style.setProperty('--kpi-h', Math.round(k.getBoundingClientRect().height)+'px');
+  if (n) document.documentElement.style.setProperty('--navbar-h', Math.round(n.getBoundingClientRect().height)+'px');
+}
+
+/* ========================= FILTER VISIBILITY ========================= */
+window.togglePaneFilters = (pane) => {
+  if (pane==='flotte'){
+    document.getElementById('vf')?.classList.toggle('show');
+  }
+  if (pane==='trajets'){
+    document.getElementById('tQuick')?.classList.toggle('show');
+    document.getElementById('tf')?.classList.toggle('show');
+  }
+  if (pane==='alertes'){
+    document.getElementById('aQuick')?.classList.toggle('show');
+    document.getElementById('aResolveBar')?.classList.toggle('show');
+    document.getElementById('af')?.classList.toggle('show');
+  }
+};
+
+/* ========================= TABS ========================= */
+window.switchTab = (t) => {
+  ['flotte','trajets','alertes'].forEach(x=>{
+    document.getElementById('tab-'+x)?.classList.toggle('active', x===t);
+    document.getElementById('pane-'+x)?.classList.toggle('active', x===t);
+  });
+
+  /* ── Trajets KPIs overlay : visible seulement sur l'onglet trajets ── */
+  document.getElementById('topTripsKpis')?.classList.toggle('show', t==='trajets');
+
+  /* ── Quand on QUITTE trajets → masquer tout le trip UI sur la carte ── */
+  if (t !== 'trajets'){
+    document.getElementById('tripModal').classList.remove('show');
+    document.getElementById('tripReplay').style.display = 'none';
+    // Masquer polyline + cursor (sans les détruire, état conservé)
+    tripPolyline?.setMap(null);
+    tripCursor?.setMap(null);
+    window.replayPause();
+  }
+
+  /* ── Quand on REVIENT sur trajets → remettre polyline + modale si un trajet est ouvert ── */
+  if (t === 'trajets' && currentTrip){
+    // Remettre polyline sur la carte
+    if (tripPolyline) tripPolyline.setMap(map);
+    if (tripCursor)   tripCursor.setMap(map);
+    document.getElementById('tripModal').classList.add('show');
+    if (replayPoints.length > 0){
+      document.getElementById('tripReplay').style.display = 'block';
+    }
+  }
+
+  /* ── vehicleModal : visible seulement sur flotte ── */
+  if (t !== 'flotte'){
+    document.getElementById('vehicleModal').classList.remove('show');
+  }
+
+  /* ── alertDetail : visible seulement sur alertes ── */
+  if (t !== 'alertes'){
+    document.getElementById('alertDetail').style.display = 'none';
+  }
+
+  document.getElementById('q').value='';
+  document.getElementById('qClear').classList.remove('show');
+  window.doSearch();
+
+  if (t==='flotte')   renderVehicleList();
+  if (t==='trajets')  loadTrips();
+  if (t==='alertes')  loadAlerts();
+};
+
+/* ========================= SEARCH ========================= */
+window.doSearch = () => {
+  const q = document.getElementById('q').value.toLowerCase().trim();
+  document.getElementById('qClear').classList.toggle('show', q.length>0);
+
+  const activePane = document.querySelector('.pane.active')?.id || 'pane-flotte';
+  const sel = activePane==='pane-flotte'   ? '#vehList .item'
+            : activePane==='pane-trajets'  ? '#tripList .item'
+            : '#alertList .item';
+
+  document.querySelectorAll(sel).forEach(el=>{
+    const s = (el.dataset.s||'');
+    el.style.display = (!q || s.includes(q)) ? '' : 'none';
+  });
+};
+window.clearSearch = () => {
+  document.getElementById('q').value='';
+  document.getElementById('qClear').classList.remove('show');
+  window.doSearch();
+};
+
+/* ========================= MODES ========================= */
+window.setMode = (tab, mode) => {
+  viewMode[tab] = mode;
+  ['simple','detailed'].forEach(m=>{
+    document.getElementById(`mode-${tab}-${m}`)?.classList.toggle('active', m===mode);
+  });
+  if (tab==='flotte')   renderVehicleList();
+  if (tab==='trajets')  renderTripList();
+  if (tab==='alertes')  renderAlertList();
+};
+
+/* ========================= CUSTOM TOGGLES ========================= */
+window.toggleTripsCustom = () => {
+  const box = document.getElementById('tDateBox');
+  const willShow = !box.classList.contains('show');
+  box.classList.toggle('show', willShow);
+  if (willShow){ tripsQuick = 'range'; loadTrips(); }
+};
+window.toggleAlertsCustom = () => {
+  const box = document.getElementById('aDateBox');
+  const willShow = !box.classList.contains('show');
+  box.classList.toggle('show', willShow);
+  if (willShow){ alertsQuick = 'range'; loadAlerts(); }
+};
+
+/* ========================= QUICK DATES ========================= */
+function rangeForQuick(q){
+  const now = new Date();
+  let from, to;
+  if (q==='today'){
+    from = to = ymd(now);
+  } else if (q==='yesterday'){
+    const d = new Date(now); d.setDate(d.getDate()-1);
+    from = to = ymd(d);
+  } else if (q==='this_week'){
+    const d = new Date(now);
+    const day = (d.getDay()+6)%7;
+    const start = new Date(d); start.setDate(d.getDate()-day);
+    const end   = new Date(start); end.setDate(start.getDate()+6);
+    from = ymd(start); to = ymd(end);
+  } else if (q==='this_month'){
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const end   = new Date(now.getFullYear(), now.getMonth()+1, 0);
+    from = ymd(start); to = ymd(end);
+  } else if (q==='this_year'){
+    from = ymd(new Date(now.getFullYear(),  0,  1));
+    to   = ymd(new Date(now.getFullYear(), 11, 31));
+  } else {
+    from = to = ymd(now);
+  }
+  return {from, to};
+}
+
+window.setTripsQuick = (el, q) => {
+  document.querySelectorAll('#tQuick .qc').forEach(x=>x.classList.remove('active'));
+  el?.classList.add('active');
+  document.getElementById('tDateBox')?.classList.remove('show');
+  const r = rangeForQuick(q);
+  setDateRangeInputs('tFrom','tTo', r.from, r.to);
+  tripsQuick = (q === 'this_year') ? 'range' : q;
+  loadTrips();
+};
+
+window.setAlertsQuick = (el, q) => {
+  document.querySelectorAll('#aQuick .qc').forEach(x=>x.classList.remove('active'));
+  el?.classList.add('active');
+  document.getElementById('aDateBox')?.classList.remove('show');
+  const r = rangeForQuick(q);
+  setDateRangeInputs('aFrom','aTo', r.from, r.to);
+  alertsQuick = (q === 'this_year') ? 'range' : q;
+  loadAlerts();
+};
+
+/* ========================= VEHICLES ========================= */
+window.resetFleetFilters = () => {
+  vehFilter = 'all';
+  document.querySelectorAll('#vf .f').forEach(x=>x.classList.remove('active'));
+  document.querySelector('#vf .f[data-f="all"]')?.classList.add('active');
+  renderVehicleList();
+};
+
+window.setVehFilter = (el, f) => {
+  vehFilter = f;
+  document.querySelectorAll('#vf .f').forEach(x=>x.classList.remove('active'));
+  el?.classList.add('active');
+  renderVehicleList();
+};
+
+function vehMatchesFilter(v){
+  const online = !!v.gps?.online;
+  const spd    = parseInt(v.speed||0,10);
+  if (vehFilter==='all')     return true;
+  if (vehFilter==='moving')  return online && spd>0;
+  if (vehFilter==='idle')    return online && spd<=0;
+  if (vehFilter==='online')  return online;
+  if (vehFilter==='offline') return !online;
+  return true;
+}
+
+function renderVehicleList(){
+  const box  = document.getElementById('vehList');
+  const list = vehicles.filter(vehMatchesFilter);
+
+  if (!list.length){
+    box.innerHTML = `<div class="empty"><i class="fas fa-filter"></i><div style="margin-top:.6rem">Aucun résultat</div></div>`;
+    return;
+  }
+
+  box.innerHTML = list.map((v,i)=>{
+    const online = !!v.gps?.online;
+    const spd    = parseInt(v.speed||0,10);
+    const dotC   = online && spd>0 ? COLORS.moving : online ? COLORS.idle : COLORS.offline;
+    const dotA   = online && spd>0 ? 'animation:pulse 1.5s infinite' : '';
+    const imm    = esc(v.immatriculation||'—');
+    const drv    = esc(v.driver?.label ?? v.users ?? v.driver_label ?? 'Non associé');
+    const brand  = esc((`${v.marque||''} ${v.model||''}`).trim() || '—');
+    const s      = `${imm} ${drv}`.toLowerCase();
+    const sel    = (selectedVehicleId == v.id) ? ' sel' : '';
+
+    if (viewMode.flotte==='simple'){
+      return `
+      <div class="item${sel}" data-id="${v.id}" data-s="${s}">
+        <div class="hrow">
+          <div class="title">${imm}</div>
+          <div class="dot" style="background:${dotC};${dotA}"></div>
+        </div>
+        <div class="sub">👤 ${drv}</div>
+      </div>${i<list.length-1?'<div class="sep"></div>':''}`;
     }
 
-    /* ════════════════════════════════════════════════════════
-       MESURE KPI
-    ════════════════════════════════════════════════════════ */
-    function measureKpi() {
-        const kpi    = document.getElementById('kpi-bar');
-        const navbar = document.getElementById('navbar');
-        if (!kpi || !navbar) return;
-        const kpiH   = Math.round(kpi.getBoundingClientRect().height);
-        const navH   = Math.round(navbar.getBoundingClientRect().height);
-        document.documentElement.style.setProperty('--kpi-h',    kpiH + 'px');
-        document.documentElement.style.setProperty('--navbar-h', navH + 'px');
-    }
+    const tags = [
+      online && spd>0
+        ? `<span class="tag" style="background:rgba(22,163,74,.12);color:${COLORS.moving}"><span class="dot" style="background:${COLORS.moving};${dotA}"></span>${spd} km/h</span>`
+        : online
+          ? `<span class="tag" style="background:rgba(217,119,6,.12);color:${COLORS.idle}"><span class="dot" style="background:${COLORS.idle}"></span>Arrêt</span>`
+          : `<span class="tag" style="background:rgba(107,114,128,.12);color:${COLORS.offline}"><span class="dot" style="background:${COLORS.offline}"></span>Offline</span>`
+    ].join('');
 
-    /* ════════════════════════════════════════════════════════
-       GOOGLE MAPS
-    ════════════════════════════════════════════════════════ */
-    window.initFleetMap = function () {
-        map = new google.maps.Map(document.getElementById('fleetMap'), {
-            center:    { lat: 4.0511, lng: 9.7679 },
-            zoom:      7,
-            mapTypeId: 'roadmap',
-            styles:    getMapStyle(),
-        });
+    return `
+    <div class="item${sel}" data-id="${v.id}" data-s="${s}">
+      <div class="hrow">
+        <div class="title">${imm}</div>
+        <div class="dot" style="background:${dotC};${dotA}"></div>
+      </div>
+      <div class="sub">${brand}</div>
+      <div class="sub">👤 ${drv}</div>
+      <div class="tags">${tags}</div>
+    </div>${i<list.length-1?'<div class="sep"></div>':''}`;
+  }).join('');
 
-        window.map = map;
+  box.querySelectorAll('.item').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      box.querySelectorAll('.item').forEach(x=>x.classList.remove('sel'));
+      el.classList.add('sel');
+      selectedVehicleId = parseInt(el.dataset.id,10);
+      focusVehicle(selectedVehicleId);
+      openVehicleModal(selectedVehicleId);  // FIX: open vehicle modal
 
-        renderVehicleList(vehiclesData);
-        renderMarkers(vehiclesData, true);
-        initVehicleSearch();
-        startDashSSE();
-
-        setTimeout(measureKpi, 300);
-    };
-
-    function loadGoogleMaps() {
-        if (window.google && window.google.maps) { window.initFleetMap(); return; }
-        const s   = document.createElement('script');
-        s.src     = 'https://maps.googleapis.com/maps/api/js?key=AIzaSyBn88TP5X-xaRCYo5gYxvGnVy_0WYotZWo&callback=initFleetMap';
-        s.async   = true;
-        s.defer   = true;
-        document.head.appendChild(s);
-    }
-
-    function getMapStyle() {
-        return [];
-    }
-
-    /* ════════════════════════════════════════════════════════
-       SSE
-    ════════════════════════════════════════════════════════ */
-    function startDashSSE() {
-        const url = "{{ route('dashboard.stream') }}";
-        dashSSE   = new EventSource(url, { withCredentials: true });
-        setSseState('connecting');
-
-        dashSSE.addEventListener('hello',     () => setSseState('connected'));
-
-        dashSSE.addEventListener('dashboard', e => {
-            setSseState('connected');
-            let payload;
-            try { payload = JSON.parse(e.data); } catch { return; }
-
-            if (payload.ts) {
-                const el = document.getElementById('last-update');
-                if (el) el.textContent = `Maj: ${payload.ts}`;
-            }
-            if (payload.stats) {
-                applyStats(payload.stats);
-                const byType = payload.stats.alertsByType || payload.stats.alerts_by_type;
-                if (byType) applyAlertTypeStats(byType);
-            }
-            if (Array.isArray(payload.alerts))  renderAlertsTable(payload.alerts);
-
-            const fleet = Array.isArray(payload.fleet) ? payload.fleet : [];
-            vehiclesData = fleet;
-            renderVehicleList(fleet);
-            renderMarkers(fleet, false);
-            updateSelectedInfoWindow(fleet);
-        });
-
-        dashSSE.onerror = () => setSseState('reconnecting');
-
-        document.addEventListener('visibilitychange', () => {
-            if (document.hidden) {
-                dashSSE?.close(); dashSSE = null; setSseState('paused');
-            } else if (!dashSSE) {
-                startDashSSE();
-            }
-        });
-
-        window.addEventListener('beforeunload', () => dashSSE?.close());
-    }
-
-    function setSseState(state) {
-        const dot   = document.getElementById('sse-dot');
-        const label = document.getElementById('sse-label');
-        if (!dot || !label) return;
-
-        const CONFIG = {
-            connected:    { color: '#22c55e', text: 'Connecté',    badge: '#22c55e20' },
-            connecting:   { color: '#eab308', text: 'Connexion…',  badge: '#eab30820' },
-            reconnecting: { color: '#f97316', text: 'Reconnexion…',badge: '#f9731620' },
-            paused:       { color: '#9ca3af', text: 'En pause',    badge: 'transparent' },
-        };
-
-        const cfg = CONFIG[state] || CONFIG.paused;
-        dot.style.background = cfg.color;
-        label.textContent    = cfg.text;
-
-        if (typeof window.setSseIndicator === 'function') window.setSseIndicator(state);
-    }
-
-    /* ════════════════════════════════════════════════════════
-       STATS / KPI
-    ════════════════════════════════════════════════════════ */
-    function applyStats(stats) {
-        const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) animateNumber(el, v); };
-        set('stat-users',    stats.usersCount);
-        set('stat-vehicles', stats.vehiclesCount);
-    }
-
-    function applyAlertTypeStats(obj) {
-        Object.keys(ALERT_TYPES).forEach(k => {
-            const el = document.getElementById('stat-alert-' + k);
-            if (el) animateNumber(el, obj?.[k] ?? 0);
-        });
-    }
-
-    function animateNumber(el, target) {
-        const current = parseInt(el.textContent, 10) || 0;
-        if (current === target) return;
-        const diff  = target - current;
-        const steps = Math.min(Math.abs(diff), 20);
-        const step  = diff / steps;
-        let count   = 0;
-        const id = setInterval(() => {
-            count++;
-            el.textContent = Math.round(current + step * count);
-            if (count >= steps) { clearInterval(id); el.textContent = target; }
-        }, 30);
-    }
-
-    /* ════════════════════════════════════════════════════════
-       TABLEAU ALERTES
-    ════════════════════════════════════════════════════════ */
-    function renderAlertsTable(alerts) {
-        const body = document.getElementById('alerts-table-body');
-        if (!body) return;
-
-        if (!alerts.length) {
-            body.innerHTML = `
-                <tr>
-                    <td colspan="4" class="table-empty">
-                        <i class="fas fa-bell-slash" aria-hidden="true"></i>
-                        <p>Aucune alerte pour le moment.</p>
-                    </td>
-                </tr>`;
-            return;
-        }
-
-        body.innerHTML = alerts.map(a => `
-            <tr>
-                <td>${esc(a.vehicle)}</td>
-                <td>${esc(a.type)}</td>
-                <td style="font-family:var(--font-mono);font-size:0.75rem;color:var(--color-secondary-text);">
-                    ${esc(a.time)}
-                </td>
-                <td>
-                    <span class="status-badge" style="background:${a.status_bg ?? '#6b7280'};">
-                        ${esc(a.status)}
-                    </span>
-                </td>
-            </tr>`
-        ).join('');
-    }
-
-    /* ════════════════════════════════════════════════════════
-       LISTE VÉHICULES
-    ════════════════════════════════════════════════════════ */
-    function renderVehicleList(fleet) {
-        const list  = document.getElementById('vehicleList');
-        const count = document.getElementById('fleet-count');
-        if (!list) return;
-
-        if (count) count.textContent = `${fleet.length} véhicule(s)`;
-
-        if (!fleet.length) {
-            list.innerHTML = `
-                <div class="empty-state">
-                    <div class="empty-state-icon" aria-hidden="true"><i class="fas fa-car"></i></div>
-                    <p class="empty-state-title">Aucun véhicule localisé</p>
-                    <p class="empty-state-sub">Vérifiez la connexion GPS des appareils.</p>
-                </div>`;
-            return;
-        }
-
-        /* Générer selon le mode courant */
-        const isCompact = (currentView === 'compact');
-        list.innerHTML = fleet.map(v => isCompact ? buildVehicleItemCompact(v) : buildVehicleItemDetailed(v)).join('');
-
-        /* Events click */
-        const itemSelector = isCompact ? '.vehicle-item-compact' : '.vehicle-item';
-        list.querySelectorAll(itemSelector).forEach(item => {
-            item.addEventListener('click', function () {
-                list.querySelectorAll('.vehicle-item.selected, .vehicle-item-compact.selected').forEach(i => i.classList.remove('selected'));
-                this.classList.add('selected');
-                focusVehicle(parseInt(this.dataset.id, 10));
-            });
-        });
-
-        /* Ré-appliquer le filtre si actif */
-        const q = document.getElementById('vehicleSearch')?.value.trim().toLowerCase();
-        if (q) applyFilter(q);
-    }
-
-    /* ── Mode Compact ────────────────────────────────────────── */
-    function buildVehicleItemCompact(v) {
-        const id     = v.id;
-        const immat  = esc(v.immatriculation ?? '—');
-        const driver = v.driver?.label ?? v.users;
-        const hasDriver = driver && driver !== 'Non associé' && driver !== '';
-        const driverText = hasDriver ? esc(driver) : 'Non associé';
-        const label  = `${v.immatriculation ?? ''} ${driver ?? ''}`.toLowerCase();
-
-        return `
-        <div class="vehicle-item-compact" id="vi-${id}" data-id="${id}" data-label="${esc(label)}" role="listitem" tabindex="0" title="${immat}">
-            <span class="compact-dot" aria-hidden="true"></span>
-            <span class="compact-immat">${immat}</span>
-            <span class="compact-driver${hasDriver ? '' : ' unassigned'}">${driverText}</span>
-        </div>`;
-    }
-
-    /* ── Mode Détaillé ───────────────────────────────────────── */
-    function buildVehicleItemDetailed(v) {
-        const id        = v.id;
-        const immat     = esc(v.immatriculation ?? '—');
-        const brand     = esc(`${v.marque ?? ''} ${v.model ?? ''}`.trim() || '—');
-        const driver    = esc(v.driver?.label ?? v.users ?? 'Non associé');
-        const label     = `${v.immatriculation ?? ''} ${v.driver?.label ?? v.users ?? ''}`.toLowerCase();
-        const trajetUrl = `{{ route('trajets.index', ['vehicle_id' => '__ID__']) }}`.replace('__ID__', id);
-
-        const engineCut = v.engine?.cut;
-        const gpsOnline = v.gps?.online;
-
-        const engineClass = engineCut === true  ? 'v-badge-engine-off'
-                          : engineCut === false ? 'v-badge-engine-on'
-                          : 'v-badge-engine-unk';
-        const engineText  = engineCut === true  ? 'Moteur coupé'
-                          : engineCut === false ? 'Moteur actif'
-                          : 'Moteur inconnu';
-
-        const gpsClass    = gpsOnline === true  ? 'v-badge-gps-on'
-                          : gpsOnline === false ? 'v-badge-gps-off'
-                          : 'v-badge-gps-unk';
-        const gpsText     = gpsOnline === true  ? 'GPS en ligne'
-                          : gpsOnline === false ? 'GPS hors ligne'
-                          : 'GPS inconnu';
-
-        return `
-        <div class="vehicle-item" id="vi-${id}" data-id="${id}" data-label="${esc(label)}" role="listitem">
-            <div class="vehicle-item-row">
-                <div class="vehicle-avatar" aria-hidden="true">
-                    <i class="fas fa-car"></i>
-                </div>
-                <div class="vehicle-info">
-                    <p class="vehicle-immat">${immat}</p>
-                    <p class="vehicle-brand">${brand}</p>
-                    <p class="vehicle-driver">
-                        <i class="fas fa-user" aria-hidden="true"></i>${driver}
-                    </p>
-                </div>
-                <a href="${trajetUrl}"
-                   class="vehicle-link"
-                   title="Voir les trajets"
-                   onclick="event.stopPropagation();">
-                    <i class="fas fa-route" aria-hidden="true"></i> Trajets
-                </a>
-            </div>
-            <div class="vehicle-badges">
-                <div class="vehicle-badges-left">
-                    <span class="v-badge ${engineClass}">
-                        <i class="fas fa-power-off" aria-hidden="true"></i>${engineText}
-                    </span>
-                    <span class="v-badge ${gpsClass}">
-                        <i class="fas fa-satellite-dish" aria-hidden="true"></i>${gpsText}
-                    </span>
-                </div>
-                <span class="vehicle-center-hint" aria-hidden="true">
-                    <i class="fas fa-crosshairs"></i>Centrer
-                </span>
-            </div>
-        </div>`;
-    }
-
-    /* Alias pour compatibilité SSE (garde l'ancien nom) */
-    function buildVehicleItem(v) {
-        return currentView === 'compact' ? buildVehicleItemCompact(v) : buildVehicleItemDetailed(v);
-    }
-
-    /* ════════════════════════════════════════════════════════
-       RECHERCHE / FILTRE
-    ════════════════════════════════════════════════════════ */
-    function initVehicleSearch() {
-        const input = document.getElementById('vehicleSearch');
-        if (!input) return;
-        input.addEventListener('input', function () {
-            applyFilter(this.value.trim().toLowerCase());
-        });
-    }
-
-    function applyFilter(q) {
-        const list  = document.getElementById('vehicleList');
-        const count = document.getElementById('fleet-count');
-        /* Sélectionner les items des deux modes */
-        const items = list?.querySelectorAll('.vehicle-item, .vehicle-item-compact') ?? [];
-        let visible = 0;
-
-        items.forEach(item => {
-            const match = !q || (item.dataset.label ?? '').includes(q);
-            item.style.display = match ? '' : 'none';
-            if (match) visible++;
-        });
-
-        if (count) count.textContent = `${visible} véhicule(s)`;
-    }
-
-    /* ════════════════════════════════════════════════════════
-       MARQUEURS GOOGLE MAPS
-    ════════════════════════════════════════════════════════ */
-    function renderMarkers(vehicles, fitBounds) {
-        if (!map) return;
-        const bounds = new google.maps.LatLngBounds();
-        const newIds = new Set();
-
-        vehicles.forEach(v => {
-            if (v.lat == null || v.lon == null) return;
-            const id  = v.id;
-            const pos = { lat: parseFloat(v.lat), lng: parseFloat(v.lon) };
-            newIds.add(String(id));
-
-            let marker = markersById[id];
-            if (!marker) {
-                marker = new google.maps.Marker({
-                    position: pos,
-                    map,
-                    title: v.immatriculation ?? '',
-                    icon: {
-                        url: '/assets/icons/car_icon.png',
-                        scaledSize: new google.maps.Size(38, 38),
-                    },
-                    animation: google.maps.Animation.DROP,
-                });
-
-                const iw = new google.maps.InfoWindow({ content: buildInfoWindow(v) });
-                marker.addListener('click', () => {
-                    selectedVehicleId = id;
-                    iw.open(map, marker);
-                    document.querySelectorAll('.vehicle-item.selected, .vehicle-item-compact.selected').forEach(i => i.classList.remove('selected'));
-                    document.getElementById('vi-' + id)?.classList.add('selected');
-                });
-
-                markersById[id]     = marker;
-                infoWindowsById[id] = iw;
-            } else {
-                marker.setPosition(pos);
-            }
-
-            bounds.extend(pos);
-        });
-
-        Object.keys(markersById).forEach(id => {
-            if (!newIds.has(String(id))) {
-                markersById[id].setMap(null);
-                delete markersById[id];
-                delete infoWindowsById[id];
-            }
-        });
-
-        if (fitBounds && vehicles.length) {
-            map.fitBounds(bounds);
-            const listener = google.maps.event.addListener(map, 'idle', () => {
-                if (map.getZoom() > 14) map.setZoom(14);
-                google.maps.event.removeListener(listener);
-            });
-        }
-    }
-
-    function updateSelectedInfoWindow(fleet) {
-        if (selectedVehicleId == null) return;
-        const v = fleet.find(x => String(x.id) === String(selectedVehicleId));
-        if (!v) return;
-        infoWindowsById[selectedVehicleId]?.setContent(buildInfoWindow(v));
-    }
-
-    function buildInfoWindow(v) {
-        const driver     = v.driver?.label ?? v.users ?? '—';
-        const engineCut  = v.engine?.cut;
-        const gpsOnline  = v.gps?.online;
-        const eLabel     = engineCut === true ? 'Moteur coupé' : engineCut === false ? 'Moteur actif' : 'Moteur inconnu';
-        const eColor     = engineCut === true ? '#ef4444' : engineCut === false ? '#22c55e' : '#9ca3af';
-        const gLabel     = gpsOnline  === true ? 'GPS en ligne'  : gpsOnline === false ? 'GPS hors ligne' : 'GPS inconnu';
-        const gColor     = gpsOnline  === true ? '#22c55e' : gpsOnline === false ? '#9ca3af' : '#6b7280';
-        const trajetUrl  = `{{ route('trajets.index', ['vehicle_id' => '__ID__']) }}`.replace('__ID__', v.id);
-
-        return `
-        <div style="font-family:'Lato',system-ui,sans-serif;font-size:12px;min-width:220px;line-height:1.5;">
-            <div style="font-family:'Rajdhani',sans-serif;font-size:14px;font-weight:700;margin-bottom:6px;color:#1e293b;">
-                ${esc(v.immatriculation)}
-            </div>
-            <div style="margin-bottom:4px;color:#6b7280;">
-                Chauffeur : <span style="color:#1e293b;font-weight:600;">${esc(driver)}</span>
-            </div>
-            <div style="display:flex;gap:12px;margin-top:6px;flex-wrap:wrap;">
-                <span style="color:${eColor};font-weight:600;font-size:11px;">● ${eLabel}</span>
-                <span style="color:${gColor};font-weight:600;font-size:11px;">● ${gLabel}</span>
-            </div>
-            <div style="margin-top:10px;padding-top:8px;border-top:1px solid #e2e8f0;">
-                <a href="${trajetUrl}" style="color:#F58220;font-weight:600;text-decoration:none;font-size:11px;">
-                    ▶ Voir les trajets
-                </a>
-            </div>
-        </div>`;
-    }
-
-    function focusVehicle(id) {
-        const marker = markersById[id];
-        if (!marker || !map) return;
-        selectedVehicleId = id;
-        map.setCenter(marker.getPosition());
-        map.setZoom(15);
-        infoWindowsById[id]?.open(map, marker);
-    }
-
-    /* ════════════════════════════════════════════════════════
-       UTILITAIRES
-    ════════════════════════════════════════════════════════ */
-    function esc(str) {
-        return String(str ?? '').replace(/[&<>"']/g, m =>
-            ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m]));
-    }
-
-    /* ════════════════════════════════════════════════════════
-       INIT
-    ════════════════════════════════════════════════════════ */
-    document.addEventListener('DOMContentLoaded', function () {
-        /* Mesures initiales */
-        measureKpi();
-        setTimeout(measureKpi, 250);
-        setTimeout(measureKpi, 900);
-
-        /* Init toggle vue avant le chargement de la map */
-        initViewToggle();
-
-        /* Debounce resize */
-        let rTimer = null;
-        window.addEventListener('resize', () => {
-            clearTimeout(rTimer);
-            rTimer = setTimeout(measureKpi, 120);
-        });
-
-        /* Charger Google Maps */
-        loadGoogleMaps();
-
-        /* Observer les changements de thème */
-        const appRoot = document.getElementById('app-root');
-        if (appRoot && window.MutationObserver) {
-            new MutationObserver(function () {
-                if (map) map.setOptions({ styles: getMapStyle() });
-            }).observe(appRoot, { attributes: true, attributeFilter: ['class'] });
-        }
+      if (document.getElementById('pane-alertes').classList.contains('active')) loadAlerts();
+      if (document.getElementById('pane-trajets').classList.contains('active')) loadTrips();
     });
+  });
 
+  window.doSearch();
+}
+
+/* ========================= VEHICLE MODAL (NEW) ========================= */
+function openVehicleModal(id){
+  const v = vehicles.find(x => String(x.id) === String(id));
+  if (!v) return;
+
+  const online  = !!v.gps?.online;
+  const spd     = parseInt(v.speed||0,10);
+  const imm     = v.immatriculation || '—';
+  const brand   = (`${v.marque||''} ${v.model||''}`).trim() || '—';
+  const drv     = v.driver?.label ?? v.users ?? v.driver_label ?? 'Non associé';
+  const lat     = v.lat  != null ? parseFloat(v.lat).toFixed(5)  : '—';
+  const lng     = v.lon  != null ? parseFloat(v.lon).toFixed(5)  : '—';
+  const updated = v.gps?.updated_at ?? v.updated_at ?? '—';
+
+  const statusTxt   = online && spd>0 ? 'En mouvement' : online ? 'En arrêt' : 'Offline';
+  const statusColor = online && spd>0 ? COLORS.moving  : online ? COLORS.idle : COLORS.offline;
+
+  document.getElementById('vmTitle').textContent   = `Véhicule • ${imm}`;
+  document.getElementById('vmSub').textContent     = brand;
+  document.getElementById('vmImmat').textContent   = imm;
+  document.getElementById('vmBrand').textContent   = brand;
+  document.getElementById('vmDriver').textContent  = drv;
+  document.getElementById('vmSpeed').textContent   = `${spd} km/h`;
+  document.getElementById('vmStatus').innerHTML    = `<span style="color:${statusColor}">${statusTxt}</span>`;
+  document.getElementById('vmUpdated').textContent = updated;
+  document.getElementById('vmPos').textContent     = lat !== '—' ? `${lat}, ${lng}` : '—';
+
+  // Store id for "Localiser" button
+  document.getElementById('vehicleModal').dataset.vid = id;
+
+  // Hide trip modal if open to avoid overlap
+  // (we keep tripModal independently closeable; here we just make vehicle modal visible)
+  document.getElementById('vehicleModal').classList.add('show');
+}
+
+window.closeVehicleModal = () => {
+  document.getElementById('vehicleModal').classList.remove('show');
+};
+
+window.locateVehicleFromModal = () => {
+  const id = document.getElementById('vehicleModal').dataset.vid;
+  if (id) focusVehicle(id);
+};
+
+/* ========================= MAP ========================= */
+window.initFleetMap = function(){
+  map = new google.maps.Map(document.getElementById('fleetMap'), {
+    center: {lat:4.0511, lng:9.7679},
+    zoom:   7,
+    disableDefaultUI: true,
+    gestureHandling: 'greedy',
+    mapTypeId: 'roadmap',
+  });
+  renderVehicleMarkers(true);
+  startSSE();
+  setTimeout(measureHeights, 250);
+  map.addListener('click', ()=> document.getElementById('mapTypeMenu')?.classList.remove('show'));
+};
+
+function loadGoogleMaps(){
+  if (window.google?.maps){ window.initFleetMap(); return; }
+  const s = document.createElement('script');
+  s.src = 'https://maps.googleapis.com/maps/api/js?key=AIzaSyBn88TP5X-xaRCYo5gYxvGnVy_0WYotZWo&callback=initFleetMap';
+  s.async = true; s.defer = true;
+  document.head.appendChild(s);
+}
+
+function carIcon(){
+  return {
+    url: @json(asset('assets/icons/car_icon.png')),
+    scaledSize: new google.maps.Size(34,34),
+    anchor:     new google.maps.Point(17,17),
+  };
+}
+
+function renderVehicleMarkers(fit){
+  if (!map) return;
+  const bounds = new google.maps.LatLngBounds();
+  const seen   = new Set();
+
+  vehicles.forEach(v=>{
+    if (v.lat==null || v.lon==null) return;
+    const id  = String(v.id);
+    seen.add(id);
+    const pos = {lat:parseFloat(v.lat), lng:parseFloat(v.lon)};
+    let m = markers[id];
+
+    if (!m){
+      m = new google.maps.Marker({ map, position:pos, title:v.immatriculation||'', icon:carIcon() });
+      m.addListener('click', ()=>{
+        selectedVehicleId = parseInt(v.id,10);
+        document.querySelectorAll('#vehList .item').forEach(x=>x.classList.remove('sel'));
+        document.querySelector(`#vehList .item[data-id="${v.id}"]`)?.classList.add('sel');
+        focusVehicle(v.id);
+        openVehicleModal(v.id);  // FIX: open modal on marker click too
+
+        if (document.getElementById('pane-alertes').classList.contains('active')) loadAlerts();
+        if (document.getElementById('pane-trajets').classList.contains('active')) loadTrips();
+      });
+      markers[id] = m;
+    } else {
+      m.setPosition(pos);
+      m.setIcon(carIcon());
+    }
+    bounds.extend(pos);
+  });
+
+  Object.keys(markers).forEach(id=>{
+    if (!seen.has(id)){ markers[id].setMap(null); delete markers[id]; }
+  });
+
+  if (fit && !bounds.isEmpty()){
+    map.fitBounds(bounds);
+    const l = google.maps.event.addListener(map,'idle',()=>{
+      if (map.getZoom()>14) map.setZoom(14);
+      google.maps.event.removeListener(l);
+    });
+  }
+}
+
+function focusVehicle(id){
+  const m = markers[String(id)];
+  if (!m || !map) return;
+  map.setCenter(m.getPosition());
+  map.setZoom(15);
+}
+
+/* ========================= MAP TYPE ========================= */
+window.toggleMapTypeMenu = () => document.getElementById('mapTypeMenu')?.classList.toggle('show');
+window.setMapType = (el, type) => {
+  if (!map) return;
+  map.setMapTypeId(type);
+  document.querySelectorAll('#mapTypeMenu .it').forEach(x=>x.classList.remove('active'));
+  el?.classList.add('active');
+  document.getElementById('mapTypeMenu')?.classList.remove('show');
+};
+
+/* ========================= SSE ========================= */
+function sseState(state){
+  const dot = document.getElementById('sseDot');
+  const txt = document.getElementById('sseTxt');
+  const m = {
+    connected:   {c:'#22c55e',t:'Connecté'},
+    connecting:  {c:'#eab308',t:'Connexion…'},
+    reconnecting:{c:'#f97316',t:'Reconnexion…'},
+    paused:      {c:'#9ca3af',t:'En pause'}
+  }[state] || {c:'#9ca3af',t:'—'};
+  dot.style.background = m.c;
+  txt.textContent      = m.t;
+}
+
+function startSSE(){
+  try{
+    sse?.close();
+    sse = new EventSource(R.stream, {withCredentials:true});
+    sseState('connecting');
+
+    sse.addEventListener('hello', ()=>sseState('connected'));
+    sse.addEventListener('dashboard', (e)=>{
+      sseState('connected');
+      let p; try{ p=JSON.parse(e.data); } catch{ return; }
+
+      if (p.ts) document.getElementById('lastUp').textContent = 'Maj: '+p.ts;
+      if (p.stats){
+        if (p.stats.usersCount    != null) document.getElementById('kUsers').textContent = parseInt(p.stats.usersCount,10);
+        if (p.stats.vehiclesCount != null) document.getElementById('kVeh').textContent   = parseInt(p.stats.vehiclesCount,10);
+      }
+      if (Array.isArray(p.fleet) && p.fleet.length){
+        vehicles = p.fleet;
+        renderVehicleList();
+        renderVehicleMarkers(false);
+      }
+    });
+    sse.onerror = ()=>sseState('reconnecting');
+
+    document.addEventListener('visibilitychange', ()=>{
+      if (document.hidden){ sse?.close(); sse=null; sseState('paused'); }
+      else if (!sse) startSSE();
+    });
+    window.addEventListener('beforeunload', ()=>sse?.close());
+  } catch{ sseState('paused'); }
+}
+
+/* ========================= TOP-CENTER TRIPS KPIs ========================= */
+function setTopTripsKpis({count=0, dist=0, durMin=0, max=0}){
+  document.getElementById('tkCount').textContent = String(count);
+  document.getElementById('tkDist').textContent  = `${Number(dist||0).toFixed(1)} km`;
+  document.getElementById('tkDur').textContent   = fmtMin(durMin||0);
+  document.getElementById('tkMax').textContent   = `${Math.round(max||0)} km/h`;
+}
+function computeTripAgg(list){
+  const dist = list.reduce((s,t)=> s + (parseFloat(t.total_distance_km||0)||0), 0);
+  const dur  = list.reduce((s,t)=> s + (parseInt(t.duration_minutes||0,10)||0), 0);
+  const max  = list.reduce((m,t)=> Math.max(m, (parseFloat(t.max_speed_kmh||0)||0)), 0);
+  return {count:list.length, dist, durMin:dur, max};
+}
+function filterTripsForUi(list){
+  let out = list.slice();
+  if (tripFilter==='active') out = out.filter(t=>!(t.end_time || t.end_at));
+  if (tripFilter==='done')   out = out.filter(t=>!!(t.end_time || t.end_at));
+  return out;
+}
+
+/* ========================= TRIPS ========================= */
+window.setTripFilter = (el, f) => {
+  tripFilter = f;
+  document.querySelectorAll('#tf .f').forEach(x=>x.classList.remove('active'));
+  el?.classList.add('active');
+  renderTripList();
+};
+
+window.loadTrips = () => {
+  const box = document.getElementById('tripList');
+  box.innerHTML = `<div class="empty"><i class="fas fa-circle-notch fa-spin"></i><div style="margin-top:.6rem">Chargement…</div></div>`;
+
+  const from = document.getElementById('tFrom').value;
+  const to   = document.getElementById('tTo').value;
+
+  const url = new URL(R.trajetsList);
+  url.searchParams.set('format','json');
+  url.searchParams.set('per_page','50');
+
+  if (selectedVehicleId) url.searchParams.set('vehicle_id', String(selectedVehicleId));
+
+  if (tripsQuick && tripsQuick !== 'range'){
+    url.searchParams.set('quick', tripsQuick);
+  } else {
+    if (from) url.searchParams.set('start_date', from);
+    if (to)   url.searchParams.set('end_date',   to);
+    url.searchParams.set('quick','range');
+  }
+
+  fetch(url.toString(), {headers:{'Accept':'application/json','X-Requested-With':'XMLHttpRequest'}})
+    .then(r=>{ if(!r.ok) throw new Error(r.status); return r.json(); })
+    .then(json=>{
+      trips = json.data || [];
+      renderTripList();
+      if (!currentTrip){
+        setTopTripsKpis(computeTripAgg(filterTripsForUi(trips)));
+      }
+    })
+    .catch(()=>{
+      box.innerHTML = `<div class="empty"><i class="fas fa-exclamation-triangle"></i><div style="margin-top:.6rem">Erreur endpoint trajets JSON</div></div>`;
+    });
+};
+
+function renderTripList(){
+  const box  = document.getElementById('tripList');
+  const list = filterTripsForUi(trips);
+
+  if (!currentTrip) setTopTripsKpis(computeTripAgg(list));
+
+  if (!list.length){
+    box.innerHTML = `<div class="empty"><i class="fas fa-route"></i><div style="margin-top:.6rem">Aucun trajet</div></div>`;
+    return;
+  }
+
+  box.innerHTML = list.map((t,i)=>{
+    const imm   = esc(t.immatriculation || '—');
+    const drv   = esc(t.driver_label || '—');
+    const isAct = !(t.end_time || t.end_at);
+    const s     = `${imm} ${drv}`.toLowerCase();
+    const km    = parseFloat(t.total_distance_km||0).toFixed(1);
+    const dur   = fmtMin(t.duration_minutes||0);
+    const mx    = Math.round(t.max_speed_kmh||0);
+    const isCurrent = currentTrip && String(currentTrip.id) === String(t.id);
+    const dotStyle = `background:${isAct?COLORS.moving:COLORS.offline};${isAct?'animation:pulse 1.5s infinite':''}`;
+
+    if (viewMode.trajets === 'simple'){
+      return `
+      <div class="item${isCurrent?' sel':''}" data-s="${s}" data-trip="${t.id}" data-veh="${t.vehicle_id}">
+        <div class="hrow">
+          <div class="title">${imm}</div>
+          <div class="dot" style="${dotStyle}"></div>
+        </div>
+        <div class="sub">👤 ${drv}</div>
+      </div>${i<list.length-1?'<div class="sep"></div>':''}`;
+    }
+
+    return `
+    <div class="item${isCurrent?' sel':''}" data-s="${s}" data-trip="${t.id}" data-veh="${t.vehicle_id}">
+      <div class="hrow">
+        <div class="title">${imm}</div>
+        <div class="dot" style="${dotStyle}"></div>
+      </div>
+      <div class="sub">👤 ${drv}</div>
+      <div class="tags">
+        <span class="tag" style="background:var(--color-primary-light);color:var(--color-primary)">📏 ${km} km</span>
+        <span class="tag" style="background:rgba(37,99,235,.12);color:#2563eb">⏱ ${dur}</span>
+        <span class="tag" style="background:rgba(245,158,11,.12);color:#d97706">🏁 ${mx} km/h</span>
+        <span class="tag" style="background:rgba(107,114,128,.10);color:var(--color-text)">🗺️ Voir sur carte</span>
+      </div>
+    </div>${i<list.length-1?'<div class="sep"></div>':''}`;
+  }).join('');
+
+  box.querySelectorAll('.item').forEach(el=>{
+    el.addEventListener('click', async ()=>{
+      const tripId = el.dataset.trip;
+      const vehId  = el.dataset.veh;
+      if (!tripId || !vehId) return;
+
+      // FIX: déselectionner le trajet en cours si on reclique dessus
+      if (currentTrip && String(currentTrip.id) === String(tripId)){
+        document.getElementById('tripModal').classList.add('show');
+        return;
+      }
+
+      box.querySelectorAll('.item').forEach(x=>x.classList.remove('sel'));
+      el.classList.add('sel');
+
+      await openTrip(vehId, tripId);
+    });
+  });
+
+  window.doSearch();
+}
+
+/* ========================= OPEN TRIP — FIX: robustesse backend + modale garantie ========================= */
+async function openTrip(vehicleId, trajetId){
+  // Fermer la modale précédente proprement avant de recharger
+  document.getElementById('tripModal').classList.remove('show');
+
+  try{
+    const url = R.trajetDetail(vehicleId, trajetId);
+    const res = await fetch(url, {headers:{'Accept':'application/json','X-Requested-With':'XMLHttpRequest'}});
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const json = await res.json();
+
+    // FIX: Gestion robuste de la structure backend
+    const data   = json?.data   ?? json ?? {};
+    const trajet = data?.trajet ?? data ?? {};
+    const track  = data?.track  ?? {};
+
+    // Normalisation des points — supporte plusieurs variantes de clés
+    const pointsRaw = Array.isArray(track?.points) ? track.points
+                    : Array.isArray(data?.points)  ? data.points
+                    : [];
+
+    const points = pointsRaw.map(p=>({
+      lat: parseFloat(p.lat ?? p.latitude  ?? NaN),
+      lng: parseFloat(p.lng ?? p.longitude ?? p.lon ?? NaN),
+      ts:  p.ts ?? p.time ?? p.created_at ?? '',
+      spd: parseFloat(p.speed ?? p.vitesse ?? 0),
+    })).filter(p=> isFinite(p.lat) && isFinite(p.lng));
+
+    // FIX: fallback propre si aucun point
+    if (points.length === 0){
+      toast('Aucun point GPS pour ce trajet', false);
+      // Ouvrir quand même la modale avec les stats textuelles
+    }
+
+    // Calcul stats
+    const dist = Number(trajet.stats?.distance   ?? trajet.total_distance_km ?? trajet.distance    ?? 0);
+    const dur  = Number(trajet.stats?.duration   ?? trajet.duration_minutes  ?? trajet.duration    ?? 0);
+    const max  = Number(trajet.stats?.max_speed  ?? trajet.max_speed_kmh     ?? trajet.max_speed   ?? 0);
+    const ptCount = track?.count ?? points.length;
+
+    // Mettre à jour le state
+    currentTrip = {
+      vehicle_id: Number(vehicleId),
+      id:         Number(trajetId),
+      points,
+      bounds:     null,
+    };
+
+    // Mettre à jour les KPIs top
+    setTopTripsKpis({count:1, dist, durMin:dur, max});
+
+    // Mettre à jour la modale
+    const imm = esc(trajet.immatriculation ?? '');
+    document.getElementById('tmTitle').textContent = imm ? `Trajet • ${imm}` : `Trajet #${trajetId}`;
+    document.getElementById('tmSub').textContent   = `${trajet.start_time ?? trajet.start_at ?? '—'} → ${trajet.end_time ?? trajet.end_at ?? '—'}`;
+    document.getElementById('tmDist').textContent  = `${Number(dist).toFixed(2)} km`;
+    document.getElementById('tmDur').textContent   = fmtMin(dur);
+    document.getElementById('tmMax').textContent   = `${Math.round(max)} km/h`;
+    document.getElementById('tmPts').textContent   = String(ptCount);
+    document.getElementById('tmStart').textContent = trajet.start_time ?? trajet.start_at ?? '—';
+    document.getElementById('tmEnd').textContent   = trajet.end_time   ?? trajet.end_at   ?? '—';
+
+    // FIX: Toujours ouvrir la modale, même si 0 points
+    document.getElementById('tripModal').classList.add('show');
+
+    if (points.length >= 2){
+      drawTrip(points);
+      toast('Trajet affiché sur la carte');
+    } else {
+      toast('Trajet chargé (pas assez de points GPS pour le replay)', false);
+    }
+
+  } catch(e){
+    console.error('[openTrip]', e);
+    toast('Erreur lors du chargement du trajet', false);
+    // FIX: même en cas d'erreur on ouvre la modale avec ce qu'on a
+    document.getElementById('tripModal').classList.add('show');
+  }
+}
+
+window.closeTripModal = () => {
+  document.getElementById('tripModal').classList.remove('show');
+  // Ne pas stopper le replay ni effacer currentTrip
+};
+
+window.focusTrip = () => {
+  if (!map || !currentTrip?.points?.length) return;
+  const b = new google.maps.LatLngBounds();
+  currentTrip.points.forEach(p=>b.extend({lat:p.lat,lng:p.lng}));
+  map.fitBounds(b);
+};
+
+/* ========================= DRAW TRIP ========================= */
+function drawTrip(points){
+  if (!map) return;
+
+  // Nettoyer l'ancien tracé
+  tripPolyline?.setMap(null);
+  tripCursor?.setMap(null);
+  window.replayPause();
+
+  const path = points.map(p=>({lat:p.lat,lng:p.lng}));
+
+  tripPolyline = new google.maps.Polyline({
+    map,
+    path,
+    strokeColor:   '#2563eb',
+    strokeOpacity: 1,
+    strokeWeight:  4,
+  });
+
+  const b = new google.maps.LatLngBounds();
+  path.forEach(pt=>b.extend(pt));
+  map.fitBounds(b);
+  if (currentTrip) currentTrip.bounds = b;
+
+  tripCursor = new google.maps.Marker({
+    map,
+    position: path[0],
+    title:    'Replay',
+    icon:     carIcon(),
+    zIndex:   200,
+  });
+
+  replayPoints      = points;
+  replayIndex       = 0;
+  replaySpeedFactor = 1;
+
+  updateSpeedUI(1);
+
+  const rg = document.getElementById('rpRange');
+  rg.min   = 0;
+  rg.max   = Math.max(0, replayPoints.length - 1);
+  rg.value = 0;
+
+  document.getElementById('rpMeta').textContent = `1/${replayPoints.length}`;
+  document.getElementById('tripReplay').style.display = 'block';
+}
+
+/* ========================= REPLAY — FIX: speed 0.25→16 + follow ========================= */
+function updateSpeedUI(spd){
+  document.getElementById('rpSpeed').textContent = spd % 1 === 0 ? String(spd) : spd.toString();
+  document.querySelectorAll('.speed-chip').forEach(c=>{
+    c.classList.toggle('active-chip', parseFloat(c.dataset.spd) === spd);
+  });
+}
+
+function setReplayIndex(i){
+  i = Math.max(0, Math.min(replayPoints.length-1, parseInt(i,10)||0));
+  replayIndex = i;
+  const p = replayPoints[replayIndex];
+  const pos = {lat:p.lat,lng:p.lng};
+  tripCursor?.setPosition(pos);
+
+  // FIX: Follow — panTo sans zoom agressif
+  if (replayFollow && map && replayTimer){
+    map.panTo(pos);
+  }
+
+  document.getElementById('rpRange').value          = replayIndex;
+  document.getElementById('rpMeta').textContent     = `${replayIndex+1}/${replayPoints.length}`;
+}
+
+window.replayPlay = () => {
+  if (!replayPoints.length) return;
+  clearInterval(replayTimer);
+  // FIX: intervalles basés sur timestamps si disponibles, sinon fallback fixe
+  replayTimer = setInterval(()=>{
+    if (replayIndex >= replayPoints.length-1){ window.replayPause(); return; }
+    setReplayIndex(replayIndex+1);
+  }, Math.max(30, 200 / replaySpeedFactor));
+};
+
+window.replayPause = () => {
+  clearInterval(replayTimer);
+  replayTimer = null;
+};
+
+window.replayStop = () => {
+  clearInterval(replayTimer);
+  replayTimer = null;
+  setReplayIndex(0);
+};
+
+window.replaySeek = (v) => {
+  window.replayPause();
+  setReplayIndex(v);
+};
+
+/* FIX: setSpeed direct + +/- buttons avec min 0.25 max 16 */
+window.replaySetSpeed = (spd) => {
+  replaySpeedFactor = spd;
+  updateSpeedUI(spd);
+  if (replayTimer) window.replayPlay(); // redémarrer avec nouvelle vitesse
+};
+
+window.replayFaster = () => {
+  const idx = SPEED_STEPS.indexOf(replaySpeedFactor);
+  const next = idx < SPEED_STEPS.length-1 ? SPEED_STEPS[idx+1] : SPEED_STEPS[SPEED_STEPS.length-1];
+  window.replaySetSpeed(next);
+};
+
+window.replaySlower = () => {
+  const idx = SPEED_STEPS.indexOf(replaySpeedFactor);
+  const prev = idx > 0 ? SPEED_STEPS[idx-1] : SPEED_STEPS[0];
+  window.replaySetSpeed(prev);
+};
+
+/* FIX: Follow toggle */
+window.toggleFollow = () => {
+  replayFollow = !replayFollow;
+  const btn = document.getElementById('rpFollow');
+  btn?.classList.toggle('active-btn', replayFollow);
+  btn.textContent = replayFollow ? '🎯 Suivre' : '🎯 Libre';
+};
+
+window.closeReplay = () => {
+  window.replayPause();
+  document.getElementById('tripReplay').style.display = 'none';
+  tripPolyline?.setMap(null); tripPolyline = null;
+  tripCursor?.setMap(null);   tripCursor   = null;
+  replayPoints = []; replayIndex = 0;
+  currentTrip  = null;
+
+  document.getElementById('tripModal').classList.remove('show');
+
+  const inTrajets = document.getElementById('pane-trajets').classList.contains('active');
+  if (inTrajets){
+    setTopTripsKpis(computeTripAgg(filterTripsForUi(trips)));
+    renderTripList();
+  }
+};
+
+/* ========================= ALERTS ========================= */
+window.setAlertResolve = (el, r) => {
+  resolvedFilter = r;
+  document.querySelectorAll('#aResolveBar .qc').forEach(x=>x.classList.remove('active'));
+  el?.classList.add('active');
+  loadAlerts();
+};
+
+window.setAlertType = (el, t) => {
+  alertType = t;
+  document.querySelectorAll('#af .f').forEach(x=>x.classList.remove('active'));
+  el?.classList.add('active');
+  loadAlerts();
+};
+
+window.filterAlertsByType = (t) => {
+  alertType = t;
+  window.switchTab('alertes');
+  document.querySelectorAll('#af .f').forEach(x=>x.classList.toggle('active', x.dataset.at===t));
+  loadAlerts();
+};
+
+window.loadAlerts = () => {
+  const box = document.getElementById('alertList');
+  box.innerHTML = `<div class="empty"><i class="fas fa-circle-notch fa-spin"></i><div style="margin-top:.6rem">Chargement…</div></div>`;
+
+  const dFrom = document.getElementById('aFrom').value;
+  const dTo   = document.getElementById('aTo').value;
+  const hFrom = document.getElementById('aHFrom').value;
+  const hTo   = document.getElementById('aHTo').value;
+
+  const url = new URL(R.alertsDay);
+  url.searchParams.set('per_page','50');
+
+  if (alertsQuick && alertsQuick !== 'range'){
+    url.searchParams.set('quick', alertsQuick);
+  } else {
+    if (dFrom) url.searchParams.set('date_from', dFrom);
+    if (dTo)   url.searchParams.set('date_to',   dTo);
+    if (hFrom) url.searchParams.set('hour_from', hFrom);
+    if (hTo)   url.searchParams.set('hour_to',   hTo);
+    url.searchParams.set('quick','range');
+  }
+
+  if (selectedVehicleId) url.searchParams.set('vehicle_id', String(selectedVehicleId));
+  if (alertType !== 'all' && ALLOWED_ALERT_TYPES.has(alertType)) url.searchParams.set('alert_type', alertType);
+  if (resolvedFilter === 'open')     url.searchParams.set('resolved','0');
+  if (resolvedFilter === 'resolved') url.searchParams.set('resolved','1');
+
+  fetch(url.toString(), {headers:{'Accept':'application/json','X-Requested-With':'XMLHttpRequest'}})
+    .then(r=>{ if(!r.ok) throw new Error(r.status); return r.json(); })
+    .then(json=>{
+      alerts = json.data || [];
+      renderAlertList();
+
+      const by = json.stats?.by_type || {};
+      Object.entries(by).forEach(([type,count])=>{
+        const el = document.getElementById('kA_'+type);
+        if (el) el.textContent = count;
+      });
+      document.getElementById('bAlerts').textContent = (json.meta?.total ?? alerts.length);
+    })
+    .catch(()=>{
+      box.innerHTML = `<div class="empty"><i class="fas fa-exclamation-triangle"></i><div style="margin-top:.6rem">Erreur endpoint alertes JSON</div></div>`;
+    });
+};
+
+function renderAlertList(){
+  const box  = document.getElementById('alertList');
+  const list = alerts.slice();
+
+  if (!list.length){
+    box.innerHTML = `<div class="empty"><i class="fas fa-bell-slash"></i><div style="margin-top:.6rem">Aucune alerte</div></div>`;
+    return;
+  }
+
+  const simple = viewMode.alertes === 'simple';
+
+  box.innerHTML = list.map((a,i)=>{
+    const type  = a.type ?? a.alert_type ?? '—';
+    const imm   = esc(a.vehicle?.label ?? a.immatriculation ?? '—');
+    const title = type==='stolen'    ? 'Vol détecté'
+                : type==='geofence'  ? 'Geofence'
+                : type==='safe_zone' ? 'Safe Zone'
+                : type==='speed'     ? 'Survitesse'
+                : type==='time_zone' ? 'Time Zone' : 'Alerte';
+
+    const sevColor = type==='stolen' ? '#dc2626' : type==='speed' ? '#d97706' : 'var(--color-primary)';
+    const s        = `${imm} ${title} ${type}`.toLowerCase();
+    const tss      = esc(a.created_at ?? '—');
+    const read     = !!(a.is_read);
+    const badge    = read
+      ? `<span class="tag" style="background:rgba(22,163,74,.12);color:#16a34a">Lu</span>`
+      : `<span class="tag" style="background:rgba(217,119,6,.12);color:#d97706">Non lu</span>`;
+
+    if (simple){
+      return `
+      <div class="item" data-s="${s}" data-id="${a.id}">
+        <div class="hrow">
+          <div class="title">${imm}</div>
+          <div class="dot" style="background:${sevColor};animation:pulse 1.2s infinite"></div>
+        </div>
+        <div class="sub">${esc(title)}</div>
+      </div>${i<list.length-1?'<div class="sep"></div>':''}`;
+    }
+
+    return `
+    <div class="item" data-s="${s}" data-id="${a.id}">
+      <div class="hrow">
+        <div class="title">${imm}</div>
+        <div class="dot" style="background:${sevColor};animation:pulse 1.2s infinite"></div>
+      </div>
+      <div class="sub">${esc(title)} • <span style="font-family:var(--font-mono,monospace)">${tss}</span></div>
+      <div class="tags">
+        <span class="tag" style="background:rgba(37,99,235,.12);color:#2563eb">${esc(type)}</span>
+        ${badge}
+      </div>
+    </div>${i<list.length-1?'<div class="sep"></div>':''}`;
+  }).join('');
+
+  /* ── Click listener → ouvre alertDetail ── */
+  box.querySelectorAll('.item').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      box.querySelectorAll('.item').forEach(x=>x.classList.remove('sel'));
+      el.classList.add('sel');
+      const id = el.dataset.id;
+      const a  = alerts.find(x=> String(x.id) === String(id));
+      if (a) openAlertDetail(a);
+    });
+  });
+
+  window.doSearch();
+}
+
+/* ── Ouvre et remplit la modale alertDetail ── */
+function openAlertDetail(a){
+  const type  = a.type ?? a.alert_type ?? '—';
+  const imm   = a.vehicle?.label ?? a.immatriculation ?? '—';
+  const title = type==='stolen'    ? 'Vol détecté'
+              : type==='geofence'  ? 'Geofence'
+              : type==='safe_zone' ? 'Safe Zone'
+              : type==='speed'     ? 'Survitesse'
+              : type==='time_zone' ? 'Time Zone' : 'Alerte';
+
+  const desc = [
+    `Type : ${type}`,
+    `Véhicule : ${imm}`,
+    a.speed     ? `Vitesse : ${a.speed} km/h`        : null,
+    a.location  ? `Lieu : ${a.location}`             : null,
+    a.lat && a.lng ? `Position : ${parseFloat(a.lat).toFixed(5)}, ${parseFloat(a.lng).toFixed(5)}` : null,
+    a.created_at ? `Date : ${a.created_at}`          : null,
+    a.description ? `\n${a.description}`             : null,
+  ].filter(Boolean).join('\n');
+
+  document.getElementById('adTitle').textContent = title;
+  document.getElementById('adVeh').textContent   = imm;
+  document.getElementById('adDesc').textContent  = desc || '—';
+
+  currentAlert = a;
+
+  const el = document.getElementById('alertDetail');
+  el.style.display = 'block';
+
+  // Centrer la carte si coordonnées disponibles
+  if (a.lat && a.lng && map){
+    map.setCenter({lat:parseFloat(a.lat), lng:parseFloat(a.lng)});
+    map.setZoom(15);
+  }
+}
+
+/* ========================= ALERT DETAIL ACTIONS ========================= */
+window.closeAlertDetail = () => {
+  document.getElementById('alertDetail').style.display = 'none';
+  document.querySelectorAll('#alertList .item').forEach(x=>x.classList.remove('sel'));
+  currentAlert = null;
+};
+window.markAlertRead = () => {
+  if (currentAlert) currentAlert.is_read = true;
+  toast('Alerte marquée comme lue');
+};
+window.markAlertProcessed = () => toast('Alerte marquée comme traitée');
+window.locateAlert = () => {
+  if (currentAlert?.lat && currentAlert?.lng && map){
+    map.setCenter({lat:parseFloat(currentAlert.lat), lng:parseFloat(currentAlert.lng)});
+    map.setZoom(15);
+  }
+};
+
+/* ========================= AUTO FILTER BINDINGS ========================= */
+function bindAutoFilters(){
+  const loadTripsDeb  = debounce(()=>loadTrips(),  250);
+  const loadAlertsDeb = debounce(()=>loadAlerts(), 250);
+
+  ['tFrom','tTo'].forEach(id=>{
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('change', ()=>{
+      tripsQuick = 'range';
+      document.getElementById('tDateBox')?.classList.add('show');
+      loadTripsDeb();
+    });
+  });
+
+  ['aFrom','aTo','aHFrom','aHTo'].forEach(id=>{
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('change', ()=>{
+      alertsQuick = 'range';
+      document.getElementById('aDateBox')?.classList.add('show');
+      loadAlertsDeb();
+    });
+  });
+
+  document.addEventListener('click', (e)=>{
+    const menu = document.getElementById('mapTypeMenu');
+    const ctrl = document.getElementById('mapTypeCtrl');
+    if (!menu || !ctrl) return;
+    if (!ctrl.contains(e.target)) menu.classList.remove('show');
+  });
+}
+
+/* ========================= INIT DATES ========================= */
+function initDates(){
+  const today = new Date().toISOString().slice(0,10);
+  document.getElementById('tFrom').value  = today;
+  document.getElementById('tTo').value    = today;
+  document.getElementById('aFrom').value  = today;
+  document.getElementById('aTo').value    = today;
+  document.getElementById('aHFrom').value = '';
+  document.getElementById('aHTo').value   = '';
+  resolvedFilter = 'open';
+
+  ['vf','tQuick','tf','tDateBox','aQuick','aResolveBar','af','aDateBox'].forEach(id=>{
+    document.getElementById(id)?.classList.remove('show');
+  });
+}
+
+window.addEventListener('resize', measureHeights);
+
+/* ========================= BOOT ========================= */
+document.addEventListener('DOMContentLoaded', ()=>{
+  initDates();
+  bindAutoFilters();
+  renderVehicleList();
+  loadGoogleMaps();
+  measureHeights();
+  loadAlerts();
+});
 })();
 </script>
 @endpush
-
-@endsection

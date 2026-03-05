@@ -41,8 +41,7 @@ Route::middleware(['auth:web'])->group(function () {
     Route::put('users/{id}', [UserController::class, 'update'])->name('users.update');
     Route::delete('users/{id}', [UserController::class, 'destroy'])->name('users.destroy');
     Route::get('/users/{id}/profile', [ProfileController::class, 'show'])->name('users.profile');
-    Route::get('/alerts/poll', [AlertController::class, 'poll'])->name('alerts.poll');
-    Route::patch('/alerts/{id}/read', [AlertController::class, 'markReadApi'])->name('alerts.markReadApi');
+ 
     // Partner Affectations
     Route::get('partner/affectations/vehicles', [AffectationChauffeurVoitureController::class, 'vehicles'])
         ->name('partner.affectations.vehicles');
@@ -57,11 +56,6 @@ Route::middleware(['auth:web'])->group(function () {
     Route::get('partner/affectations', [AffectationChauffeurVoitureController::class, 'index'])
         ->name('partner.affectations.index');
 
-    // Partner Alerts (server-rendered page + submit)
-    Route::get('/partner/alerts', [AlertController::class, 'partnerIndex'])
-        ->name('partner.alerts.index');
-    Route::patch('/partner/alerts/{alert}/processed', [AlertController::class, 'markProcessed'])
-        ->name('partner.alerts.markProcessed');
 
     // Engine
 // Engine
@@ -78,24 +72,19 @@ Route::post('/voitures/{voiture}/toggle-engine', [ControlGpsController::class, '
     ->name('voitures.toggleEngine');
 
 
-// API JSON - toutes alertes (page alerts.view consomme ça)
-// ✅ Alerts API (all)
-Route::get('/alerts', [AlertController::class, 'index'])->name('alerts.index');
+// ✅ Alerts API GET only
+    Route::get('/alerts',     [AlertController::class, 'index'])->name('alerts.index');
+    Route::get('/alerts/day', [AlertController::class, 'day'])->name('alerts.day');
 
-// ✅ Alerts API (today by default + quick filters)
-Route::get('/alerts/day', [AlertController::class, 'day'])->name('alerts.day');
+    // ✅ Trips API GET only (liste + détail carte)
+    Route::get('/trajets', [TrajetController::class, 'index'])->name('trajets.index');
+    Route::get('/trajets/{vehicle_id}/detail/{trajet_id}', [TrajetController::class, 'showTrajet'])
+        ->name('trajets.detail.api');
 
-// Poll + actions
-Route::get('/alerts/poll', [AlertController::class, 'poll'])->name('alerts.poll');
-Route::patch('/alerts/{id}/read', [AlertController::class, 'markReadApi'])->name('alerts.markReadApi');
-Route::patch('/alerts/{id}/processed', [AlertController::class, 'markProcessedApi'])->name('alerts.markProcessedApi');
+    // (Optionnel si tu as une page dédiée par voiture)
+    Route::get('/voitures/{id}/trajets', [TrajetController::class, 'byVoiture'])->name('voitures.trajets');
+    Route::get('/trajets/show/{voiture_id}/{trajet_id}', [TrajetController::class, 'showTrajet'])->name('trajets.show');
 
-// ✅ Alerts view (blade)
-Route::get('/alerts/view', function () {
-    return view('alerts.index');
-})->name('alerts.view');
-//alerts
-Route::post('/alerts/turnoff/{voiture}', [AlertController::class, 'turnOff'])->name('alerts.turnoff');
 
 
 
@@ -118,35 +107,7 @@ Route::get('/users/{id}/profile', [ProfileController::class, 'show'])
 
 
 
-//trajets
-  // ✅ 1) Page liste des trajets (par défaut = today via controller)
-    Route::get('/trajets', [TrajetController::class, 'index'])
-        ->name('trajets.index');
-
-    // ✅ 2) Page trajets d’un véhicule (map + liste, default today + filtres)
-    Route::get('/voitures/{id}/trajets', [TrajetController::class, 'byVoiture'])
-        ->name('voitures.trajets');
-
-    // ✅ 3) API JSON détail d’un trajet (points + segments + stats + voiture + chauffeur si dispo)
-    // (tu consommes ça depuis la map / dashboard / modal)
-    Route::get('/trajets/{vehicle_id}/detail/{trajet_id}', [TrajetController::class, 'showTrajet'])
-        ->name('trajets.detail.api');
-
-
-    // Alerts JSON API (used by your Blade JS)
-    Route::get('/alerts', [AlertController::class, 'index'])->name('alerts.index');
-
-    // ✅ MISSING ROUTE: process alert from JS (PATCH /alerts/{id}/processed)
-    Route::patch('/alerts/{id}/processed', [AlertController::class, 'markProcessedApi'])
-        ->name('alerts.markProcessedApi');
-
-    Route::post('/alerts/turnoff/{voiture}', [AlertController::class, 'turnOff'])
-        ->name('alerts.turnoff');
-
-    // Alerts view page
-    Route::get('/alerts/view', function () {
-        return view('alerts.index');
-    })->name('alerts.view');
+ 
 
     // Vehicles create (custom)
     Route::get('/add-vehicle', function () {
@@ -155,11 +116,7 @@ Route::get('/users/{id}/profile', [ProfileController::class, 'show'])
     Route::post('/save-vehicle', [\App\Http\Controllers\VehicleController::class, 'store'])
         ->name('vehicles.save');
 
-    // Trips
-    Route::get('/trajets', [TrajetController::class, 'index'])->name('trajets.index');
-    Route::get('/voitures/{id}/trajets', [TrajetController::class, 'byVoiture'])->name('voitures.trajets');
-    Route::get('/trajets/{vehicle_id}/detail/{trajet_id}', [TrajetController::class, 'showTrajet'])
-        ->name('voitures.trajet.detail');
+ 
 });
 
 Route::middleware('guest')->prefix('partner')->group(function () {
@@ -181,11 +138,5 @@ Route::middleware('auth')->group(function () {
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 });
 
-Route::prefix('tests')->name('test.')->group(function () {
-    Route::get('/profile',     [TestController::class, 'profile'])->name('profile');
-    Route::get('/dashboard',   [TestController::class, 'dashboard'])->name('dashboard');
-    Route::get('/alert',       [TestController::class, 'alert'])->name('alert');
-    Route::get('/alertcentre', [TestController::class, 'alertcentre'])->name('alert.centre');
-});
 
 require __DIR__ . '/auth.php';

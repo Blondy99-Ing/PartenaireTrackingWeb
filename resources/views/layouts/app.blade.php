@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="fr">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -17,7 +18,9 @@
     --}}
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800&family=Rajdhani:wght@400;500;600;700&family=Lato:ital,wght@0,300;0,400;0,700;1,400&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800&family=Rajdhani:wght@400;500;600;700&family=Lato:ital,wght@0,300;0,400;0,700;1,400&display=swap"
+        rel="stylesheet">
 
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
@@ -26,117 +29,119 @@
     @stack('head')
 
     <style>
-      /* ════════════════════════════════════════════════════════════════
+    /* ════════════════════════════════════════════════════════════════
        SECTION 1 — DESIGN TOKENS
        Source de vérité pour toute l'interface
     ════════════════════════════════════════════════════════════════ */
     :root {
-        font-size: 18px;
+        font-size: 20px;
 
         /* ── Typographie ─────────────────────────────────────────── */
-        --font-logo:    'Orbitron',  sans-serif;
+        --font-logo: 'Orbitron', sans-serif;
         --font-display: 'Rajdhani', system-ui, sans-serif;
-        --font-body:    'Lato',     ui-sans-serif, system-ui, -apple-system,
-                        BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-        --font-mono:    ui-monospace, 'SFMono-Regular', Consolas, monospace;
+        --font-body: 'Lato', ui-sans-serif, system-ui, -apple-system,
+            BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+        --font-mono: ui-monospace, 'SFMono-Regular', Consolas, monospace;
 
         /* Échelle fluide 375px → 1440px */
-        --text-xs:   clamp(0.625rem, 0.9vw,  0.688rem);
-        --text-sm:   clamp(0.688rem, 1vw,    0.75rem);
-        --text-base: clamp(0.75rem,  1.1vw,  0.875rem);
-        --text-md:   clamp(0.875rem, 1.2vw,  1rem);
-        --text-lg:   clamp(1rem,     1.5vw,  1.25rem);
-        --text-xl:   clamp(1.25rem,  2vw,    1.75rem);
-        --text-kpi:  clamp(1.5rem,   2.5vw,  2rem);
+        --text-xs: clamp(0.625rem, 0.9vw, 0.688rem);
+        --text-sm: clamp(0.688rem, 1vw, 0.75rem);
+        --text-base: clamp(0.75rem, 1.1vw, 0.875rem);
+        --text-md: clamp(0.875rem, 1.2vw, 1rem);
+        --text-lg: clamp(1rem, 1.5vw, 1.25rem);
+        --text-xl: clamp(1.25rem, 2vw, 1.75rem);
+        --text-kpi: clamp(1.5rem, 2.5vw, 2rem);
 
-        --lh-tight:  1.1;
-        --lh-snug:   1.3;
+        --lh-tight: 1.1;
+        --lh-snug: 1.3;
         --lh-normal: 1.5;
 
-        --ls-tight:  -0.01em;
-        --ls-normal:  0;
-        --ls-wide:    0.04em;
-        --ls-wider:   0.08em;
-        --ls-widest:  0.12em;
+        --ls-tight: -0.01em;
+        --ls-normal: 0;
+        --ls-wide: 0.04em;
+        --ls-wider: 0.08em;
+        --ls-widest: 0.12em;
 
         /* ── Couleurs Brand ──────────────────────────────────────── */
-        --color-primary:         #F58220;
-        --color-primary-hover:   #E07318;
-        --color-primary-dark:    #C45E00;
-        --color-primary-light:   rgba(245, 130, 32, 0.12);
-        --color-primary-border:  rgba(245, 130, 32, 0.30);
+        --color-primary: #F58220;
+        --color-primary-hover: #E07318;
+        --color-primary-dark: #C45E00;
+        --color-primary-light: rgba(245, 130, 32, 0.12);
+        --color-primary-border: rgba(245, 130, 32, 0.30);
 
         /* Sémantiques */
-        --color-success:         #16a34a;
-        --color-success-bg:      rgba(22, 163, 74, 0.10);
-        --color-error:           #dc2626;
-        --color-error-bg:        rgba(220, 38, 38, 0.10);
-        --color-warning:         #d97706;
-        --color-warning-bg:      rgba(217, 119, 6, 0.10);
-        --color-info:            #2563eb;
-        --color-info-bg:         rgba(37, 99, 235, 0.10);
+        --color-success: #16a34a;
+        --color-success-bg: rgba(22, 163, 74, 0.10);
+        --color-error: #dc2626;
+        --color-error-bg: rgba(220, 38, 38, 0.10);
+        --color-warning: #d97706;
+        --color-warning-bg: rgba(217, 119, 6, 0.10);
+        --color-info: #2563eb;
+        --color-info-bg: rgba(37, 99, 235, 0.10);
 
         /* ── Radius system ───────────────────────────────────────── */
         --r-none: 0;
-        --r-xs:   2px;
-        --r-sm:   4px;
-        --r-md:   6px;
-        --r-lg:   8px;
-        --r-xl:   12px;
+        --r-xs: 2px;
+        --r-sm: 4px;
+        --r-md: 6px;
+        --r-lg: 8px;
+        --r-xl: 12px;
         --r-pill: 9999px;
 
         /* ── Ombres ──────────────────────────────────────────────── */
-        --shadow-xs: 0 1px 2px  rgba(0,0,0,0.06);
-        --shadow-sm: 0 2px 6px  rgba(0,0,0,0.08);
-        --shadow-md: 0 4px 16px rgba(0,0,0,0.10);
-        --shadow-lg: 0 8px 32px rgba(0,0,0,0.14);
-        --shadow-xl: 0 20px 60px rgba(0,0,0,0.20);
+        --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.06);
+        --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.08);
+        --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.10);
+        --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.14);
+        --shadow-xl: 0 20px 60px rgba(0, 0, 0, 0.20);
 
         /* ── Focus ring (WCAG 2.4.7) ─────────────────────────────── */
         --focus-ring: 0 0 0 3px rgba(245, 130, 32, 0.40);
 
         /* ── Layout ──────────────────────────────────────────────── */
-        --navbar-h:          64px;   /* override par JS après mesure réelle */
-        --kpi-h:             0px;    /* override par JS */
-        --page-pad:          28px;
-        --dash-gap:          16px;
+        --navbar-h: 64px;
+        /* override par JS après mesure réelle */
+        --kpi-h: 0px;
+        /* override par JS */
+        --page-pad: 28px;
+        --dash-gap: 16px;
 
         /* ── Spacing ─────────────────────────────────────────────── */
-        --sp-xs:  0.25rem;
-        --sp-sm:  0.5rem;
-        --sp-md:  0.875rem;
-        --sp-lg:  1.25rem;
-        --sp-xl:  1.75rem;
+        --sp-xs: 0.25rem;
+        --sp-sm: 0.5rem;
+        --sp-md: 0.875rem;
+        --sp-lg: 1.25rem;
+        --sp-xl: 1.75rem;
         --sp-2xl: 2.25rem;
 
         /* ── Z-index ─────────────────────────────────────────────── */
-        --z-map:      1;
-        --z-kpi:      9;
-        --z-overlay:  19;
-        --z-navbar:   30;
+        --z-map: 1;
+        --z-kpi: 9;
+        --z-overlay: 19;
+        --z-navbar: 30;
         --z-dropdown: 50;
-        --z-modal:    100;
-        --z-toast:    9999;
+        --z-modal: 100;
+        --z-toast: 9999;
     }
 
     /* ════════════════════════════════════════════════════════════════
        SECTION 2 — LIGHT MODE
     ════════════════════════════════════════════════════════════════ */
     .light-mode {
-        --color-bg:               #f0f2f5;
-        --color-bg-subtle:        #e8eaed;
-        --color-card:             #ffffff;
-        --color-text:             #0f172a;
-        --color-text-muted:       #64748b;
-        --color-secondary-text:   #64748b;
-        --color-sidebar-bg:       #ffffff;
-        --color-sidebar-text:     #1e293b;
-        --color-sidebar-active:   rgba(245, 130, 32, 0.08);
-        --color-border-subtle:    #e2e8f0;
-        --color-border:           #cbd5e1;
-        --color-navbar-bg:        #ffffff;
-        --color-input-bg:         #ffffff;
-        --color-input-border:     #cbd5e1;
+        --color-bg: #f0f2f5;
+        --color-bg-subtle: #e8eaed;
+        --color-card: #ffffff;
+        --color-text: #0f172a;
+        --color-text-muted: #64748b;
+        --color-secondary-text: #64748b;
+        --color-sidebar-bg: #ffffff;
+        --color-sidebar-text: #1e293b;
+        --color-sidebar-active: rgba(245, 130, 32, 0.08);
+        --color-border-subtle: #e2e8f0;
+        --color-border: #cbd5e1;
+        --color-navbar-bg: #ffffff;
+        --color-input-bg: #ffffff;
+        --color-input-border: #cbd5e1;
         background-color: var(--color-bg);
         color: var(--color-text);
     }
@@ -145,34 +150,42 @@
        SECTION 3 — DARK MODE
     ════════════════════════════════════════════════════════════════ */
     .dark-mode {
-        --color-bg:               #0d1117;
-        --color-bg-subtle:        #161b22;
-        --color-card:             #1c2333;
-        --color-text:             #e6edf3;
-        --color-text-muted:       #8b949e;
-        --color-secondary-text:   #b0bec5;
-        --color-sidebar-bg:       #161b22;
-        --color-sidebar-text:     #e6edf3;
-        --color-sidebar-active:   rgba(245, 130, 32, 0.15);
-        --color-border-subtle:    #30363d;
-        --color-border:           #484f58;
-        --color-navbar-bg:        #161b22;
-        --color-input-bg:         #21262d;
-        --color-input-border:     #30363d;
+        --color-bg: #0d1117;
+        --color-bg-subtle: #161b22;
+        --color-card: #1c2333;
+        --color-text: #e6edf3;
+        --color-text-muted: #8b949e;
+        --color-secondary-text: #b0bec5;
+        --color-sidebar-bg: #161b22;
+        --color-sidebar-text: #e6edf3;
+        --color-sidebar-active: rgba(245, 130, 32, 0.15);
+        --color-border-subtle: #30363d;
+        --color-border: #484f58;
+        --color-navbar-bg: #161b22;
+        --color-input-bg: #21262d;
+        --color-input-border: #30363d;
         background-color: var(--color-bg);
         color: var(--color-text);
     }
 
     .dark-mode .kpi-label,
     .dark-mode .alert-type-label,
-    .dark-mode .stat-label { color: #ffffffcb; }
+    .dark-mode .stat-label {
+        color: #ffffffcb;
+    }
 
     /* ════════════════════════════════════════════════════════════════
        SECTION 4 — RESET & BASE
     ════════════════════════════════════════════════════════════════ */
-    *, *::before, *::after { box-sizing: border-box; }
+    *,
+    *::before,
+    *::after {
+        box-sizing: border-box;
+    }
 
-    html { scroll-behavior: smooth; }
+    html {
+        scroll-behavior: smooth;
+    }
 
     body {
         font-family: var(--font-body);
@@ -185,13 +198,24 @@
         overflow-x: hidden;
     }
 
-    p, li, td, label,
-    .toast-msg, .text-secondary,
-    input, select, textarea {
+    p,
+    li,
+    td,
+    label,
+    .toast-msg,
+    .text-secondary,
+    input,
+    select,
+    textarea {
         font-family: var(--font-body);
     }
 
-    h1, h2, h3, h4, h5, h6,
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
     .font-orbitron,
     .navbar-title,
     .nav-label,
@@ -222,7 +246,9 @@
         font-family: var(--font-logo);
     }
 
-    .kpi-value, .stat-value, .alert-type-value {
+    .kpi-value,
+    .stat-value,
+    .alert-type-value {
         font-family: var(--font-display);
         font-weight: 700;
         font-size: var(--text-kpi);
@@ -233,7 +259,9 @@
     /* ════════════════════════════════════════════════════════════════
        SECTION 5 — FOCUS STATES ACCESSIBLES (WCAG 2.4.7)
     ════════════════════════════════════════════════════════════════ */
-    :focus { outline: none; }
+    :focus {
+        outline: none;
+    }
 
     :focus-visible {
         outline: 2px solid var(--color-primary);
@@ -250,13 +278,17 @@
         border-radius: var(--r-sm);
     }
 
-    input:focus, select:focus, textarea:focus {
+    input:focus,
+    select:focus,
+    textarea:focus {
         outline: none;
         border-color: var(--color-primary) !important;
         box-shadow: var(--focus-ring);
     }
 
-    #theme-toggle:focus-visible { box-shadow: var(--focus-ring); }
+    #theme-toggle:focus-visible {
+        box-shadow: var(--focus-ring);
+    }
 
     /* ════════════════════════════════════════════════════════════════
        SECTION 6 — NAVBAR HORIZONTALE (remplace la sidebar)
@@ -316,12 +348,12 @@
         padding: 0;
     }
 
-    .navbar-nav > li {
+    .navbar-nav>li {
         position: relative;
     }
 
-    .navbar-nav > li > a,
-    .navbar-nav > li > .nav-dropdown-toggle {
+    .navbar-nav>li>a,
+    .navbar-nav>li>.nav-dropdown-toggle {
         display: flex;
         align-items: center;
         gap: 0.4rem;
@@ -341,21 +373,21 @@
         position: relative;
     }
 
-    .navbar-nav > li > a:hover,
-    .navbar-nav > li > .nav-dropdown-toggle:hover {
+    .navbar-nav>li>a:hover,
+    .navbar-nav>li>.nav-dropdown-toggle:hover {
         background: var(--color-primary-light);
         color: var(--color-primary);
     }
 
-    .navbar-nav > li > a.active,
-    .navbar-nav > li > .nav-dropdown-toggle.active {
+    .navbar-nav>li>a.active,
+    .navbar-nav>li>.nav-dropdown-toggle.active {
         background: var(--color-primary-light);
         color: var(--color-primary);
     }
 
     /* Underline actif */
-    .navbar-nav > li > a.active::after,
-    .navbar-nav > li > .nav-dropdown-toggle.active::after {
+    .navbar-nav>li>a.active::after,
+    .navbar-nav>li>.nav-dropdown-toggle.active::after {
         content: '';
         position: absolute;
         bottom: -2px;
@@ -373,10 +405,10 @@
         flex-shrink: 0;
     }
 
-    .navbar-nav > li > a:hover .nav-icon,
-    .navbar-nav > li > a.active .nav-icon,
-    .navbar-nav > li > .nav-dropdown-toggle:hover .nav-icon,
-    .navbar-nav > li > .nav-dropdown-toggle.active .nav-icon {
+    .navbar-nav>li>a:hover .nav-icon,
+    .navbar-nav>li>a.active .nav-icon,
+    .navbar-nav>li>.nav-dropdown-toggle:hover .nav-icon,
+    .navbar-nav>li>.nav-dropdown-toggle.active .nav-icon {
         opacity: 1;
     }
 
@@ -468,8 +500,11 @@
 
     /* ── Bouton icône navbar ────────────────────────────────────── */
     .navbar-icon-btn {
-        width: 34px; height: 34px;
-        display: flex; align-items: center; justify-content: center;
+        width: 34px;
+        height: 34px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         border-radius: 50%;
         font-size: 0.95rem;
         color: var(--color-text);
@@ -499,7 +534,8 @@
 
     .toggle-switch {
         position: relative;
-        width: 40px; height: 20px;
+        width: 40px;
+        height: 20px;
         cursor: pointer;
         border-radius: 10px;
         background: var(--color-input-border);
@@ -510,19 +546,28 @@
     .toggle-switch::after {
         content: '';
         position: absolute;
-        top: 2px; left: 2px;
-        width: 16px; height: 16px;
+        top: 2px;
+        left: 2px;
+        width: 16px;
+        height: 16px;
         border-radius: 50%;
         background: #fff;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
         transition: transform 0.3s ease;
     }
 
-    .toggle-switch.on { background: var(--color-primary); }
-    .toggle-switch.on::after { transform: translateX(20px); }
+    .toggle-switch.on {
+        background: var(--color-primary);
+    }
+
+    .toggle-switch.on::after {
+        transform: translateX(20px);
+    }
 
     /* ── Dropdown utilisateur ───────────────────────────────────── */
-    .user-menu-wrapper { position: relative; }
+    .user-menu-wrapper {
+        position: relative;
+    }
 
     .user-menu-trigger {
         display: flex;
@@ -536,10 +581,13 @@
         transition: background 0.15s;
     }
 
-    .user-menu-trigger:hover { background: var(--color-primary-light); }
+    .user-menu-trigger:hover {
+        background: var(--color-primary-light);
+    }
 
     .user-avatar {
-        width: 32px; height: 32px;
+        width: 32px;
+        height: 32px;
         border-radius: 50%;
         object-fit: cover;
         border: 2px solid var(--color-primary);
@@ -617,15 +665,22 @@
         border-radius: 0;
     }
 
-    .user-dropdown a:last-of-type { border-radius: 0 0 var(--r-lg) var(--r-lg); }
+    .user-dropdown a:last-of-type {
+        border-radius: 0 0 var(--r-lg) var(--r-lg);
+    }
 
     .user-dropdown a:hover {
         background: var(--color-sidebar-active);
         color: var(--color-primary);
     }
 
-    .user-dropdown a.danger { color: var(--color-error) !important; }
-    .user-dropdown a.danger:hover { background: var(--color-error-bg) !important; }
+    .user-dropdown a.danger {
+        color: var(--color-error) !important;
+    }
+
+    .user-dropdown a.danger:hover {
+        background: var(--color-error-bg) !important;
+    }
 
     .user-dropdown .menu-icon {
         width: 14px;
@@ -636,8 +691,10 @@
     /* ── Hamburger mobile ───────────────────────────────────────── */
     .btn-mobile-menu {
         display: none;
-        width: 36px; height: 36px;
-        align-items: center; justify-content: center;
+        width: 36px;
+        height: 36px;
+        align-items: center;
+        justify-content: center;
         font-size: 1rem;
         border-radius: var(--r-sm);
         cursor: pointer;
@@ -743,14 +800,19 @@
         position: fixed;
         inset: 0;
         top: var(--navbar-h);
-        background: rgba(0,0,0,0.45);
+        background: rgba(0, 0, 0, 0.45);
         z-index: calc(var(--z-navbar) - 2);
         opacity: 0;
         transition: opacity 0.3s ease;
     }
 
-    .mobile-overlay.visible { display: block; }
-    .mobile-overlay.active  { opacity: 1; }
+    .mobile-overlay.visible {
+        display: block;
+    }
+
+    .mobile-overlay.active {
+        opacity: 1;
+    }
 
     /* ════════════════════════════════════════════════════════════════
        SECTION 8 — MAIN CONTENT WRAPPER
@@ -774,12 +836,12 @@
         top: var(--navbar-h);
         z-index: var(--z-kpi);
         background-color: var(--color-bg);
-        box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
         padding-block: var(--sp-sm);
     }
 
     .dark-mode .kpi-sticky-bar {
-        box-shadow: 0 2px 10px rgba(0,0,0,0.40);
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.40);
     }
 
     @media (max-width: 1023px) {
@@ -807,8 +869,13 @@
     }
 
     @media (min-width: 768px) and (max-width: 1023px) {
-        .kpi-sticky-bar .grid { grid-template-columns: repeat(2, 1fr) !important; }
-        .kpi-value { font-size: 1.5rem !important; }
+        .kpi-sticky-bar .grid {
+            grid-template-columns: repeat(2, 1fr) !important;
+        }
+
+        .kpi-value {
+            font-size: 1.5rem !important;
+        }
     }
 
     /* ════════════════════════════════════════════════════════════════
@@ -822,17 +889,17 @@
             align-items: stretch;
         }
 
-        .dashboard-content .list-map-grid > div.lg\:col-span-1 {
+        .dashboard-content .list-map-grid>div.lg\:col-span-1 {
             grid-column: 1 / 2 !important;
             min-width: 0;
         }
 
-        .dashboard-content .list-map-grid > div.lg\:col-span-3 {
+        .dashboard-content .list-map-grid>div.lg\:col-span-3 {
             grid-column: 2 / 3 !important;
             min-width: 0;
         }
 
-        .dashboard-content .list-map-grid > div.lg\:col-span-3 .panel-card {
+        .dashboard-content .list-map-grid>div.lg\:col-span-3 .panel-card {
             height: 100%;
             min-width: 0;
         }
@@ -845,12 +912,20 @@
     }
 
     @media (min-width: 768px) and (max-width: 1023px) {
-        #vehicleList { max-height: 50vh; overflow-y: auto; }
-        #fleetMap    { height: 350px !important; }
+        #vehicleList {
+            max-height: 50vh;
+            overflow-y: auto;
+        }
+
+        #fleetMap {
+            height: 350px !important;
+        }
     }
 
     @media (max-width: 767px) {
-        #fleetMap { height: 280px !important; }
+        #fleetMap {
+            height: 280px !important;
+        }
     }
 
     /* ════════════════════════════════════════════════════════════════
@@ -865,7 +940,9 @@
         color: var(--color-text);
     }
 
-    .dark-mode .ui-card { box-shadow: 0 2px 8px rgba(0,0,0,0.30); }
+    .dark-mode .ui-card {
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.30);
+    }
 
     /* ════════════════════════════════════════════════════════════════
        SECTION 12 — INPUTS / SELECTS / TEXTAREA
@@ -877,7 +954,8 @@
     input[type="tel"],
     input[type="password"],
     input[type="date"],
-    select, textarea,
+    select,
+    textarea,
     .ui-input-style,
     .ui-select-style,
     .ui-textarea-style {
@@ -924,10 +1002,13 @@
     .btn-primary:hover {
         background: var(--color-primary-hover);
         transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(245,130,32,0.30);
+        box-shadow: 0 4px 12px rgba(245, 130, 32, 0.30);
     }
 
-    .btn-primary:active { transform: none; box-shadow: none; }
+    .btn-primary:active {
+        transform: none;
+        box-shadow: none;
+    }
 
     .btn-secondary {
         display: inline-flex;
@@ -971,10 +1052,17 @@
         text-decoration: none;
     }
 
-    .btn-partner-login:hover { background: var(--color-primary); color: #fff; }
+    .btn-partner-login:hover {
+        background: var(--color-primary);
+        color: #fff;
+    }
 
     @media (max-width: 767px) {
-        .btn-primary, .btn-secondary { min-height: 44px; }
+
+        .btn-primary,
+        .btn-secondary {
+            min-height: 44px;
+        }
     }
 
     /* ════════════════════════════════════════════════════════════════
@@ -1015,18 +1103,37 @@
         vertical-align: middle;
     }
 
-    .ui-table tr:last-child td { border-bottom: none; }
-    .ui-table tr:hover td { background: var(--color-sidebar-active); }
+    .ui-table tr:last-child td {
+        border-bottom: none;
+    }
 
-    .dark-mode .ui-table th { background: #161b22; }
-    .dark-mode .ui-table td { border-color: #30363d; }
+    .ui-table tr:hover td {
+        background: var(--color-sidebar-active);
+    }
 
-    .dataTables_wrapper { font-family: var(--font-body); font-size: 0.82rem; color: var(--color-text); }
-    .dataTables_wrapper .dataTables_filter { display: none !important; }
+    .dark-mode .ui-table th {
+        background: #161b22;
+    }
+
+    .dark-mode .ui-table td {
+        border-color: #30363d;
+    }
+
+    .dataTables_wrapper {
+        font-family: var(--font-body);
+        font-size: 0.82rem;
+        color: var(--color-text);
+    }
+
+    .dataTables_wrapper .dataTables_filter {
+        display: none !important;
+    }
 
     .dataTables_wrapper .dataTables_length {
         margin-bottom: 1rem;
-        display: flex; align-items: center; gap: 0.5rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
         color: var(--color-secondary-text);
         font-size: 0.78rem;
     }
@@ -1049,14 +1156,19 @@
     }
 
     .dataTables_wrapper .dataTables_paginate {
-        display: flex; align-items: center; gap: 0.25rem;
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
         justify-content: flex-end;
         padding-top: 0.5rem;
     }
 
     .dataTables_wrapper .dataTables_paginate .paginate_button {
-        display: inline-flex; align-items: center; justify-content: center;
-        min-width: 30px; height: 30px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 30px;
+        height: 30px;
         padding: 0 0.5rem;
         border-radius: var(--r-md) !important;
         border: 1px solid var(--color-border-subtle) !important;
@@ -1086,12 +1198,17 @@
 
     .dataTables_wrapper .dataTables_paginate .paginate_button.disabled,
     .dataTables_wrapper .dataTables_paginate .paginate_button.disabled:hover {
-        opacity: 0.3; cursor: not-allowed; pointer-events: none;
+        opacity: 0.3;
+        cursor: not-allowed;
+        pointer-events: none;
     }
 
     .dataTables_wrapper .dataTables_paginate .paginate_button.previous,
     .dataTables_wrapper .dataTables_paginate .paginate_button.next {
-        font-family: var(--font-display); font-size: 0.65rem; letter-spacing: 0.03em; padding: 0 0.75rem;
+        font-family: var(--font-display);
+        font-size: 0.65rem;
+        letter-spacing: 0.03em;
+        padding: 0 0.75rem;
     }
 
     table.dataTable {
@@ -1115,19 +1232,33 @@
         white-space: nowrap;
     }
 
-    table.dataTable thead th.sorting::after        { opacity: 0.35; color: var(--color-primary) !important; }
+    table.dataTable thead th.sorting::after {
+        opacity: 0.35;
+        color: var(--color-primary) !important;
+    }
+
     table.dataTable thead th.sorting_asc::after,
-    table.dataTable thead th.sorting_desc::after   { opacity: 1; color: var(--color-primary) !important; }
+    table.dataTable thead th.sorting_desc::after {
+        opacity: 1;
+        color: var(--color-primary) !important;
+    }
 
     table.dataTable tbody tr {
         background: var(--color-card) !important;
         transition: background 0.12s;
     }
 
-    table.dataTable tbody tr:hover { background: var(--color-sidebar-active) !important; }
+    table.dataTable tbody tr:hover {
+        background: var(--color-sidebar-active) !important;
+    }
 
-    table.dataTable.stripe tbody tr.odd  { background: var(--color-card) !important; }
-    table.dataTable.stripe tbody tr.even { background: var(--color-bg) !important; }
+    table.dataTable.stripe tbody tr.odd {
+        background: var(--color-card) !important;
+    }
+
+    table.dataTable.stripe tbody tr.even {
+        background: var(--color-bg) !important;
+    }
 
     table.dataTable tbody td {
         padding: 0.55rem 1rem !important;
@@ -1137,8 +1268,13 @@
         font-family: var(--font-body);
     }
 
-    .dark-mode table.dataTable thead th { background: #161b22 !important; }
-    .dark-mode table.dataTable tbody td { border-bottom-color: #30363d !important; }
+    .dark-mode table.dataTable thead th {
+        background: #161b22 !important;
+    }
+
+    .dark-mode table.dataTable tbody td {
+        border-bottom-color: #30363d !important;
+    }
 
     .dataTables_wrapper .dataTables_processing {
         background: var(--color-card);
@@ -1156,16 +1292,23 @@
     .immat-badge,
     .vehicles-count-badge,
     .users-count-badge,
-    .nav-tab       { border-radius: var(--r-sm); }
+    .nav-tab {
+        border-radius: var(--r-sm);
+    }
 
     .role-badge,
-    .alert-badge   { border-radius: var(--r-pill); }
+    .alert-badge {
+        border-radius: var(--r-pill);
+    }
 
-    .modal-panel   { border-radius: var(--r-lg); }
+    .modal-panel {
+        border-radius: var(--r-lg);
+    }
 
     .tbl-action {
         position: relative;
-        min-width: 32px; min-height: 32px;
+        min-width: 32px;
+        min-height: 32px;
     }
 
     .tbl-action::after {
@@ -1189,17 +1332,40 @@
        SECTION 17 — SSE INDICATOR ANIMATIONS
     ════════════════════════════════════════════════════════════════ */
     @keyframes ssePulse {
-        0%, 100% { opacity: 1;    transform: scale(1);   }
-        50%       { opacity: 0.4;  transform: scale(1.5); }
+
+        0%,
+        100% {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        50% {
+            opacity: 0.4;
+            transform: scale(1.5);
+        }
     }
 
     @keyframes sseReconnect {
-        0%, 100% { opacity: 1;    transform: scale(1);   }
-        50%       { opacity: 0.25; transform: scale(1.7); }
+
+        0%,
+        100% {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        50% {
+            opacity: 0.25;
+            transform: scale(1.7);
+        }
     }
 
-    #sse-indicator.sse-connected    span:first-child { animation: ssePulse    2.2s ease-in-out infinite; }
-    #sse-indicator.sse-reconnecting span:first-child { animation: sseReconnect 0.7s ease-in-out infinite; }
+    #sse-indicator.sse-connected span:first-child {
+        animation: ssePulse 2.2s ease-in-out infinite;
+    }
+
+    #sse-indicator.sse-reconnecting span:first-child {
+        animation: sseReconnect 0.7s ease-in-out infinite;
+    }
 
     /* ════════════════════════════════════════════════════════════════
        SECTION 18 — TOAST NOTIFICATIONS
@@ -1234,13 +1400,22 @@
         overflow: hidden;
     }
 
-    .toast.show { transform: none; opacity: 1; }
-    .toast.hide { transform: translateY(-8px) scale(0.97); opacity: 0; }
+    .toast.show {
+        transform: none;
+        opacity: 1;
+    }
+
+    .toast.hide {
+        transform: translateY(-8px) scale(0.97);
+        opacity: 0;
+    }
 
     .toast::before {
         content: '';
         position: absolute;
-        left: 0; top: 0; bottom: 0;
+        left: 0;
+        top: 0;
+        bottom: 0;
         width: 4px;
         border-radius: var(--r-xl) 0 0 var(--r-xl);
     }
@@ -1248,23 +1423,43 @@
     .toast::after {
         content: '';
         position: absolute;
-        left: 0; right: 0; bottom: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
         height: 2px;
         transform-origin: left;
     }
 
-    .toast.show::after { animation: toastProgress 5s linear forwards; }
-
-    @keyframes toastProgress { from { transform: scaleX(1); } to { transform: scaleX(0); } }
-
-    .toast-icon {
-        width: 36px; height: 36px;
-        border-radius: var(--r-md);
-        display: flex; align-items: center; justify-content: center;
-        color: #fff; flex-shrink: 0; font-size: 1rem;
+    .toast.show::after {
+        animation: toastProgress 5s linear forwards;
     }
 
-    .toast-body { flex: 1; min-width: 0; }
+    @keyframes toastProgress {
+        from {
+            transform: scaleX(1);
+        }
+
+        to {
+            transform: scaleX(0);
+        }
+    }
+
+    .toast-icon {
+        width: 36px;
+        height: 36px;
+        border-radius: var(--r-md);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        flex-shrink: 0;
+        font-size: 1rem;
+    }
+
+    .toast-body {
+        flex: 1;
+        min-width: 0;
+    }
 
     .toast-title {
         font-family: var(--font-display);
@@ -1283,7 +1478,8 @@
 
     .toast-close {
         margin-left: auto;
-        width: 26px; height: 26px;
+        width: 26px;
+        height: 26px;
         border-radius: var(--r-xs);
         border: 1px solid var(--color-border-subtle);
         background: transparent;
@@ -1291,37 +1487,90 @@
         opacity: 0.5;
         cursor: pointer;
         flex-shrink: 0;
-        display: flex; align-items: center; justify-content: center;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         font-size: 1rem;
         transition: opacity 0.12s;
     }
 
-    .toast-close:hover { opacity: 1; }
+    .toast-close:hover {
+        opacity: 1;
+    }
 
-    .toast-success { border-color: rgba(34,197,94,.22); }
-    .toast-success::before { background: #22c55e; }
-    .toast-success::after  { background: linear-gradient(90deg, #22c55e, rgba(34,197,94,0)); }
-    .toast-success .toast-icon   { background: #16a34a; }
-    .toast-success .toast-title  { color: #16a34a; }
+    .toast-success {
+        border-color: rgba(34, 197, 94, .22);
+    }
 
-    .toast-error { border-color: rgba(239,68,68,.22); }
-    .toast-error::before { background: #ef4444; }
-    .toast-error::after  { background: linear-gradient(90deg, #ef4444, rgba(239,68,68,0)); }
-    .toast-error .toast-icon  { background: #dc2626; }
-    .toast-error .toast-title { color: #dc2626; }
+    .toast-success::before {
+        background: #22c55e;
+    }
 
-    .toast-warning { border-color: rgba(234,179,8,.22); }
-    .toast-warning::before { background: #eab308; }
-    .toast-warning::after  { background: linear-gradient(90deg, #eab308, rgba(234,179,8,0)); }
-    .toast-warning .toast-icon  { background: #ca8a04; }
-    .toast-warning .toast-title { color: #ca8a04; }
+    .toast-success::after {
+        background: linear-gradient(90deg, #22c55e, rgba(34, 197, 94, 0));
+    }
+
+    .toast-success .toast-icon {
+        background: #16a34a;
+    }
+
+    .toast-success .toast-title {
+        color: #16a34a;
+    }
+
+    .toast-error {
+        border-color: rgba(239, 68, 68, .22);
+    }
+
+    .toast-error::before {
+        background: #ef4444;
+    }
+
+    .toast-error::after {
+        background: linear-gradient(90deg, #ef4444, rgba(239, 68, 68, 0));
+    }
+
+    .toast-error .toast-icon {
+        background: #dc2626;
+    }
+
+    .toast-error .toast-title {
+        color: #dc2626;
+    }
+
+    .toast-warning {
+        border-color: rgba(234, 179, 8, .22);
+    }
+
+    .toast-warning::before {
+        background: #eab308;
+    }
+
+    .toast-warning::after {
+        background: linear-gradient(90deg, #eab308, rgba(234, 179, 8, 0));
+    }
+
+    .toast-warning .toast-icon {
+        background: #ca8a04;
+    }
+
+    .toast-warning .toast-title {
+        color: #ca8a04;
+    }
 
     /* ════════════════════════════════════════════════════════════════
        SECTION 19 — SKELETON LOADING
     ════════════════════════════════════════════════════════════════ */
     @keyframes skeletonPulse {
-        0%, 100% { opacity: 1;   }
-        50%       { opacity: 0.4; }
+
+        0%,
+        100% {
+            opacity: 1;
+        }
+
+        50% {
+            opacity: 0.4;
+        }
     }
 
     .skeleton-line {
@@ -1332,51 +1581,99 @@
         margin-bottom: 8px;
     }
 
-    .skeleton-line.short  { width: 55%; }
-    .skeleton-line.medium { width: 75%; }
+    .skeleton-line.short {
+        width: 55%;
+    }
+
+    .skeleton-line.medium {
+        width: 75%;
+    }
 
     /* ════════════════════════════════════════════════════════════════
        SECTION 20 — RESPONSIVE MOBILE
     ════════════════════════════════════════════════════════════════ */
     @media (max-width: 1023px) {
-        .navbar-nav { display: none !important; }
-        .btn-mobile-menu { display: flex !important; }
+        .navbar-nav {
+            display: none !important;
+        }
+
+        .btn-mobile-menu {
+            display: flex !important;
+        }
     }
 
     @media (min-width: 1024px) {
-        .btn-mobile-menu { display: none !important; }
-        .mobile-drawer   { display: none !important; }
-        .mobile-overlay  { display: none !important; }
+        .btn-mobile-menu {
+            display: none !important;
+        }
+
+        .mobile-drawer {
+            display: none !important;
+        }
+
+        .mobile-overlay {
+            display: none !important;
+        }
     }
 
     @media (min-width: 768px) and (max-width: 1023px) {
-        .page-inner { padding: 1rem; }
+        .page-inner {
+            padding: 1rem;
+        }
     }
 
     @media (max-width: 767px) {
-        .page-inner { padding: 0.75rem; }
+        .page-inner {
+            padding: 0.75rem;
+        }
     }
 
     /* ════════════════════════════════════════════════════════════════
        SECTION 21 — UTILITAIRES
     ════════════════════════════════════════════════════════════════ */
-    .text-primary   { color: var(--color-primary); }
-    .text-secondary { color: var(--color-secondary-text); font-family: var(--font-body); }
+    .text-primary {
+        color: var(--color-primary);
+    }
+
+    .text-secondary {
+        color: var(--color-secondary-text);
+        font-family: var(--font-body);
+    }
 
     .sr-only {
-        position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
-        overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
     }
 
     /* ════════════════════════════════════════════════════════════════
        SECTION 22 — PRINT
     ════════════════════════════════════════════════════════════════ */
     @media print {
-        .navbar, .kpi-sticky-bar,
-        #toast-container, .btn-mobile-menu,
-        .mobile-drawer, .mobile-overlay { display: none !important; }
-        .main-content { margin-left: 0 !important; padding-top: 0 !important; }
-        .page-inner   { padding: 0 !important; }
+
+        .navbar,
+        .kpi-sticky-bar,
+        #toast-container,
+        .btn-mobile-menu,
+        .mobile-drawer,
+        .mobile-overlay {
+            display: none !important;
+        }
+
+        .main-content {
+            margin-left: 0 !important;
+            padding-top: 0 !important;
+        }
+
+        .page-inner {
+            padding: 0 !important;
+        }
     }
     </style>
 
@@ -1386,6 +1683,7 @@
 {{-- ================================================================
      BODY
 ================================================================ --}}
+
 <body class="light-mode" id="app-root">
 
     {{-- Annonces pour lecteurs d'écran --}}
@@ -1408,25 +1706,24 @@
 
                 {{-- Dashboard --}}
                 <li>
-                    <a href="{{ route('dashboard') }}"
-                       class="{{ request()->routeIs('dashboard') ? 'active' : '' }}"
-                       aria-current="{{ request()->routeIs('dashboard') ? 'page' : 'false' }}">
+                    <a href="{{ route('dashboard') }}" class="{{ request()->routeIs('dashboard') ? 'active' : '' }}"
+                        aria-current="{{ request()->routeIs('dashboard') ? 'page' : 'false' }}">
                         <span class="nav-icon" aria-hidden="true"><i class="fas fa-tachometer-alt"></i></span>
                         <span class="nav-label">Dashboard</span>
                     </a>
                 </li>
 
                 {{-- Séparateur --}}
-                <li aria-hidden="true"><div class="navbar-sep"></div></li>
+                <li aria-hidden="true">
+                    <div class="navbar-sep"></div>
+                </li>
 
                 {{-- Suivi & Flotte (dropdown) --}}
                 <li>
-                    <button class="nav-dropdown-toggle {{ request()->is('tracking*') || request()->is('users*') || request()->is('trajets*') ? 'active' : '' }}"
-                            id="nav-toggle-flotte"
-                            data-target="nav-drop-flotte"
-                            aria-haspopup="true"
-                            aria-expanded="false"
-                            aria-controls="nav-drop-flotte">
+                    <button
+                        class="nav-dropdown-toggle {{ request()->is('tracking*') || request()->is('users*') || request()->is('trajets*') ? 'active' : '' }}"
+                        id="nav-toggle-flotte" data-target="nav-drop-flotte" aria-haspopup="true" aria-expanded="false"
+                        aria-controls="nav-drop-flotte">
                         <span class="nav-icon" aria-hidden="true"><i class="fas fa-satellite-dish"></i></span>
                         <span class="nav-label">Suivi &amp; Flotte</span>
                         <i class="fas fa-chevron-down nav-dropdown-arrow" aria-hidden="true"></i>
@@ -1434,28 +1731,25 @@
 
                     <ul class="nav-dropdown-menu" id="nav-drop-flotte" role="menu">
                         <li role="none">
-                            <a href="{{ route('tracking.vehicles') }}"
-                               role="menuitem"
-                               class="{{ request()->routeIs('tracking.vehicles') ? 'active' : '' }}"
-                               aria-current="{{ request()->routeIs('tracking.vehicles') ? 'page' : 'false' }}">
+                            <a href="{{ route('tracking.vehicles') }}" role="menuitem"
+                                class="{{ request()->routeIs('tracking.vehicles') ? 'active' : '' }}"
+                                aria-current="{{ request()->routeIs('tracking.vehicles') ? 'page' : 'false' }}">
                                 <span class="nav-icon" aria-hidden="true"><i class="fas fa-car"></i></span>
                                 Véhicules
                             </a>
                         </li>
                         <li role="none">
-                            <a href="{{ route('users.index') }}"
-                               role="menuitem"
-                               class="{{ request()->routeIs('users.*') ? 'active' : '' }}"
-                               aria-current="{{ request()->routeIs('users.*') ? 'page' : 'false' }}">
+                            <a href="{{ route('users.index') }}" role="menuitem"
+                                class="{{ request()->routeIs('users.*') ? 'active' : '' }}"
+                                aria-current="{{ request()->routeIs('users.*') ? 'page' : 'false' }}">
                                 <span class="nav-icon" aria-hidden="true"><i class="fas fa-users"></i></span>
                                 Chauffeurs
                             </a>
                         </li>
                         <li role="none">
-                            <a href="{{ route('trajets.index') }}"
-                               role="menuitem"
-                               class="{{ request()->routeIs('trajets.*') ? 'active' : '' }}"
-                               aria-current="{{ request()->routeIs('trajets.*') ? 'page' : 'false' }}">
+                            <a href="{{ route('dashboard') }}#trajets"
+                                class="{{ request()->routeIs('trajets.*') ? 'active' : '' }}"
+                                data-dashboard-tab="trajets">
                                 <span class="nav-icon" aria-hidden="true"><i class="fas fa-route"></i></span>
                                 Trajets
                             </a>
@@ -1465,19 +1759,18 @@
 
                 {{-- Alertes --}}
                 <li>
-                    <a href="{{ route('alerts.view') }}"
-                       class="{{ request()->routeIs('alerts.*') ? 'active' : '' }}"
-                       aria-current="{{ request()->routeIs('alerts.*') ? 'page' : 'false' }}">
+                    <a href="{{ route('dashboard') }}#alertes"
+                        class="{{ request()->routeIs('alerts.*') ? 'active' : '' }}" data-dashboard-tab="alertes">
                         <span class="nav-icon" aria-hidden="true"><i class="fas fa-bell"></i></span>
-                        <span class="nav-label">Alertes</span>
+                        Alertes
                     </a>
                 </li>
 
                 {{-- Moteur --}}
                 <li>
                     <a href="{{ route('engine.action.index') }}"
-                       class="{{ request()->routeIs('engine.*') ? 'active' : '' }}"
-                       aria-current="{{ request()->routeIs('engine.*') ? 'page' : 'false' }}">
+                        class="{{ request()->routeIs('engine.*') ? 'active' : '' }}"
+                        aria-current="{{ request()->routeIs('engine.*') ? 'page' : 'false' }}">
                         <span class="nav-icon" aria-hidden="true"><i class="fas fa-power-off"></i></span>
                         <span class="nav-label">Moteur</span>
                     </a>
@@ -1494,39 +1787,28 @@
                 <span class="mode-label hidden lg:block" id="mode-label" aria-hidden="true">
                     Mode Clair
                 </span>
-                <div id="theme-toggle"
-                     class="toggle-switch"
-                     role="switch"
-                     aria-checked="false"
-                     aria-label="Basculer entre mode clair et sombre"
-                     tabindex="0"
-                     title="Changer de thème"></div>
+                <div id="theme-toggle" class="toggle-switch" role="switch" aria-checked="false"
+                    aria-label="Basculer entre mode clair et sombre" tabindex="0" title="Changer de thème"></div>
             </div>
 
             {{-- Cloche alertes --}}
-            <a href="{{ route('alerts.view') }}"
-               class="navbar-icon-btn"
-               aria-label="Voir les alertes et notifications"
-               title="Alertes">
+            <a href="{{ route('dashboard') }}#alertes" class="navbar-icon-btn"
+                aria-label="Voir les alertes et notifications" title="Alertes" data-dashboard-tab="alertes">
                 <i class="fas fa-bell" aria-hidden="true"></i>
                 <span aria-hidden="true" style="
-                    position:absolute; top:6px; right:6px;
-                    width:6px; height:6px; border-radius:50%;
-                    background:var(--color-error);
-                    border:1.5px solid var(--color-card);
-                "></span>
+        position:absolute; top:6px; right:6px;
+        width:6px; height:6px; border-radius:50%;
+        background:var(--color-error);
+        border:1.5px solid var(--color-card);
+    "></span>
             </a>
-
             {{-- Menu utilisateur --}}
             <div class="user-menu-wrapper" id="user-menu-container">
-                <button class="user-menu-trigger"
-                        id="btn-user-menu"
-                        aria-haspopup="menu"
-                        aria-expanded="false"
-                        aria-controls="user-dropdown">
+                <button class="user-menu-trigger" id="btn-user-menu" aria-haspopup="menu" aria-expanded="false"
+                    aria-controls="user-dropdown">
                     <img class="user-avatar"
-                         src="https://placehold.co/32x32/F58220/ffffff?text={{ substr(auth()->user()->prenom ?? 'U', 0, 1) }}"
-                         alt="Avatar de {{ auth()->user()->prenom ?? 'utilisateur' }}">
+                        src="https://placehold.co/32x32/F58220/ffffff?text={{ substr(auth()->user()->prenom ?? 'U', 0, 1) }}"
+                        alt="Avatar de {{ auth()->user()->prenom ?? 'utilisateur' }}">
                     <span class="user-name hidden lg:block">
                         {{ auth()->user()->prenom }} {{ auth()->user()->nom }}
                     </span>
@@ -1538,18 +1820,18 @@
                         <p class="uname">{{ auth()->user()->prenom }} {{ auth()->user()->nom }}</p>
                         <p class="uemail">{{ auth()->user()->email }}</p>
                     </div>
-                    <a href="{{ route('profile.edit') }}" role="menuitem">
-                        <i class="fas fa-user-circle menu-icon" aria-hidden="true"></i>
-                        Mon Profil
+                    {{--
+<a href="{{ route('profile.edit') }}" role="menuitem">
+                    <i class="fas fa-user-circle menu-icon" aria-hidden="true"></i>
+                    Mon Profil
                     </a>
                     <a href="#" role="menuitem">
                         <i class="fas fa-cog menu-icon" aria-hidden="true"></i>
                         Paramètres
                     </a>
-                    <a href="#"
-                       role="menuitem"
-                       class="danger"
-                       onclick="event.preventDefault(); document.getElementById('form-logout-navbar').submit();">
+                    --}}
+                    <a href="#" role="menuitem" class="danger"
+                        onclick="event.preventDefault(); document.getElementById('form-logout-navbar').submit();">
                         <i class="fas fa-sign-out-alt menu-icon" aria-hidden="true"></i>
                         Déconnexion
                     </a>
@@ -1560,11 +1842,8 @@
             </div>
 
             {{-- Hamburger mobile ─────────────────────────────── --}}
-            <button class="btn-mobile-menu"
-                    id="btn-mobile-menu"
-                    aria-label="Ouvrir le menu de navigation"
-                    aria-expanded="false"
-                    aria-controls="mobile-drawer">
+            <button class="btn-mobile-menu" id="btn-mobile-menu" aria-label="Ouvrir le menu de navigation"
+                aria-expanded="false" aria-controls="mobile-drawer">
                 <i class="fas fa-bars" aria-hidden="true"></i>
             </button>
 
@@ -1576,8 +1855,7 @@
     ════════════════════════════════════════════════════════════ --}}
     <div class="mobile-drawer" id="mobile-drawer" role="dialog" aria-modal="true" aria-label="Menu de navigation">
 
-        <a href="{{ route('dashboard') }}"
-           class="{{ request()->routeIs('dashboard') ? 'active' : '' }}">
+        <a href="{{ route('dashboard') }}" class="{{ request()->routeIs('dashboard') ? 'active' : '' }}">
             <span class="nav-icon" aria-hidden="true"><i class="fas fa-tachometer-alt"></i></span>
             Dashboard
         </a>
@@ -1585,37 +1863,32 @@
         <div class="drawer-section-title">Flotte</div>
 
         <a href="{{ route('tracking.vehicles') }}"
-           class="{{ request()->routeIs('tracking.vehicles') ? 'active' : '' }}">
+            class="{{ request()->routeIs('tracking.vehicles') ? 'active' : '' }}">
             <span class="nav-icon" aria-hidden="true"><i class="fas fa-car"></i></span>
             Véhicules
         </a>
-        <a href="{{ route('users.index') }}"
-           class="{{ request()->routeIs('users.*') ? 'active' : '' }}">
+        <a href="{{ route('users.index') }}" class="{{ request()->routeIs('users.*') ? 'active' : '' }}">
             <span class="nav-icon" aria-hidden="true"><i class="fas fa-users"></i></span>
             Chauffeurs
         </a>
-        <a href="{{ route('trajets.index') }}"
-           class="{{ request()->routeIs('trajets.*') ? 'active' : '' }}">
+        <a href="{{ route('trajets.index') }}" class="{{ request()->routeIs('trajets.*') ? 'active' : '' }}">
             <span class="nav-icon" aria-hidden="true"><i class="fas fa-route"></i></span>
             Trajets
         </a>
 
         <div class="drawer-section-title">Supervision</div>
 
-        <a href="{{ route('alerts.view') }}"
-           class="{{ request()->routeIs('alerts.*') ? 'active' : '' }}">
+        <a href="#" class="{{ request()->routeIs('alerts.*') ? 'active' : '' }}">
             <span class="nav-icon" aria-hidden="true"><i class="fas fa-bell"></i></span>
             Alertes
         </a>
-        <a href="{{ route('engine.action.index') }}"
-           class="{{ request()->routeIs('engine.*') ? 'active' : '' }}">
+        <a href="{{ route('engine.action.index') }}" class="{{ request()->routeIs('engine.*') ? 'active' : '' }}">
             <span class="nav-icon" aria-hidden="true"><i class="fas fa-power-off"></i></span>
             Moteur
         </a>
 
         <div class="drawer-logout">
-            <a href="#"
-               onclick="event.preventDefault(); document.getElementById('form-logout-drawer').submit();">
+            <a href="#" onclick="event.preventDefault(); document.getElementById('form-logout-drawer').submit();">
                 <span class="nav-icon" aria-hidden="true"><i class="fas fa-sign-out-alt"></i></span>
                 Déconnexion
             </a>
@@ -1674,16 +1947,18 @@
     <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
 
     <script>
-    $(function () {
+    $(function() {
         if ($.fn.DataTable && $('#myTable').length) {
             $('#myTable').DataTable({
                 responsive: true,
                 processing: true,
                 serverSide: false,
-                language: { url: '/datatables/i18n/fr-FR.json' },
+                language: {
+                    url: '/datatables/i18n/fr-FR.json'
+                },
                 dom: '<"flex flex-wrap items-center justify-between gap-2 mb-3"lf>' +
-                     't' +
-                     '<"flex flex-wrap items-center justify-center gap-4 mt-3"ip>'
+                    't' +
+                    '<"flex flex-wrap items-center justify-center gap-4 mt-3"ip>'
             });
         }
     });
@@ -1708,22 +1983,22 @@
          12. Toasts : affichage session + API window.showToast()
          13. Annonces aria-live pour lecteurs d'écran
     ════════════════════════════════════════════════════════════════ */
-    (function () {
+    (function() {
         'use strict';
 
         /* ── Références DOM ─────────────────────────────────────── */
-        var ROOT          = document.documentElement;
-        var APP           = document.getElementById('app-root');
-        var SR_LIVE        = document.getElementById('sr-live');
-        var MAIN           = document.getElementById('main-content');
-        var NAVBAR         = document.getElementById('navbar');
-        var BTN_MOBILE     = document.getElementById('btn-mobile-menu');
-        var DRAWER         = document.getElementById('mobile-drawer');
-        var OVERLAY        = document.getElementById('mobile-overlay');
-        var BTN_USER       = document.getElementById('btn-user-menu');
-        var USER_DROPDOWN  = document.getElementById('user-dropdown');
-        var THEME_TOGGLE   = document.getElementById('theme-toggle');
-        var MODE_LABEL     = document.getElementById('mode-label');
+        var ROOT = document.documentElement;
+        var APP = document.getElementById('app-root');
+        var SR_LIVE = document.getElementById('sr-live');
+        var MAIN = document.getElementById('main-content');
+        var NAVBAR = document.getElementById('navbar');
+        var BTN_MOBILE = document.getElementById('btn-mobile-menu');
+        var DRAWER = document.getElementById('mobile-drawer');
+        var OVERLAY = document.getElementById('mobile-overlay');
+        var BTN_USER = document.getElementById('btn-user-menu');
+        var USER_DROPDOWN = document.getElementById('user-dropdown');
+        var THEME_TOGGLE = document.getElementById('theme-toggle');
+        var MODE_LABEL = document.getElementById('mode-label');
 
         /* ══════════════════════════════════════════════════════════
            HELPER — Annonce lecteur d'écran
@@ -1731,7 +2006,9 @@
         function announce(msg) {
             if (!SR_LIVE) return;
             SR_LIVE.textContent = '';
-            setTimeout(function () { SR_LIVE.textContent = msg; }, 60);
+            setTimeout(function() {
+                SR_LIVE.textContent = msg;
+            }, 60);
         }
 
         /* ══════════════════════════════════════════════════════════
@@ -1739,7 +2016,7 @@
         ══════════════════════════════════════════════════════════ */
         function applyTheme(theme) {
             var dark = (theme === 'dark');
-            APP.classList.toggle('dark-mode',  dark);
+            APP.classList.toggle('dark-mode', dark);
             APP.classList.toggle('light-mode', !dark);
             THEME_TOGGLE.classList.toggle('on', dark);
             THEME_TOGGLE.setAttribute('aria-checked', String(dark));
@@ -1756,23 +2033,26 @@
             applyTheme(saved);
         }
 
-        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
             if (!localStorage.getItem('fleetra-theme')) applyTheme(e.matches ? 'dark' : 'light');
         });
 
-        THEME_TOGGLE.addEventListener('click', function () {
+        THEME_TOGGLE.addEventListener('click', function() {
             applyTheme(APP.classList.contains('dark-mode') ? 'light' : 'dark');
         });
 
-        THEME_TOGGLE.addEventListener('keydown', function (e) {
-            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); THEME_TOGGLE.click(); }
+        THEME_TOGGLE.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                THEME_TOGGLE.click();
+            }
         });
 
         /* ══════════════════════════════════════════════════════════
            2. DROPDOWNS NAV DESKTOP
         ══════════════════════════════════════════════════════════ */
         function closeAllNavDropdowns(except) {
-            document.querySelectorAll('.nav-dropdown-toggle').forEach(function (btn) {
+            document.querySelectorAll('.nav-dropdown-toggle').forEach(function(btn) {
                 if (btn === except) return;
                 var targetId = btn.getAttribute('data-target');
                 var menu = document.getElementById(targetId);
@@ -1784,8 +2064,8 @@
             });
         }
 
-        document.querySelectorAll('.nav-dropdown-toggle').forEach(function (btn) {
-            btn.addEventListener('click', function (e) {
+        document.querySelectorAll('.nav-dropdown-toggle').forEach(function(btn) {
+            btn.addEventListener('click', function(e) {
                 e.stopPropagation();
                 var targetId = btn.getAttribute('data-target');
                 var menu = document.getElementById(targetId);
@@ -1801,7 +2081,7 @@
         });
 
         /* Fermer les dropdowns nav au clic extérieur */
-        document.addEventListener('click', function (e) {
+        document.addEventListener('click', function(e) {
             var inside = e.target.closest('.navbar-nav li');
             if (!inside) closeAllNavDropdowns(null);
         });
@@ -1813,8 +2093,10 @@
             if (!DRAWER) return;
             DRAWER.classList.add('open');
             OVERLAY.classList.add('visible');
-            requestAnimationFrame(function () {
-                requestAnimationFrame(function () { OVERLAY.classList.add('active'); });
+            requestAnimationFrame(function() {
+                requestAnimationFrame(function() {
+                    OVERLAY.classList.add('active');
+                });
             });
             document.body.style.overflow = 'hidden';
             if (BTN_MOBILE) BTN_MOBILE.setAttribute('aria-expanded', 'true');
@@ -1825,7 +2107,7 @@
             if (!DRAWER) return;
             DRAWER.classList.remove('open');
             OVERLAY.classList.remove('active');
-            setTimeout(function () {
+            setTimeout(function() {
                 OVERLAY.classList.remove('visible');
                 if (OVERLAY) OVERLAY.setAttribute('aria-hidden', 'true');
             }, 300);
@@ -1834,7 +2116,7 @@
         }
 
         if (BTN_MOBILE) {
-            BTN_MOBILE.addEventListener('click', function () {
+            BTN_MOBILE.addEventListener('click', function() {
                 DRAWER && DRAWER.classList.contains('open') ? drawerClose() : drawerOpen();
             });
         }
@@ -1843,7 +2125,7 @@
 
         /* Fermer drawer au clic sur un lien */
         if (DRAWER) {
-            DRAWER.querySelectorAll('a').forEach(function (a) {
+            DRAWER.querySelectorAll('a').forEach(function(a) {
                 a.addEventListener('click', drawerClose);
             });
         }
@@ -1852,20 +2134,20 @@
            4. DROPDOWN UTILISATEUR NAVBAR
         ══════════════════════════════════════════════════════════ */
         if (BTN_USER && USER_DROPDOWN) {
-            BTN_USER.addEventListener('click', function (e) {
+            BTN_USER.addEventListener('click', function(e) {
                 e.stopPropagation();
                 var open = USER_DROPDOWN.classList.toggle('open');
                 BTN_USER.setAttribute('aria-expanded', String(open));
             });
 
-            document.addEventListener('click', function (e) {
+            document.addEventListener('click', function(e) {
                 if (!USER_DROPDOWN.contains(e.target) && !BTN_USER.contains(e.target)) {
                     USER_DROPDOWN.classList.remove('open');
                     BTN_USER.setAttribute('aria-expanded', 'false');
                 }
             });
 
-            USER_DROPDOWN.addEventListener('keydown', function (e) {
+            USER_DROPDOWN.addEventListener('keydown', function(e) {
                 if (e.key === 'Escape') {
                     USER_DROPDOWN.classList.remove('open');
                     BTN_USER.setAttribute('aria-expanded', 'false');
@@ -1880,7 +2162,7 @@
         function measureHeights() {
             var navH = NAVBAR ? Math.round(NAVBAR.getBoundingClientRect().height) : 64;
             var kpiEl = document.querySelector('.kpi-sticky-bar');
-            var kpiH  = kpiEl  ? Math.round(kpiEl.getBoundingClientRect().height) : 0;
+            var kpiH = kpiEl ? Math.round(kpiEl.getBoundingClientRect().height) : 0;
             ROOT.style.setProperty('--navbar-h', navH + 'px');
             if (kpiH > 0) ROOT.style.setProperty('--kpi-h', kpiH + 'px');
         }
@@ -1888,12 +2170,12 @@
         /* ══════════════════════════════════════════════════════════
            6. RESIZEOBSERVER SUR KPI BAR
         ══════════════════════════════════════════════════════════ */
-        (function () {
+        (function() {
             if (!window.ResizeObserver) return;
             var kpi = document.querySelector('.kpi-sticky-bar');
             if (!kpi) return;
             var t = null;
-            new ResizeObserver(function () {
+            new ResizeObserver(function() {
                 clearTimeout(t);
                 t = setTimeout(measureHeights, 60);
             }).observe(kpi);
@@ -1913,7 +2195,7 @@
         }
 
         var _rTimer = null;
-        window.addEventListener('resize', function () {
+        window.addEventListener('resize', function() {
             clearTimeout(_rTimer);
             _rTimer = setTimeout(syncOnResize, 120);
         });
@@ -1930,32 +2212,32 @@
         /* ══════════════════════════════════════════════════════════
            9. SSE INDICATOR — PATCH CLASSES CSS
         ══════════════════════════════════════════════════════════ */
-        (function () {
+        (function() {
             var sseEl = document.getElementById('sse-indicator');
             if (!sseEl) return;
 
             var SSE_CLASSES = {
-                connected:    'sse-connected',
+                connected: 'sse-connected',
                 reconnecting: 'sse-reconnecting',
-                connecting:   'sse-reconnecting',
-                paused:       'sse-paused'
+                connecting: 'sse-reconnecting',
+                paused: 'sse-paused'
             };
 
             var SSE_LABELS = {
-                connected:    'Temps réel : connecté',
+                connected: 'Temps réel : connecté',
                 reconnecting: 'Temps réel : reconnexion en cours',
-                connecting:   'Temps réel : connexion en cours',
-                paused:       'Temps réel : en pause'
+                connecting: 'Temps réel : connexion en cours',
+                paused: 'Temps réel : en pause'
             };
 
             function applyClass(state) {
                 sseEl.classList.remove('sse-connected', 'sse-reconnecting', 'sse-paused');
                 if (SSE_CLASSES[state]) sseEl.classList.add(SSE_CLASSES[state]);
-                if (SSE_LABELS[state])  announce(SSE_LABELS[state]);
+                if (SSE_LABELS[state]) announce(SSE_LABELS[state]);
             }
 
             var _orig = window.setSseIndicator;
-            window.setSseIndicator = function (state) {
+            window.setSseIndicator = function(state) {
                 if (typeof _orig === 'function') _orig(state);
                 applyClass(state);
             };
@@ -1966,20 +2248,26 @@
         ══════════════════════════════════════════════════════════ */
         function trapFocus(panel) {
             if (!panel) return;
-            var sel = 'button:not([disabled]),[href],input:not([disabled]),'
-                    + 'select:not([disabled]),textarea:not([disabled]),'
-                    + '[tabindex]:not([tabindex="-1"])';
+            var sel = 'button:not([disabled]),[href],input:not([disabled]),' +
+                'select:not([disabled]),textarea:not([disabled]),' +
+                '[tabindex]:not([tabindex="-1"])';
             var nodes = panel.querySelectorAll(sel);
             var first = nodes[0];
-            var last  = nodes[nodes.length - 1];
+            var last = nodes[nodes.length - 1];
             if (!first) return;
 
             panel.addEventListener('keydown', function handler(e) {
                 if (e.key !== 'Tab') return;
                 if (e.shiftKey) {
-                    if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+                    if (document.activeElement === first) {
+                        e.preventDefault();
+                        last.focus();
+                    }
                 } else {
-                    if (document.activeElement === last)  { e.preventDefault(); first.focus(); }
+                    if (document.activeElement === last) {
+                        e.preventDefault();
+                        first.focus();
+                    }
                 }
             });
 
@@ -1987,23 +2275,26 @@
         }
 
         if (window.MutationObserver) {
-            document.querySelectorAll('.modal-overlay').forEach(function (overlay) {
-                new MutationObserver(function (muts) {
-                    muts.forEach(function (m) {
-                        if (m.attributeName === 'style' && overlay.style.display === 'flex') {
+            document.querySelectorAll('.modal-overlay').forEach(function(overlay) {
+                new MutationObserver(function(muts) {
+                    muts.forEach(function(m) {
+                        if (m.attributeName === 'style' && overlay.style.display ===
+                            'flex') {
                             trapFocus(overlay.querySelector('.modal-panel'));
                         }
                     });
-                }).observe(overlay, { attributes: true });
+                }).observe(overlay, {
+                    attributes: true
+                });
             });
         }
 
         /* ══════════════════════════════════════════════════════════
            11. ESCAPE KEY
         ══════════════════════════════════════════════════════════ */
-        document.addEventListener('keydown', function (e) {
+        document.addEventListener('keydown', function(e) {
             if (e.key !== 'Escape') return;
-            document.querySelectorAll('.modal-overlay').forEach(function (m) {
+            document.querySelectorAll('.modal-overlay').forEach(function(m) {
                 if (m.style.display === 'flex') {
                     var btn = m.querySelector('.modal-close, [data-modal-close]');
                     if (btn) btn.click();
@@ -2012,7 +2303,10 @@
             if (DRAWER && DRAWER.classList.contains('open')) drawerClose();
             if (USER_DROPDOWN && USER_DROPDOWN.classList.contains('open')) {
                 USER_DROPDOWN.classList.remove('open');
-                if (BTN_USER) { BTN_USER.setAttribute('aria-expanded', 'false'); BTN_USER.focus(); }
+                if (BTN_USER) {
+                    BTN_USER.setAttribute('aria-expanded', 'false');
+                    BTN_USER.focus();
+                }
             }
             closeAllNavDropdowns(null);
         });
@@ -2024,8 +2318,10 @@
             if (!el) return;
             duration = duration || 5000;
 
-            requestAnimationFrame(function () {
-                requestAnimationFrame(function () { el.classList.add('show'); });
+            requestAnimationFrame(function() {
+                requestAnimationFrame(function() {
+                    el.classList.add('show');
+                });
             });
 
             var close = el.querySelector('.toast-close');
@@ -2033,21 +2329,29 @@
             function dismiss() {
                 el.classList.remove('show');
                 el.classList.add('hide');
-                setTimeout(function () { if (el.parentNode) el.remove(); }, 280);
+                setTimeout(function() {
+                    if (el.parentNode) el.remove();
+                }, 280);
             }
 
             if (close) close.addEventListener('click', dismiss);
             setTimeout(dismiss, duration);
         }
 
-        document.querySelectorAll('.toast').forEach(function (t) { animateToast(t); });
+        document.querySelectorAll('.toast').forEach(function(t) {
+            animateToast(t);
+        });
 
-        window.showToast = function (title, msg, type) {
+        window.showToast = function(title, msg, type) {
             type = type || 'success';
             var container = document.getElementById('toast-container');
             if (!container) return;
 
-            var icons = { success: 'fa-check-circle', error: 'fa-exclamation-triangle', warning: 'fa-exclamation-circle' };
+            var icons = {
+                success: 'fa-check-circle',
+                error: 'fa-exclamation-triangle',
+                warning: 'fa-exclamation-circle'
+            };
 
             var el = document.createElement('div');
             el.className = 'toast toast-' + type;
@@ -2055,11 +2359,11 @@
             el.setAttribute('aria-live', 'assertive');
             el.innerHTML =
                 '<div class="toast-icon" aria-hidden="true">' +
-                    '<i class="fas ' + (icons[type] || icons.success) + '"></i>' +
+                '<i class="fas ' + (icons[type] || icons.success) + '"></i>' +
                 '</div>' +
                 '<div class="toast-body">' +
-                    '<div class="toast-title">' + title + '</div>' +
-                    '<div class="toast-msg">'   + msg   + '</div>' +
+                '<div class="toast-title">' + title + '</div>' +
+                '<div class="toast-msg">' + msg + '</div>' +
                 '</div>' +
                 '<button type="button" class="toast-close" aria-label="Fermer">&times;</button>';
 
@@ -2075,14 +2379,17 @@
             measureHeights();
 
             if (document.fonts && document.fonts.ready) {
-                document.fonts.ready.then(function () {
+                document.fonts.ready.then(function() {
                     measureHeights();
                     setTimeout(triggerMapResize, 80);
                 });
             }
 
             setTimeout(measureHeights, 400);
-            setTimeout(function () { measureHeights(); triggerMapResize(); }, 1300);
+            setTimeout(function() {
+                measureHeights();
+                triggerMapResize();
+            }, 1300);
         }
 
         if (document.readyState === 'loading') {
@@ -2094,7 +2401,61 @@
     })(); /* fin IIFE Fleetra Layout */
     </script>
 
+    <script>
+    /* ══════════════════════════════════════════════════════════
+   14. DASHBOARD TAB ROUTING via URL hash
+   - Si on arrive sur /dashboard#trajets → switchTab('trajets')
+   - Si on arrive sur /dashboard#alertes → switchTab('alertes')
+   - Si on est déjà sur le dashboard et on clique un lien
+     data-dashboard-tab → switchTab() sans rechargement
+══════════════════════════════════════════════════════════ */
+    (function() {
+        // Lecture du hash à l'arrivée sur la page
+        function activateTabFromHash() {
+            var hash = window.location.hash.replace('#', '');
+            var allowed = ['flotte', 'trajets', 'alertes'];
+            if (allowed.indexOf(hash) !== -1 && typeof window.switchTab === 'function') {
+                window.switchTab(hash);
+                // Nettoyer le hash sans recharger
+                history.replaceState(null, '', window.location.pathname);
+            }
+        }
+
+        // Intercepter les clics sur les liens dashboard-tab
+        // Si on est DÉJÀ sur le dashboard → switchTab sans navigation
+        // Sinon → laisser le href faire une navigation normale vers /dashboard#tab
+        document.addEventListener('click', function(e) {
+            var link = e.target.closest('[data-dashboard-tab]');
+            if (!link) return;
+
+            var tab = link.getAttribute('data-dashboard-tab');
+            var isDashboard = document.getElementById('pane-flotte') !== null;
+
+            if (isDashboard) {
+                e.preventDefault();
+                if (typeof window.switchTab === 'function') {
+                    window.switchTab(tab);
+                }
+                // Mettre à jour l'état actif dans la navbar
+                document.querySelectorAll('[data-dashboard-tab]').forEach(function(l) {
+                    l.classList.toggle('active', l.getAttribute('data-dashboard-tab') === tab);
+                });
+            }
+            // Sinon : navigation normale vers /dashboard#trajets ou #alertes
+        });
+
+        // Lancer après que le dashboard JS soit initialisé
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', function() {
+                setTimeout(activateTabFromHash, 150);
+            });
+        } else {
+            setTimeout(activateTabFromHash, 150);
+        }
+    })();
+    </script>
     @stack('scripts')
 
 </body>
+
 </html>
