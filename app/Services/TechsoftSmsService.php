@@ -87,7 +87,7 @@ class TechsoftSmsService
        
 
         // ✅ message volontairement ASCII
-        $msg = "PROXYM TRACKING {$otpCode}. Valable {$ttlMinutes} min.";
+        $msg = "FLEETRA by PROXYM GROUP {$otpCode}. Valable {$ttlMinutes} min.";
 
         // on force plain (et sendSms enlève accents si besoin)
         return $this->sendSms($recipientAnyFormat, $msg, ['type' => 'plain']);

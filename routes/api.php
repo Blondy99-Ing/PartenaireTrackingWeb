@@ -5,12 +5,29 @@ use App\Http\Controllers\Api\V1\Auth\AuthController as ApiAuthController;
 use App\Http\Controllers\Api\V1\Partner\PartnerUserController;
 use App\Http\Controllers\Webhooks\TrackingWebhookController;
 
-Route::get('/ping', fn() => response()->json(['ok' => true]));
-
 Route::prefix('v1')->group(function () {
-    Route::post('auth/login',  [ApiAuthController::class, 'login']);
-    Route::post('auth/logout', [ApiAuthController::class, 'logout'])->middleware('auth:sanctum');
+    /*
+    |--------------------------------------------------------------------------
+    | Auth API
+    |--------------------------------------------------------------------------
+    */
+    Route::prefix('auth')->group(function () {
+        Route::post('login', [ApiAuthController::class, 'login']);
 
+        Route::middleware('auth:sanctum')->group(function () {
+            Route::post('logout', [ApiAuthController::class, 'logout']);
+            Route::post('logout-all', [ApiAuthController::class, 'logoutAll']);
+            Route::get('sessions', [ApiAuthController::class, 'sessions']);
+            Route::delete('sessions/{tokenId}', [ApiAuthController::class, 'revokeToken']);
+            Route::get('me', [ApiAuthController::class, 'me']);
+        });
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | Partner API
+    |--------------------------------------------------------------------------
+    */
     Route::prefix('partner')->middleware('auth:sanctum')->group(function () {
         Route::get('users', [PartnerUserController::class, 'index']);
         Route::post('users', [PartnerUserController::class, 'store']);
@@ -19,7 +36,10 @@ Route::prefix('v1')->group(function () {
     });
 });
 
-
-// mise à jour de dashboard en temps reels 
-Route::post('/webhooks/tracking', [TrackingWebhookController::class, 'handle'])
-  ->name('webhooks.tracking');
+/*
+|--------------------------------------------------------------------------
+| Webhooks
+|--------------------------------------------------------------------------
+*/
+Route::post('webhooks/tracking', [TrackingWebhookController::class, 'handle'])
+    ->name('webhooks.tracking');

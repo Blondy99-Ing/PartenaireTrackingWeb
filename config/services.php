@@ -57,4 +57,11 @@ return [
         'key' => env('GOOGLE_MAPS_KEY'),
     ],
 
+    'brevo' => [
+    'key' => env('BREVO_API_KEY'),
+    'sender_email' => env('BREVO_SENDER_EMAIL'),
+    'sender_name' => env('BREVO_SENDER_NAME', 'FLEETRA BY PROXYM GROUP'),
+    'template_reset_id' => (int) env('BREVO_TEMPLATE_RESET_ID', 2),
+],
+
 ];

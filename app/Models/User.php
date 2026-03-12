@@ -161,4 +161,24 @@ class User extends Authenticatable
         return $this->hasMany(HistoriqueAssociationChauffeurVoiturePartner::class, 'chauffeur_id')
             ->orderByDesc('start_at');
     }
+
+
+
+
+    // relation avec le partenaire 
+    public function partner(): BelongsTo
+{
+    return $this->belongsTo(Partner::class, 'partner_id');
+}
+
+public function createdPartners(): HasMany
+{
+    return $this->hasMany(Partner::class, 'created_by');
+}
+
+public function ownedPartners(): HasMany
+{
+    return $this->hasMany(Partner::class, 'owner_user_id');
+}
+
 }

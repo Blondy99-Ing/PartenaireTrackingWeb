@@ -1699,8 +1699,235 @@ public function syncAndSaveLatestLocationsFromAllSimGps(
 
 
 
+// vehicule en arret ou en mouvement 
+public function getMovementStatusByMacId(string $macId): array
+{
+    $macId = trim($macId);
+    if ($macId === '') {
+        return [
+            'success' => false,
+            'message' => 'mac_id vide',
+        ];
+    }
+
+    // se positionner sur le bon compte
+    $this->ensureAccountForMacId($macId);
+
+    $record = $this->getLatestLocationByMacId($macId);
+
+    if (!$record || !is_array($record)) {
+        return [
+            'success' => false,
+            'message' => 'Aucune donnée provider trouvée',
+            'mac_id_gps' => $macId,
+        ];
+    }
+
+    $speedRaw = $record['su'] ?? $record['speed'] ?? null;
+    $speed = is_numeric($speedRaw) ? (float) $speedRaw : null;
+
+    $state = 'UNKNOWN';
+    $isMoving = null;
+
+    if ($speed !== null) {
+        if ($speed > 0) {
+            $state = 'MOVING';
+            $isMoving = true;
+        } elseif ($speed == 0.0) {
+            $state = 'STOPPED';
+            $isMoving = false;
+        } elseif ($speed < 0) {
+            // cas provider type -9
+            $state = 'UNKNOWN';
+            $isMoving = null;
+        }
+    }
+
+    return [
+        'success' => true,
+        'mac_id_gps' => $macId,
+        'account' => $this->account,
+        'user_id' => $record['user_id'] ?? null,
+        'speed' => $speed,
+        'speed_raw' => $speedRaw,
+        'movement_state' => $state,
+        'is_moving' => $isMoving,
+        'datetime' => $this->parseTimeToDateTimeString($record['datetime'] ?? null),
+        'heart_time' => $this->parseTimeToDateTimeString($record['heart_time'] ?? null),
+        'sys_time' => $this->parseTimeToDateTimeString($record['sys_time'] ?? null),
+        'latitude' => isset($record['weidu']) && is_numeric($record['weidu']) ? (float) $record['weidu'] : null,
+        'longitude' => isset($record['jingdu']) && is_numeric($record['jingdu']) ? (float) $record['jingdu'] : null,
+        'direction' => isset($record['hangxiang']) && is_numeric($record['hangxiang']) ? (float) $record['hangxiang'] : null,
+        'raw_status' => $record['status'] ?? null,
+    ];
+}
 
 
 
+//arret mouvement avec offline ou online
+private function formatDurationHuman(?int $seconds): ?string
+{
+    if ($seconds === null || $seconds < 0) {
+        return null;
+    }
+
+    $days = intdiv($seconds, 86400);
+    $hours = intdiv($seconds % 86400, 3600);
+    $minutes = intdiv($seconds % 3600, 60);
+    $secs = $seconds % 60;
+
+    $parts = [];
+
+    if ($days > 0) {
+        $parts[] = $days . 'j';
+        $parts[] = $hours . 'h';
+        $parts[] = $minutes . 'min';
+        return implode(' ', $parts);
+    }
+
+    if ($hours > 0) {
+        $parts[] = $hours . 'h';
+        $parts[] = $minutes . 'min';
+        return implode(' ', $parts);
+    }
+
+    if ($minutes > 0) {
+        $parts[] = $minutes . 'min';
+        if ($secs > 0) {
+            $parts[] = $secs . 's';
+        }
+        return implode(' ', $parts);
+    }
+
+    return $secs . 's';
+}
+
+public function getVehicleStateByMacId(string $macId, float $movingThreshold = 5.0): array
+{
+    $macId = trim($macId);
+
+    if ($macId === '') {
+        return [
+            'success' => false,
+            'message' => 'mac_id vide',
+        ];
+    }
+
+    // Se positionner automatiquement sur le bon compte
+    $this->ensureAccountForMacId($macId);
+
+    $record = $this->getLatestLocationByMacId($macId);
+
+    if (!$record || !is_array($record)) {
+        return [
+            'success' => false,
+            'message' => 'Aucune donnée provider trouvée',
+            'mac_id_gps' => $macId,
+        ];
+    }
+
+    $speedRaw = $record['su'] ?? $record['speed'] ?? null;
+    $speed = is_numeric($speedRaw) ? (float) $speedRaw : null;
+
+    $connectivity = $this->computeConnectivityFromLatestRecord($record);
+
+    $connectivityState = $connectivity['state'] ?? 'UNKNOWN';
+    $isOnline = $connectivity['is_online'] ?? null;
+
+    $movementState = 'UNKNOWN';
+    $isMoving = null;
+    $uiStatus = 'UNKNOWN';
+
+    // Temps d'arrêt (basé sur datetime du dernier vrai point GPS)
+    $stoppedSinceSeconds = null;
+    $stoppedSinceHuman = null;
+
+    // Temps offline (basé sur heart_time)
+    $offlineSinceSeconds = null;
+    $offlineSinceHuman = null;
+
+    // Valeurs brutes déjà calculées
+    $staticTimeSeconds = $connectivity['static_time_seconds'] ?? null;
+    $offlineTimeSeconds = $connectivity['offline_time_seconds'] ?? null;
+
+    if ($isOnline === false) {
+        $movementState = 'OFFLINE';
+        $isMoving = null;
+        $uiStatus = 'OFFLINE';
+
+        $offlineSinceSeconds = is_numeric($offlineTimeSeconds) ? (int) $offlineTimeSeconds : null;
+        $offlineSinceHuman = $this->formatDurationHuman($offlineSinceSeconds);
+
+        // Même offline, on peut garder une info sur l'ancienneté du dernier point statique
+        if (is_numeric($staticTimeSeconds)) {
+            $stoppedSinceSeconds = (int) $staticTimeSeconds;
+            $stoppedSinceHuman = $this->formatDurationHuman($stoppedSinceSeconds);
+        }
+    } else {
+        if ($speed !== null) {
+            if ($speed < 0) {
+                $movementState = 'UNKNOWN';
+                $isMoving = null;
+                $uiStatus = 'UNKNOWN';
+            } elseif ($speed >= $movingThreshold) {
+                $movementState = 'MOVING';
+                $isMoving = true;
+                $uiStatus = 'ONLINE_MOVING';
+            } else {
+                $movementState = 'STOPPED';
+                $isMoving = false;
+                $uiStatus = 'ONLINE_STOPPED';
+
+                if (is_numeric($staticTimeSeconds)) {
+                    $stoppedSinceSeconds = (int) $staticTimeSeconds;
+                    $stoppedSinceHuman = $this->formatDurationHuman($stoppedSinceSeconds);
+                }
+            }
+        }
+    }
+
+    return [
+        'success' => true,
+        'mac_id_gps' => $macId,
+        'account' => $this->account,
+        'user_id' => $record['user_id'] ?? null,
+
+        // Statut global
+        'ui_status' => $uiStatus,
+        'movement_state' => $movementState,
+        'connectivity_state' => $connectivityState,
+        'is_online' => $isOnline,
+        'is_moving' => $isMoving,
+
+        // Vitesse
+        'speed' => $speed,
+        'speed_raw' => $speedRaw,
+        'moving_threshold' => $movingThreshold,
+
+        // Temps d'arrêt
+        'stopped_since_seconds' => $stoppedSinceSeconds,
+        'stopped_since_human' => $stoppedSinceHuman,
+
+        // Temps offline
+        'offline_since_seconds' => $offlineSinceSeconds,
+        'offline_since_human' => $offlineSinceHuman,
+
+        // Dates utiles
+        'datetime' => $this->parseTimeToDateTimeString($record['datetime'] ?? null),
+        'heart_time' => $this->parseTimeToDateTimeString($record['heart_time'] ?? null),
+        'sys_time' => $this->parseTimeToDateTimeString($record['sys_time'] ?? null),
+
+        // Localisation
+        'latitude' => isset($record['weidu']) && is_numeric($record['weidu']) ? (float) $record['weidu'] : null,
+        'longitude' => isset($record['jingdu']) && is_numeric($record['jingdu']) ? (float) $record['jingdu'] : null,
+        'direction' => isset($record['hangxiang']) && is_numeric($record['hangxiang']) ? (float) $record['hangxiang'] : null,
+
+        // Status brut device
+        'raw_status' => $record['status'] ?? null,
+
+        // Bloc connectivité détaillé
+        'connectivity' => $connectivity,
+    ];
+}
 
 }

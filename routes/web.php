@@ -3,7 +3,6 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Users\TrackingUserController;
-use App\Http\Controllers\AgenceAuthController;
 use App\Http\Controllers\Voitures\VoitureController;
 use App\Http\Controllers\Associations\AssociationController;
 use App\Http\Controllers\Employes\EmployeController;
@@ -18,11 +17,11 @@ use App\Http\Controllers\Users\UserController;
 use App\Http\Controllers\Partner\AffectationChauffeurVoitureController;
 use App\Http\Controllers\Gps\ControlGpsController;
 
-Route::post('login', [AgenceAuthController::class, 'authenticate'])->name('login');
+
 
 Route::middleware(['auth:web'])->group(function () {
 
-    Route::post('logout', [AgenceAuthController::class, 'logout'])->name('logout');
+
 
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/dashboard/vehicles/positions', [DashboardController::class, 'vehiclesPositions']);

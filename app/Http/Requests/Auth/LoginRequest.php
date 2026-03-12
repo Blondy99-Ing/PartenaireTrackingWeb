@@ -2,11 +2,10 @@
 
 namespace App\Http\Requests\Auth;
 
-use Illuminate\Auth\Events\Lockout;
+use App\Services\Auth\LoginIdentifierResolver;
+use App\Services\Auth\LoginRateLimiter;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\RateLimiter;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class LoginRequest extends FormRequest
@@ -19,66 +18,60 @@ class LoginRequest extends FormRequest
     public function rules(): array
     {
         return [
-            // 💡 Peut être un email OU un numéro de téléphone
-            'login'    => ['required', 'string'],
+            'login' => ['required', 'string'],
             'password' => ['required', 'string'],
+            'remember' => ['nullable', 'boolean'],
         ];
     }
 
-    /**
-     * Tentative d’authentification avec email OU phone.
-     *
-     * @throws \Illuminate\Validation\ValidationException
-     */
+    public function messages(): array
+    {
+        return [
+            'login.required' => 'Le champ identifiant est obligatoire.',
+            'login.string' => 'Le champ identifiant doit être une chaîne de caractères.',
+            'password.required' => 'Le mot de passe est obligatoire.',
+            'password.string' => 'Le mot de passe doit être une chaîne de caractères.',
+            'remember.boolean' => 'La valeur du champ "Se souvenir de moi" est invalide.',
+        ];
+    }
+
     public function authenticate(): void
     {
-        $this->ensureIsNotRateLimited();
+        /** @var LoginRateLimiter $rateLimiter */
+        $rateLimiter = app(LoginRateLimiter::class);
 
-        $login    = $this->input('login');
-        $password = $this->input('password');
+        $rateLimiter->ensureIsNotRateLimited(
+            $this->input('login'),
+            $this->ip()
+        );
 
-        // 🧠 On détecte automatiquement si c’est un email ou un téléphone
-        if (filter_var($login, FILTER_VALIDATE_EMAIL)) {
-            $field = 'email';
-        } else {
-            // ⚠️ suppose que ta colonne en DB s’appelle `phone`
-            // adapte si c’est `telephone` ou autre
-            $field = 'phone';
-        }
+        /** @var LoginIdentifierResolver $resolver */
+        $resolver = app(LoginIdentifierResolver::class);
 
-        if (! Auth::attempt([$field => $login, 'password' => $password], $this->boolean('remember'))) {
-            RateLimiter::hit($this->throttleKey());
+        $resolved = $resolver->resolveCredentials(
+            $this->input('login'),
+            $this->input('password')
+        );
+
+        if (
+            empty($resolved['credentials']) ||
+            ! Auth::attempt($resolved['credentials'], $this->boolean('remember'))
+        ) {
+            $rateLimiter->hit($this->input('login'), $this->ip());
 
             throw ValidationException::withMessages([
-                // On renvoie l’erreur sur le champ "login"
-                'login' => trans('auth.failed'),
+                'login' => ['Identifiant ou mot de passe incorrect.'],
             ]);
         }
 
-        RateLimiter::clear($this->throttleKey());
-    }
+        $user = $resolved['user'] ?? null;
 
-    public function ensureIsNotRateLimited(): void
-    {
-        if (! RateLimiter::tooManyAttempts($this->throttleKey(), 5)) {
-            return;
+        if ($user && isset($user->status) && $user->status !== 'active') {
+            throw ValidationException::withMessages([
+                'login' => ['Votre compte est inactif. Veuillez contacter l’administrateur.'],
+            ]);
         }
 
-        event(new Lockout($this));
-
-        $seconds = RateLimiter::availableIn($this->throttleKey());
-
-        throw ValidationException::withMessages([
-            'login' => trans('auth.throttle', [
-                'seconds' => $seconds,
-                'minutes' => ceil($seconds / 60),
-            ]),
-        ]);
-    }
-
-    public function throttleKey(): string
-    {
-        // 🔑 On base la limitation sur "login" et l’IP
-        return Str::transliterate(Str::lower($this->string('login')).'|'.$this->ip());
+        $rateLimiter->clear($this->input('login'), $this->ip());
     }
 }

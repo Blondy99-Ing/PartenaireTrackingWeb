@@ -6,16 +6,12 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>Connexion — Fleetra</title>
 
-    {{-- Fonts identiques à app.blade --}}
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800&family=Rajdhani:wght@400;500;600;700&family=Lato:ital,wght@0,300;0,400;0,700;1,400&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
 
     <style>
-    /* ════════════════════════════════════════════════════════════════
-       DESIGN TOKENS — miroir exact de app.blade.php
-    ════════════════════════════════════════════════════════════════ */
     :root {
         --font-logo:    'Orbitron',  sans-serif;
         --font-display: 'Rajdhani', system-ui, sans-serif;
@@ -48,9 +44,6 @@
         --focus-ring: 0 0 0 3px rgba(245,130,32,0.40);
     }
 
-    /* ════════════════════════════════════════════════════════════════
-       LIGHT MODE — tokens identiques à app.blade.php
-    ════════════════════════════════════════════════════════════════ */
     .light-mode {
         --color-bg:             #f0f2f5;
         --color-bg-subtle:      #e8eaed;
@@ -66,9 +59,6 @@
         color: var(--color-text);
     }
 
-    /* ════════════════════════════════════════════════════════════════
-       DARK MODE — tokens identiques à app.blade.php
-    ════════════════════════════════════════════════════════════════ */
     .dark-mode {
         --color-bg:             #0d1117;
         --color-bg-subtle:      #161b22;
@@ -84,9 +74,6 @@
         color: var(--color-text);
     }
 
-    /* ════════════════════════════════════════════════════════════════
-       RESET & BASE
-    ════════════════════════════════════════════════════════════════ */
     *, *::before, *::after { box-sizing: border-box; }
 
     body {
@@ -105,7 +92,6 @@
         transition: background-color 0.25s, color 0.25s;
     }
 
-    /* ── Background image selon thème ─────────────────────────── */
     .light-mode body,
     body.light-mode {
         background-image: url('{{ asset("assets/images/bgloginlight.png") }}');
@@ -122,7 +108,6 @@
         background-attachment: fixed;
     }
 
-    /* Overlay de teinte sur le fond */
     body::before {
         content: '';
         position: fixed;
@@ -135,9 +120,6 @@
     .light-mode::before { background-color: rgba(240,242,245,0.55); }
     .dark-mode::before  { background-color: rgba(13,17,23,0.65); }
 
-    /* ════════════════════════════════════════════════════════════════
-       LAYOUT WRAPPER
-    ════════════════════════════════════════════════════════════════ */
     .login-wrapper {
         position: relative;
         z-index: 1;
@@ -148,7 +130,6 @@
         gap: 0.75rem;
     }
 
-    /* ── Barre supérieure (toggle thème) ──────────────────────── */
     .topbar {
         display: flex;
         align-items: center;
@@ -165,7 +146,6 @@
         white-space: nowrap;
     }
 
-    /* Toggle switch — identique app.blade.php */
     .toggle-switch {
         position: relative;
         width: 40px; height: 20px;
@@ -189,9 +169,6 @@
     .toggle-switch.on::after      { transform: translateX(20px); }
     .toggle-switch:focus-visible  { box-shadow: var(--focus-ring); outline: none; }
 
-    /* ════════════════════════════════════════════════════════════════
-       CARD
-    ════════════════════════════════════════════════════════════════ */
     .login-card {
         background: var(--color-card);
         border: 1px solid var(--color-border-subtle);
@@ -199,7 +176,6 @@
         padding: 2.5rem 2rem;
         box-shadow: var(--shadow-xl);
         transition: background 0.25s, border-color 0.25s, box-shadow 0.25s;
-        /* Légère translucidité pour laisser voir le fond */
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
     }
@@ -214,15 +190,11 @@
         box-shadow: 0 20px 60px rgba(0,0,0,0.50), 0 1px 0 rgba(255,255,255,0.04) inset;
     }
 
-    /* ════════════════════════════════════════════════════════════════
-       HEADER DE LA CARD
-    ════════════════════════════════════════════════════════════════ */
     .card-header {
         text-align: center;
         margin-bottom: 2rem;
     }
 
-    /* Icône logo */
     .logo-wrap {
         width: 80px; height: 80px;
         margin: 0 auto 1rem;
@@ -245,7 +217,6 @@
         display: block;
     }
 
-    /* Titre brand */
     .brand-title {
         font-family: var(--font-logo);
         font-weight: 800;
@@ -256,7 +227,6 @@
         margin: 0 0 0.75rem;
     }
 
-    /* Badges sous le titre */
     .badge-row {
         display: flex;
         align-items: center;
@@ -291,7 +261,6 @@
         color: var(--color-primary);
     }
 
-    /* Tagline */
     .tagline {
         font-family: var(--font-body);
         font-size: 0.82rem;
@@ -300,7 +269,6 @@
         line-height: 1.55;
     }
 
-    /* Séparateur dégradé */
     .divider-gradient {
         height: 2px;
         width: 80px;
@@ -312,9 +280,6 @@
             rgba(245,130,32,0));
     }
 
-    /* ════════════════════════════════════════════════════════════════
-       ALERTES (succès / erreur) — miroir des toasts app.blade.php
-    ════════════════════════════════════════════════════════════════ */
     .alert {
         display: flex;
         align-items: flex-start;
@@ -346,9 +311,6 @@
     .alert ul { margin: 0; padding-left: 1rem; }
     .alert ul li { list-style: disc; }
 
-    /* ════════════════════════════════════════════════════════════════
-       FORMULAIRE — inputs identiques à app.blade.php
-    ════════════════════════════════════════════════════════════════ */
     .form-group {
         margin-bottom: 1.125rem;
     }
@@ -386,7 +348,7 @@
         padding: 0.55rem 0.875rem 0.55rem 2.25rem;
         font-family: var(--font-body);
         font-size: 0.82rem;
-        transition: border-color 0.15s, box-shadow 0.2s, transform 0.12s;
+        transition: border-color 0.15s, box-shadow 0.2s, transform 0.12s, opacity 0.2s;
         appearance: none;
         outline: none;
         min-height: 40px;
@@ -400,12 +362,16 @@
         transform: translateY(-1px);
     }
 
+    .form-input:disabled {
+        opacity: 0.65;
+        cursor: not-allowed;
+    }
+
     .form-input:focus + .input-icon,
     .input-wrap:focus-within .input-icon {
         color: var(--color-primary);
     }
 
-    /* Hint sous l'input */
     .input-hint {
         font-family: var(--font-body);
         font-size: 0.65rem;
@@ -414,9 +380,6 @@
         opacity: 0.8;
     }
 
-    /* ════════════════════════════════════════════════════════════════
-       BOUTONS — identiques app.blade.php
-    ════════════════════════════════════════════════════════════════ */
     .btn-primary {
         display: inline-flex;
         align-items: center;
@@ -435,7 +398,7 @@
         min-height: 40px;
         white-space: nowrap;
         text-decoration: none;
-        transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+        transition: background 0.15s, transform 0.1s, box-shadow 0.15s, opacity 0.2s;
         box-shadow: 0 4px 14px rgba(245,130,32,0.30);
     }
 
@@ -447,6 +410,13 @@
 
     .btn-primary:active { transform: none; box-shadow: none; }
     .btn-primary:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+    .btn-primary:disabled {
+        opacity: 0.7;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
+    }
 
     .btn-primary-full {
         width: 100%;
@@ -471,7 +441,6 @@
     .btn-ghost:hover { color: var(--color-primary); }
     .btn-ghost:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--r-sm); }
 
-    /* ── Footer du formulaire ────────────────────────────────── */
     .form-footer {
         display: flex;
         align-items: center;
@@ -482,9 +451,6 @@
         border-top: 1px solid var(--color-border-subtle);
     }
 
-    /* ════════════════════════════════════════════════════════════════
-       MODALES — style identique aux modales du dashboard
-    ════════════════════════════════════════════════════════════════ */
     .modal-overlay {
         position: fixed;
         inset: 0;
@@ -572,7 +538,6 @@
 
     .modal-body { display: flex; flex-direction: column; gap: 0.875rem; }
 
-    /* Input hint spécifique modale OTP */
     .otp-input {
         text-align: center;
         letter-spacing: 0.45em;
@@ -587,9 +552,6 @@
         border-top: 1px solid var(--color-border-subtle);
     }
 
-    /* ════════════════════════════════════════════════════════════════
-       FOCUS GLOBAL
-    ════════════════════════════════════════════════════════════════ */
     :focus { outline: none; }
     :focus-visible {
         outline: 2px solid var(--color-primary);
@@ -597,9 +559,6 @@
         border-radius: var(--r-sm);
     }
 
-    /* ════════════════════════════════════════════════════════════════
-       ANIMATION ENTRÉE CARD
-    ════════════════════════════════════════════════════════════════ */
     @keyframes cardIn {
         from { opacity: 0; transform: translateY(18px); }
         to   { opacity: 1; transform: none; }
@@ -613,8 +572,6 @@
 <body class="light-mode" id="app-root">
 
 <div class="login-wrapper">
-
-    {{-- ── Barre thème (en haut à droite) ────────────────────── --}}
     <div class="topbar">
         <span class="mode-label" id="mode-label" aria-hidden="true">Mode Clair</span>
         <div id="theme-toggle"
@@ -626,12 +583,8 @@
              title="Changer de thème"></div>
     </div>
 
-    {{-- ══════════════════ CARD PRINCIPALE ══════════════════════ --}}
     <div class="login-card">
-
-        {{-- ── Header ─────────────────────────────────────────── --}}
         <div class="card-header">
-
             <div class="logo-wrap">
                 <img src="{{ asset('assets/images/logo_tracking.png') }}" alt="Logo Fleetra">
             </div>
@@ -656,7 +609,6 @@
             <div class="divider-gradient"></div>
         </div>
 
-        {{-- ── Alertes session ─────────────────────────────────── --}}
         @if(session('status') && !session('partner_pwd_reset_modal'))
         <div class="alert alert-success" role="alert">
             <i class="fas fa-check-circle"></i>
@@ -675,11 +627,20 @@
         </div>
         @endif
 
-        {{-- ── Formulaire de connexion ─────────────────────────── --}}
-        <form method="POST" action="{{ route('login') }}">
+        @if(session('login_lock_seconds') && !session('partner_pwd_reset_modal') && !session('show_forgot'))
+        <div class="alert alert-error" id="login-lock-alert" role="alert" data-seconds="{{ session('login_lock_seconds') }}">
+            <i class="fas fa-clock"></i>
+            <span>
+                Trop de tentatives. Nouvelle tentative dans
+                <strong id="login-lock-countdown">{{ session('login_lock_seconds') }}</strong>
+                seconde(s).
+            </span>
+        </div>
+        @endif
+
+        <form method="POST" action="{{ route('login') }}" id="login-form">
             @csrf
 
-            {{-- Email / Téléphone --}}
             <div class="form-group">
                 <label for="login" class="form-label">Email ou téléphone</label>
                 <div class="input-wrap">
@@ -691,12 +652,11 @@
                            autofocus
                            autocomplete="username"
                            class="form-input"
-                           placeholder="votre.email@agence.com ou 690 000 000">
+                           placeholder="votre.email@agence.com ou 699009900">
                     <i class="fas fa-user input-icon"></i>
                 </div>
             </div>
 
-            {{-- Mot de passe --}}
             <div class="form-group">
                 <label for="password" class="form-label">Mot de passe</label>
                 <div class="input-wrap">
@@ -711,7 +671,6 @@
                 </div>
             </div>
 
-            {{-- Footer : mot de passe oublié + bouton connexion --}}
             <div class="form-footer">
                 <button type="button"
                         id="forgot-open"
@@ -720,28 +679,19 @@
                     Mot de passe oublié ?
                 </button>
 
-                <button type="submit" class="btn-primary">
+                <button type="submit" class="btn-primary" id="login-submit-btn">
                     <i class="fas fa-arrow-right-to-bracket"></i>
                     Connexion
                 </button>
             </div>
         </form>
+    </div>
+</div>
 
-    </div>{{-- /.login-card --}}
-
-</div>{{-- /.login-wrapper --}}
-
-
-{{-- ═══════════════════════════════════════════════════════════════
-     MODALE 1 — Mot de passe oublié (envoi OTP)
-     Logique PHP / routes 100% inchangées
-═══════════════════════════════════════════════════════════════ --}}
 <div id="forgotModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="forgotTitle">
-
     <div class="modal-backdrop" data-close="forgotModal"></div>
 
     <div class="modal-panel">
-
         <div class="modal-header">
             <div>
                 <p class="modal-title" id="forgotTitle">
@@ -754,7 +704,6 @@
         </div>
 
         <div class="modal-body">
-
             @if($errors->has('login') && session('show_forgot'))
             <div class="alert alert-error" role="alert">
                 <i class="fas fa-exclamation-triangle"></i>
@@ -774,13 +723,10 @@
                                value="{{ old('login') }}"
                                required
                                class="form-input"
-                               placeholder="votre.email@agence.com ou 690 000 000">
+                               placeholder="votre.email@agence.com ou 699009900">
                         <i class="fas fa-at input-icon"></i>
                     </div>
-                    <p class="input-hint">
-                        <i class="fas fa-circle-info" style="margin-right:.25rem"></i>
-                        Formats acceptés : 696…, 0696…, +237…, 237…
-                    </p>
+                   
                 </div>
 
                 <button type="submit" class="btn-primary btn-primary-full">
@@ -788,22 +734,14 @@
                     Envoyer le code
                 </button>
             </form>
-
         </div>
     </div>
 </div>
 
-
-{{-- ═══════════════════════════════════════════════════════════════
-     MODALE 2 — Vérification OTP + renvoi
-     Logique PHP / routes 100% inchangées
-═══════════════════════════════════════════════════════════════ --}}
 <div id="otpModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="otpTitle">
-
     <div class="modal-backdrop" data-close="otpModal"></div>
 
     <div class="modal-panel">
-
         <div class="modal-header">
             <div>
                 <p class="modal-title" id="otpTitle">
@@ -826,7 +764,6 @@
         </div>
 
         <div class="modal-body">
-
             @if(session('status') && session('partner_pwd_reset_modal'))
             <div class="alert alert-success" role="alert">
                 <i class="fas fa-check-circle"></i>
@@ -879,77 +816,108 @@
                     Si vous ne recevez rien, vérifiez le format du numéro (237…).
                 </p>
             </div>
-
         </div>
     </div>
 </div>
 
-
-{{-- ═══════════════════════════════════════════════════════════════
-     SCRIPTS
-═══════════════════════════════════════════════════════════════ --}}
 <script>
 (function () {
     'use strict';
 
-    var ROOT    = document.getElementById('app-root');
-    var TOGGLE  = document.getElementById('theme-toggle');
-    var LABEL   = document.getElementById('mode-label');
+    var ROOT   = document.getElementById('app-root');
+    var TOGGLE = document.getElementById('theme-toggle');
+    var LABEL  = document.getElementById('mode-label');
 
-    /* ── Thème (même logique que app.blade.php) ──────────────── */
     function applyTheme(theme) {
         var dark = (theme === 'dark');
-        ROOT.classList.toggle('dark-mode',  dark);
+
+        ROOT.classList.toggle('dark-mode', dark);
         ROOT.classList.toggle('light-mode', !dark);
-        TOGGLE.classList.toggle('on', dark);
-        TOGGLE.setAttribute('aria-checked', String(dark));
-        if (LABEL) LABEL.textContent = dark ? 'Mode Sombre' : 'Mode Clair';
+
+        if (TOGGLE) {
+            TOGGLE.classList.toggle('on', dark);
+            TOGGLE.setAttribute('aria-checked', String(dark));
+        }
+
+        if (LABEL) {
+            LABEL.textContent = dark ? 'Mode Sombre' : 'Mode Clair';
+        }
+
         localStorage.setItem('fleetra-theme', theme);
     }
 
     function initTheme() {
         var saved = localStorage.getItem('fleetra-theme');
+
         if (!saved) {
             saved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         }
+
         applyTheme(saved);
     }
 
-    TOGGLE.addEventListener('click', function () {
-        applyTheme(ROOT.classList.contains('dark-mode') ? 'light' : 'dark');
-    });
+    if (TOGGLE) {
+        TOGGLE.addEventListener('click', function () {
+            applyTheme(ROOT.classList.contains('dark-mode') ? 'light' : 'dark');
+        });
 
-    TOGGLE.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); TOGGLE.click(); }
-    });
+        TOGGLE.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                TOGGLE.click();
+            }
+        });
+    }
 
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
-        if (!localStorage.getItem('fleetra-theme')) applyTheme(e.matches ? 'dark' : 'light');
-    });
+    if (window.matchMedia) {
+        var mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
 
-    /* ── Modales ─────────────────────────────────────────────── */
+        if (typeof mediaQuery.addEventListener === 'function') {
+            mediaQuery.addEventListener('change', function (e) {
+                if (!localStorage.getItem('fleetra-theme')) {
+                    applyTheme(e.matches ? 'dark' : 'light');
+                }
+            });
+        } else if (typeof mediaQuery.addListener === 'function') {
+            mediaQuery.addListener(function (e) {
+                if (!localStorage.getItem('fleetra-theme')) {
+                    applyTheme(e.matches ? 'dark' : 'light');
+                }
+            });
+        }
+    }
+
     function openModal(id) {
         var el = document.getElementById(id);
-        if (el) { el.classList.add('open'); focusFirst(el); }
+        if (el) {
+            el.classList.add('open');
+            focusFirst(el);
+        }
     }
 
     function closeModal(id) {
         var el = document.getElementById(id);
-        if (el) el.classList.remove('open');
+        if (el) {
+            el.classList.remove('open');
+        }
     }
 
     function focusFirst(panel) {
         var first = panel.querySelector('input, button, [tabindex]:not([tabindex="-1"])');
-        if (first) setTimeout(function () { first.focus(); }, 60);
+        if (first) {
+            setTimeout(function () {
+                first.focus();
+            }, 60);
+        }
     }
 
-    /* Clic sur backdrop (data-close) ou bouton close */
     document.addEventListener('click', function (e) {
         var closeId = e.target.getAttribute('data-close');
-        if (closeId) closeModal(closeId);
+        if (closeId) {
+            closeModal(closeId);
+        }
     });
 
-    /* Escape */
     document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape') {
             closeModal('forgotModal');
@@ -957,11 +925,76 @@
         }
     });
 
-    /* Bouton "Mot de passe oublié ?" */
     var forgotBtn = document.getElementById('forgot-open');
-    if (forgotBtn) forgotBtn.addEventListener('click', function () { openModal('forgotModal'); });
+    if (forgotBtn) {
+        forgotBtn.addEventListener('click', function () {
+            openModal('forgotModal');
+        });
+    }
 
-    /* Auto-open depuis sessions Laravel (inchangé) */
+    function startLoginLockCountdown() {
+        var alertBox = document.getElementById('login-lock-alert');
+        var counter = document.getElementById('login-lock-countdown');
+        var loginInput = document.getElementById('login');
+        var passwordInput = document.getElementById('password');
+        var submitBtn = document.getElementById('login-submit-btn');
+
+        if (!alertBox || !counter) {
+            return;
+        }
+
+        var seconds = parseInt(alertBox.getAttribute('data-seconds') || '0', 10);
+
+        if (isNaN(seconds) || seconds <= 0) {
+            return;
+        }
+
+        if (loginInput) {
+            loginInput.disabled = true;
+        }
+
+        if (passwordInput) {
+            passwordInput.disabled = true;
+        }
+
+        if (submitBtn) {
+            submitBtn.disabled = true;
+        }
+
+        counter.textContent = seconds;
+
+        var interval = setInterval(function () {
+            seconds--;
+
+            if (seconds <= 0) {
+                clearInterval(interval);
+
+                counter.textContent = '0';
+
+                if (loginInput) {
+                    loginInput.disabled = false;
+                }
+
+                if (passwordInput) {
+                    passwordInput.disabled = false;
+                }
+
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                }
+
+                var messageContainer = alertBox.querySelector('span');
+                if (messageContainer) {
+                    messageContainer.innerHTML = '<strong>Vous pouvez réessayer maintenant.</strong>';
+                }
+
+                return;
+            }
+
+            counter.textContent = seconds;
+        }, 1000);
+    }
+
     document.addEventListener('DOMContentLoaded', function () {
         @if(session('show_forgot'))
         openModal('forgotModal');
@@ -970,12 +1003,12 @@
         @if(session('partner_pwd_reset_modal'))
         openModal('otpModal');
         @endif
+
+        startLoginLockCountdown();
     });
 
-    /* ── Boot ────────────────────────────────────────────────── */
     initTheme();
 })();
 </script>
-
 </body>
 </html>
