@@ -128,28 +128,8 @@ class TrackingWebhookController extends Controller
 
         if (in_array($event, ['alert.created', 'alert.updated', 'alert.processed'], true)) {
             $limit = isset($data['limit']) ? (int) $data['limit'] : 10;
+            $partnerIds = $this->resolvePartnerIdsFromAlertPayload($data);
 
-            $partnerIds = [];
-            if (!empty($data['partner_id'])) {
-                $partnerIds = [(int) $data['partner_id']];
-            } else {
-                $voitureIds = [];
-                if (!empty($data['voiture_id'])) {
-                    $voitureIds[] = (int) $data['voiture_id'];
-                }
-
-                $macs = [];
-                if (!empty($data['mac_id_gps'])) {
-                    $macs[] = (string) $data['mac_id_gps'];
-                }
-
-                $partnerIds = $this->partnerIdsFromVoitureIds($voitureIds);
-                if (empty($partnerIds) && !empty($macs)) {
-                    $partnerIds = $this->partnerIdsFromMacs($macs);
-                }
-            }
-
-            $partnerIds = array_values(array_unique(array_map('intval', $partnerIds)));
             if (empty($partnerIds)) {
                 return response()->json(['ok' => true, 'event' => $event, 'partner_ids' => []]);
             }
@@ -158,15 +138,11 @@ class TrackingWebhookController extends Controller
                 if ($this->cache->shouldRefreshAlertsNow($partnerId, 2)) {
                     $this->cache->rebuildAlerts($partnerId, $limit);
                 } else {
-                    $this->cache->bumpVersionDebounced($partnerId, 2);
+                    $this->cache->bumpVersionDebounced($partnerId, 1);
                 }
             }
 
-            return response()->json([
-                'ok' => true,
-                'event' => $event,
-                'partner_ids' => $partnerIds,
-            ]);
+            return response()->json(['ok' => true, 'event' => $event, 'partner_ids' => $partnerIds]);
         }
 
         if ($event === 'alert.batch') {
@@ -179,7 +155,7 @@ class TrackingWebhookController extends Controller
                 if ($this->cache->shouldRefreshAlertsNow($partnerId, 2)) {
                     $this->cache->rebuildAlerts($partnerId, $limit);
                 } else {
-                    $this->cache->bumpVersionDebounced($partnerId, 2);
+                    $this->cache->bumpVersionDebounced($partnerId, 1);
                 }
 
                 return response()->json([
@@ -203,9 +179,6 @@ class TrackingWebhookController extends Controller
                 }
             }
 
-            $voitureIds = array_values(array_unique(array_filter(array_map('intval', $voitureIds))));
-            $macs = array_values(array_unique(array_filter(array_map(fn ($m) => trim((string) $m), $macs))));
-
             $partnerIds = [];
             if (!empty($voitureIds)) {
                 $partnerIds = $this->partnerIdsFromVoitureIds($voitureIds);
@@ -214,6 +187,7 @@ class TrackingWebhookController extends Controller
             }
 
             $partnerIds = array_values(array_unique(array_map('intval', $partnerIds)));
+
             if (empty($partnerIds)) {
                 return response()->json([
                     'ok' => true,
@@ -227,7 +201,7 @@ class TrackingWebhookController extends Controller
                 if ($this->cache->shouldRefreshAlertsNow($partnerId, 2)) {
                     $this->cache->rebuildAlerts($partnerId, $limit);
                 } else {
-                    $this->cache->bumpVersionDebounced($partnerId, 2);
+                    $this->cache->bumpVersionDebounced($partnerId, 1);
                 }
             }
 
@@ -240,6 +214,30 @@ class TrackingWebhookController extends Controller
         }
 
         return response()->json(['ok' => false, 'error' => 'Unknown event'], 422);
+    }
+
+    private function resolvePartnerIdsFromAlertPayload(array $data): array
+    {
+        if (!empty($data['partner_id'])) {
+            return [(int) $data['partner_id']];
+        }
+
+        $voitureIds = [];
+        if (!empty($data['voiture_id'])) {
+            $voitureIds[] = (int) $data['voiture_id'];
+        }
+
+        $macs = [];
+        if (!empty($data['mac_id_gps'])) {
+            $macs[] = (string) $data['mac_id_gps'];
+        }
+
+        $partnerIds = $this->partnerIdsFromVoitureIds($voitureIds);
+        if (empty($partnerIds) && !empty($macs)) {
+            $partnerIds = $this->partnerIdsFromMacs($macs);
+        }
+
+        return array_values(array_unique(array_map('intval', $partnerIds)));
     }
 
     private function partnerIdsFromVoitureIds(array $voitureIds): array

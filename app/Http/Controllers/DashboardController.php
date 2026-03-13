@@ -63,30 +63,50 @@ class DashboardController extends Controller
             echo "data: {\"ok\":true}\n\n";
             $this->flushNow();
 
-            echo "event: dashboard\n";
-            echo "data: " . $this->buildPayloadRedisOnly($partnerId) . "\n\n";
+            echo "event: dashboard.init\n";
+            echo "data: " . $this->buildInitPayload($partnerId) . "\n\n";
             $this->flushNow();
 
             $lastVersion = $this->cache->getVersion($partnerId);
 
             while (!connection_aborted()) {
-                $v = $this->cache->getVersion($partnerId);
+                $version = $this->cache->getVersion($partnerId);
 
-                if ($v !== $lastVersion) {
-                    $lastVersion = $v;
+                if ($version !== $lastVersion) {
+                    $lastVersion = $version;
 
-                    echo "event: dashboard\n";
-                    echo "data: " . $this->buildPayloadRedisOnly($partnerId) . "\n\n";
+                    if ($this->cache->consumeFleetReset($partnerId)) {
+                        echo "event: fleet.reset\n";
+                        echo "data: " . json_encode([
+                            'fleet' => $this->cache->getFleetFromRedis($partnerId),
+                        ], JSON_UNESCAPED_UNICODE) . "\n\n";
+                    } else {
+                        $vehicles = $this->cache->consumeDirtyVehicleRows($partnerId);
+                        foreach ($vehicles as $row) {
+                            echo "event: vehicle.updated\n";
+                            echo "data: " . json_encode(['vehicle' => $row], JSON_UNESCAPED_UNICODE) . "\n\n";
+                        }
+                    }
+
+                    $alerts = $this->cache->consumeDirtyAlerts($partnerId);
+                    if ($alerts !== null) {
+                        echo "event: alerts.updated\n";
+                        echo "data: " . json_encode(['alerts' => $alerts], JSON_UNESCAPED_UNICODE) . "\n\n";
+                    }
+
+                    $stats = $this->cache->consumeDirtyStats($partnerId);
+                    if ($stats !== null) {
+                        echo "event: stats.updated\n";
+                        echo "data: " . json_encode(['stats' => $stats], JSON_UNESCAPED_UNICODE) . "\n\n";
+                    }
+
                     $this->flushNow();
                 } else {
-                    // ✅ même sans nouveau webhook, on renvoie périodiquement le payload
-                    // pour que OFFLINE / stopped_since / offline_since restent visuellement à jour
-                    echo "event: dashboard\n";
-                    echo "data: " . $this->buildPayloadRedisOnly($partnerId) . "\n\n";
+                    echo "event: heartbeat\n";
+                    echo "data: " . json_encode(['ts' => now()->toDateTimeString()], JSON_UNESCAPED_UNICODE) . "\n\n";
                     $this->flushNow();
                 }
 
-                // ✅ ce soir : 2 secondes
                 usleep(2000000);
             }
         }, 200, [
@@ -111,21 +131,15 @@ class DashboardController extends Controller
         ]);
     }
 
-    private function buildPayloadRedisOnly(int $partnerId): string
+    private function buildInitPayload(int $partnerId): string
     {
-        $stats  = $this->cache->getStatsFromRedis($partnerId);
+        $stats  = $this->cache->getStatsFromRedis($partnerId) ?: [];
         $fleet  = $this->cache->getFleetFromRedis($partnerId);
         $alerts = $this->cache->getAlertsFromRedis($partnerId);
 
         return json_encode([
             'ts'     => now()->toDateTimeString(),
-            'stats'  => $stats ?? [
-                'usersCount' => 0,
-                'vehiclesCount' => 0,
-                'associationsCount' => 0,
-                'alertsCount' => 0,
-                'alertsByType' => [],
-            ],
+            'stats'  => $stats,
             'fleet'  => is_array($fleet) ? $fleet : [],
             'alerts' => is_array($alerts) ? $alerts : [],
         ], JSON_UNESCAPED_UNICODE);

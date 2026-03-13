@@ -27,10 +27,12 @@ class DashboardCacheService
     private function kDebounce(int $partnerId): string   { return "dash:p:$partnerId:debounce"; }
     private function kAlertsLock(int $partnerId): string { return "dash:p:$partnerId:alerts:lock"; }
     private function kVehicleIds(int $partnerId): string { return "dash:p:$partnerId:vehicle_ids"; }
+    private function kFleetReset(int $partnerId): string { return "dash:p:$partnerId:fleet:reset"; }
 
-    // =========================
-    // VERSION
-    // =========================
+    private function kDirtyVehicles(int $partnerId): string { return "dash:p:$partnerId:dirty:vehicles"; }
+    private function kDirtyAlerts(int $partnerId): string   { return "dash:p:$partnerId:dirty:alerts"; }
+    private function kDirtyStats(int $partnerId): string    { return "dash:p:$partnerId:dirty:stats"; }
+
     public function getVersion(int $partnerId): int
     {
         return (int) (Redis::get($this->kVersion($partnerId)) ?? 0);
@@ -41,7 +43,7 @@ class DashboardCacheService
         Redis::incr($this->kVersion($partnerId));
     }
 
-    public function bumpVersionDebounced(int $partnerId, int $seconds = 2): void
+    public function bumpVersionDebounced(int $partnerId, int $seconds = 1): void
     {
         $ok = Redis::set($this->kDebounce($partnerId), '1', 'EX', $seconds, 'NX');
         if ($ok) {
@@ -54,9 +56,6 @@ class DashboardCacheService
         return (bool) Redis::set($this->kAlertsLock($partnerId), '1', 'EX', $seconds, 'NX');
     }
 
-    // =========================
-    // VEHICLES IDS DU PARTENAIRE
-    // =========================
     public function partnerVehicleIds(int $partnerId): array
     {
         $cached = Redis::get($this->kVehicleIds($partnerId));
@@ -80,13 +79,165 @@ class DashboardCacheService
         return $ids;
     }
 
-    // =========================
-    // STATS
-    // =========================
     public function getStatsFromRedis(int $partnerId): ?array
     {
         $json = Redis::get($this->kStats($partnerId));
         return $json ? json_decode($json, true) : null;
+    }
+
+    public function getAlertsFromRedis(int $partnerId): array
+    {
+        $json = Redis::get($this->kAlerts($partnerId));
+        return $json ? (json_decode($json, true) ?: []) : [];
+    }
+
+    public function getFleetFromRedis(int $partnerId): array
+    {
+        try {
+            $all = Redis::hgetall($this->kFleetH($partnerId));
+            if (is_array($all) && !empty($all)) {
+                $out = [];
+                foreach ($all as $vehicleId => $json) {
+                    $row = json_decode($json, true);
+                    if (is_array($row)) {
+                        $out[] = $this->applyDynamicLiveStatusOnRow($row);
+                    }
+                }
+                return $out;
+            }
+        } catch (\Throwable) {
+        }
+
+        $json = Redis::get($this->kFleet($partnerId));
+        $fleet = $json ? (json_decode($json, true) ?: []) : [];
+
+        if (!is_array($fleet)) {
+            return [];
+        }
+
+        return array_map(fn ($row) => is_array($row) ? $this->applyDynamicLiveStatusOnRow($row) : $row, $fleet);
+    }
+
+    public function getFleetVehicleRowFromRedis(int $partnerId, int $vehicleId): ?array
+    {
+        try {
+            $json = Redis::hget($this->kFleetH($partnerId), (string) $vehicleId);
+            if (!$json) {
+                return null;
+            }
+
+            $row = json_decode($json, true);
+            return is_array($row) ? $row : null;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    public function consumeDirtyVehicleRows(int $partnerId): array
+    {
+        $key = $this->kDirtyVehicles($partnerId);
+        $ids = Redis::smembers($key);
+
+        if (empty($ids)) {
+            return [];
+        }
+
+        $ids = array_values(array_unique(array_map('intval', $ids)));
+        if (empty($ids)) {
+            Redis::del($key);
+            return [];
+        }
+
+        $rows = Redis::pipeline(function ($pipe) use ($partnerId, $ids) {
+            foreach ($ids as $id) {
+                $pipe->hget($this->kFleetH($partnerId), (string) $id);
+            }
+            $pipe->del($this->kDirtyVehicles($partnerId));
+        });
+
+        $out = [];
+        $countRows = count($ids);
+        for ($i = 0; $i < $countRows; $i++) {
+            $json = $rows[$i] ?? null;
+            if (!$json) {
+                continue;
+            }
+
+            $row = json_decode($json, true);
+            if (is_array($row)) {
+                $out[] = $this->applyDynamicLiveStatusOnRow($row);
+            }
+        }
+
+        return $out;
+    }
+
+    public function consumeDirtyAlerts(int $partnerId): ?array
+    {
+        $flag = Redis::get($this->kDirtyAlerts($partnerId));
+        if (!$flag) {
+            return null;
+        }
+
+        $alerts = $this->getAlertsFromRedis($partnerId);
+        Redis::del($this->kDirtyAlerts($partnerId));
+
+        return $alerts;
+    }
+
+    public function consumeDirtyStats(int $partnerId): ?array
+    {
+        $flag = Redis::get($this->kDirtyStats($partnerId));
+        if (!$flag) {
+            return null;
+        }
+
+        $stats = $this->getStatsFromRedis($partnerId);
+        Redis::del($this->kDirtyStats($partnerId));
+
+        return $stats;
+    }
+
+    public function markFleetResetDirty(int $partnerId): void
+    {
+        Redis::setex($this->kFleetReset($partnerId), 60, '1');
+    }
+
+    public function consumeFleetReset(int $partnerId): bool
+    {
+        $flag = Redis::get($this->kFleetReset($partnerId));
+        if (!$flag) {
+            return false;
+        }
+
+        Redis::del($this->kFleetReset($partnerId));
+
+        return true;
+    }
+
+    private function markVehiclesDirty(int $partnerId, array $vehicleIds): void
+    {
+        $vehicleIds = array_values(array_unique(array_map('intval', $vehicleIds)));
+        if (empty($vehicleIds)) {
+            return;
+        }
+
+        Redis::pipeline(function ($pipe) use ($partnerId, $vehicleIds) {
+            foreach ($vehicleIds as $id) {
+                $pipe->sadd($this->kDirtyVehicles($partnerId), (string) $id);
+            }
+            $pipe->expire($this->kDirtyVehicles($partnerId), $this->ttlFleet);
+        });
+    }
+
+    private function markAlertsDirty(int $partnerId): void
+    {
+        Redis::setex($this->kDirtyAlerts($partnerId), 60, '1');
+    }
+
+    private function markStatsDirty(int $partnerId): void
+    {
+        Redis::setex($this->kDirtyStats($partnerId), 60, '1');
     }
 
     public function rebuildStats(int $partnerId): array
@@ -151,36 +302,10 @@ class DashboardCacheService
         ];
 
         Redis::setex($this->kStats($partnerId), $this->ttlStats, json_encode($payload, JSON_UNESCAPED_UNICODE));
-        $this->bumpVersionDebounced($partnerId, 2);
+        $this->markStatsDirty($partnerId);
+        $this->bumpVersionDebounced($partnerId, 1);
 
         return $payload;
-    }
-
-    // =========================
-    // FLEET
-    // =========================
-    public function getFleetFromRedis(int $partnerId): array
-    {
-        try {
-            $all = Redis::hgetall($this->kFleetH($partnerId));
-            if (is_array($all) && !empty($all)) {
-                $out = [];
-                foreach ($all as $vehicleId => $json) {
-                    $row = json_decode($json, true);
-                    if (is_array($row)) {
-                        $out[] = $this->applyDynamicLiveStatusOnRow($row);
-                    }
-                }
-                return $out;
-            }
-        } catch (\Throwable) {
-            // fallback JSON
-        }
-
-        $json = Redis::get($this->kFleet($partnerId));
-        $fleet = $json ? (json_decode($json, true) ?: []) : [];
-
-        return array_map(fn ($row) => is_array($row) ? $this->applyDynamicLiveStatusOnRow($row) : $row, $fleet);
     }
 
     public function rebuildFleet(int $partnerId): array
@@ -191,9 +316,12 @@ class DashboardCacheService
             Redis::pipeline(function ($pipe) use ($partnerId) {
                 $pipe->del($this->kFleetH($partnerId));
                 $pipe->setex($this->kFleet($partnerId), $this->ttlFleet, json_encode([], JSON_UNESCAPED_UNICODE));
+                $pipe->del($this->kDirtyVehicles($partnerId));
             });
 
-            $this->bumpVersionDebounced($partnerId, 2);
+            $this->markFleetResetDirty($partnerId);
+            $this->bumpVersionDebounced($partnerId, 1);
+
             return [];
         }
 
@@ -226,10 +354,11 @@ class DashboardCacheService
 
         $fleet = [];
         $hashPayload = [];
+        $dirtyIds = [];
 
         foreach ($voitures as $v) {
-            $mac = trim((string) $v->mac_id_gps);
-            $loc = $latestByMac[$mac] ?? null;
+            $loc = $latestByMac[(string) $v->mac_id_gps] ?? null;
+
             if (!$loc) {
                 continue;
             }
@@ -241,6 +370,7 @@ class DashboardCacheService
 
             $fleet[] = $row;
             $hashPayload[(string) $v->id] = json_encode($row, JSON_UNESCAPED_UNICODE);
+            $dirtyIds[] = (int) $v->id;
         }
 
         Redis::pipeline(function ($pipe) use ($partnerId, $hashPayload, $fleet) {
@@ -254,18 +384,184 @@ class DashboardCacheService
             $pipe->setex($this->kFleet($partnerId), $this->ttlFleet, json_encode($fleet, JSON_UNESCAPED_UNICODE));
         });
 
-        $this->bumpVersionDebounced($partnerId, 2);
+        $this->markVehiclesDirty($partnerId, $dirtyIds);
+        $this->markFleetResetDirty($partnerId);
+        $this->bumpVersionDebounced($partnerId, 1);
 
         return $fleet;
     }
 
-    public function updateVehicleFromLocation(int $partnerId, Location $location, bool $bump = true): void
+    public function rebuildFleetForVehicleAssociations(Voiture $voiture): void
     {
+        $partnerIds = AssociationUserVoiture::query()
+            ->where('voiture_id', (int) $voiture->id)
+            ->pluck('user_id')
+            ->map(fn ($x) => (int) $x)
+            ->unique()
+            ->values()
+            ->all();
+
+        foreach ($partnerIds as $partnerId) {
+            $this->rebuildFleet((int) $partnerId);
+            $this->markFleetResetDirty((int) $partnerId);
+            $this->bumpVersionDebounced((int) $partnerId, 1);
+        }
+    }
+
+    public function updateVehicleFromLocation(int|Location $partnerIdOrLocation, ?Location $location = null, bool $bump = true): void
+    {
+        /**
+         * Compatibilité double :
+         * - ancien webhook : updateVehicleFromLocation(int $partnerId, Location $location, bool $bump = true)
+         * - autre usage éventuel : updateVehicleFromLocation(Location $location)
+         */
+
+        if ($partnerIdOrLocation instanceof Location) {
+            $incomingLocation = $partnerIdOrLocation;
+            $mac = trim((string) ($incomingLocation->mac_id_gps ?? ''));
+
+            if ($mac === '') {
+                return;
+            }
+
+            $vehicles = Voiture::query()
+                ->where('mac_id_gps', $mac)
+                ->get();
+
+            if ($vehicles->isEmpty()) {
+                return;
+            }
+
+            $vehicleIds = $vehicles->pluck('id')->map(fn ($x) => (int) $x)->all();
+
+            $partnerIds = AssociationUserVoiture::query()
+                ->whereIn('voiture_id', $vehicleIds)
+                ->pluck('user_id')
+                ->map(fn ($x) => (int) $x)
+                ->unique()
+                ->values()
+                ->all();
+
+            foreach ($partnerIds as $partnerId) {
+                $this->updateFleetBatchFromLocations((int) $partnerId, [$incomingLocation->toArray()], $bump);
+            }
+
+            return;
+        }
+
+        $partnerId = (int) $partnerIdOrLocation;
+
+        if (!$location) {
+            return;
+        }
+
         $this->updateFleetBatchFromLocations($partnerId, [$location->toArray()], $bump);
     }
 
-    public function updateFleetBatchFromLocations(int $partnerId, array $items, bool $bump = true): void
+    public function updateFleetBatchFromLocations(int|iterable $partnerIdOrLocations, array $items = [], bool $bump = true): void
     {
+        /**
+         * Compatibilité double :
+         * - contrat réel webhook :
+         *   updateFleetBatchFromLocations(int $partnerId, array $items, bool $bump = true)
+         *
+         * - usage éventuel :
+         *   updateFleetBatchFromLocations(iterable $locations)
+         */
+
+        if (is_iterable($partnerIdOrLocations) && !is_int($partnerIdOrLocations)) {
+            $latestByMac = [];
+
+            foreach ($partnerIdOrLocations as $location) {
+                if (!$location instanceof Location) {
+                    continue;
+                }
+
+                $mac = trim((string) ($location->mac_id_gps ?? ''));
+                if ($mac === '') {
+                    continue;
+                }
+
+                $current = $latestByMac[$mac] ?? null;
+                if (!$current || (int) $location->id > (int) $current->id) {
+                    $latestByMac[$mac] = $location;
+                }
+            }
+
+            if (empty($latestByMac)) {
+                return;
+            }
+
+            $macs = array_keys($latestByMac);
+
+            $vehicles = Voiture::query()
+                ->whereIn('mac_id_gps', $macs)
+                ->with(['chauffeurActuelPartner.chauffeur:id,prenom,nom,partner_id'])
+                ->select(['id', 'immatriculation', 'marque', 'model', 'mac_id_gps'])
+                ->get();
+
+            if ($vehicles->isEmpty()) {
+                return;
+            }
+
+            $vehicleIds = $vehicles->pluck('id')->map(fn ($x) => (int) $x)->all();
+
+            $associations = AssociationUserVoiture::query()
+                ->whereIn('voiture_id', $vehicleIds)
+                ->get(['user_id', 'voiture_id']);
+
+            if ($associations->isEmpty()) {
+                return;
+            }
+
+            $vehicleToPartners = [];
+            foreach ($associations as $assoc) {
+                $vehicleToPartners[(int) $assoc->voiture_id][] = (int) $assoc->user_id;
+            }
+
+            $dirtyByPartner = [];
+
+            foreach ($vehicles as $vehicle) {
+                $mac = trim((string) ($vehicle->mac_id_gps ?? ''));
+                $location = $latestByMac[$mac] ?? null;
+                if (!$location) {
+                    continue;
+                }
+
+                $existingPartners = array_values(array_unique(array_map('intval', $vehicleToPartners[(int) $vehicle->id] ?? [])));
+                if (empty($existingPartners)) {
+                    continue;
+                }
+
+                foreach ($existingPartners as $partnerId) {
+                    $existingRow = $this->getFleetVehicleRowFromRedis((int) $partnerId, (int) $vehicle->id);
+                    $row = $this->buildVehicleRow($vehicle, $location->toArray(), $existingRow);
+
+                    if (!$row) {
+                        continue;
+                    }
+
+                    Redis::hset(
+                        $this->kFleetH((int) $partnerId),
+                        (string) $vehicle->id,
+                        json_encode($row, JSON_UNESCAPED_UNICODE)
+                    );
+                    Redis::expire($this->kFleetH((int) $partnerId), $this->ttlFleet);
+
+                    $dirtyByPartner[(int) $partnerId][] = (int) $vehicle->id;
+                }
+            }
+
+            foreach ($dirtyByPartner as $partnerId => $vehicleIds) {
+                $this->markVehiclesDirty((int) $partnerId, $vehicleIds);
+                $this->bumpVersionDebounced((int) $partnerId, 1);
+            }
+
+            return;
+        }
+
+        $partnerId = (int) $partnerIdOrLocations;
+
         if (empty($items)) {
             return;
         }
@@ -277,11 +573,13 @@ class DashboardCacheService
 
         $latestByMac = [];
         $macs = [];
+
         foreach ($latestItems as $it) {
             $mac = trim((string) ($it['mac_id_gps'] ?? ''));
             if ($mac === '') {
                 continue;
             }
+
             $latestByMac[$mac] = $it;
             $macs[] = $mac;
         }
@@ -308,6 +606,7 @@ class DashboardCacheService
         }
 
         $hashPayload = [];
+        $dirtyIds = [];
 
         foreach ($voitures as $voiture) {
             $mac = trim((string) $voiture->mac_id_gps);
@@ -323,12 +622,12 @@ class DashboardCacheService
 
             $existingRow = $this->getFleetVehicleRowFromRedis($partnerId, (int) $voiture->id);
             $row = $this->buildVehicleRow($voiture, $data, $existingRow);
-
             if (!$row) {
                 continue;
             }
 
             $hashPayload[(string) $voiture->id] = json_encode($row, JSON_UNESCAPED_UNICODE);
+            $dirtyIds[] = (int) $voiture->id;
         }
 
         if (empty($hashPayload)) {
@@ -340,25 +639,87 @@ class DashboardCacheService
             $pipe->expire($this->kFleetH($partnerId), $this->ttlFleet);
         });
 
+        $this->markVehiclesDirty($partnerId, $dirtyIds);
+
         if ($bump) {
-            $this->bumpVersionDebounced($partnerId, 2);
+            $this->bumpVersionDebounced($partnerId, 1);
         }
+    }
+
+    public function rebuildAlerts(int $partnerId, int $limit = 10): array
+    {
+        $vehicleIds = $this->partnerVehicleIds($partnerId);
+
+        if (empty($vehicleIds)) {
+            Redis::setex($this->kAlerts($partnerId), $this->ttlAlerts, json_encode([], JSON_UNESCAPED_UNICODE));
+            $this->markAlertsDirty($partnerId);
+            $this->bumpVersionDebounced($partnerId, 1);
+            return [];
+        }
+
+        $start = now()->startOfDay();
+        $end   = now()->endOfDay();
+
+        $alerts = Alert::query()
+            ->with(['voiture'])
+            ->whereIn('voiture_id', $vehicleIds)
+            ->where(function ($q) {
+                $q->where('processed', 0)->orWhereNull('processed');
+            })
+            ->where(function ($q) use ($start, $end) {
+                $q->whereBetween('alerted_at', [$start, $end])
+                    ->orWhere(function ($qq) use ($start, $end) {
+                        $qq->whereNull('alerted_at')
+                            ->whereBetween('created_at', [$start, $end]);
+                    });
+            })
+            ->orderBy('alerted_at', 'desc')
+            ->limit($limit)
+            ->get()
+            ->map(function (Alert $a) {
+                $v = $a->voiture;
+                $typeNorm = $this->normalizeAlertType($a->alert_type);
+
+                return [
+                    'id'           => $a->id,
+                    'vehicle'      => $v?->immatriculation ?? 'N/A',
+                    'type'         => $typeNorm,
+                    'type_label'   => $this->alertTypeLabel($typeNorm),
+                    'time'         => optional($a->alerted_at ?? $a->created_at)->format('d/m/Y H:i:s'),
+                    'processed'    => (bool) ($a->processed ?? false),
+                    'status'       => 'Ouvert',
+                    'status_color' => 'bg-red-500',
+                ];
+            })
+            ->values()
+            ->toArray();
+
+        Redis::setex($this->kAlerts($partnerId), $this->ttlAlerts, json_encode($alerts, JSON_UNESCAPED_UNICODE));
+        $this->markAlertsDirty($partnerId);
+        $this->bumpVersionDebounced($partnerId, 1);
+
+        return $alerts;
+    }
+
+    public function rebuildAll(int $partnerId): array
+    {
+        $stats  = $this->rebuildStats($partnerId);
+        $fleet  = $this->rebuildFleet($partnerId);
+        $alerts = $this->rebuildAlerts($partnerId, 10);
+
+        return compact('stats', 'fleet', 'alerts');
     }
 
     public function refreshOfflineStatusesFromRedis(int $partnerId): array
     {
         $fleet = $this->getFleetFromRedis($partnerId);
         if (!is_array($fleet) || empty($fleet)) {
-            return [
-                'partner_id' => $partnerId,
-                'updated' => 0,
-                'changed' => 0,
-            ];
+            return ['partner_id' => $partnerId, 'updated' => 0, 'changed' => 0];
         }
 
         $changed = 0;
         $hashPayload = [];
-        $fleetOut = [];
+        $dirtyIds = [];
 
         foreach ($fleet as $vehicle) {
             if (!is_array($vehicle)) {
@@ -370,58 +731,25 @@ class DashboardCacheService
 
             if ($vehicle !== $oldVehicle) {
                 $changed++;
+
                 if (isset($vehicle['id'])) {
                     $hashPayload[(string) $vehicle['id']] = json_encode($vehicle, JSON_UNESCAPED_UNICODE);
+                    $dirtyIds[] = (int) $vehicle['id'];
                 }
             }
-
-            $fleetOut[] = $vehicle;
         }
 
         if ($changed > 0) {
-            Redis::pipeline(function ($pipe) use ($partnerId, $hashPayload, $fleetOut) {
-                if (!empty($hashPayload)) {
-                    $pipe->hMSet($this->kFleetH($partnerId), $hashPayload);
-                    $pipe->expire($this->kFleetH($partnerId), $this->ttlFleet);
-                }
-
-                $pipe->setex($this->kFleet($partnerId), $this->ttlFleet, json_encode($fleetOut, JSON_UNESCAPED_UNICODE));
+            Redis::pipeline(function ($pipe) use ($partnerId, $hashPayload) {
+                $pipe->hMSet($this->kFleetH($partnerId), $hashPayload);
+                $pipe->expire($this->kFleetH($partnerId), $this->ttlFleet);
             });
 
-            $this->bumpVersionDebounced($partnerId, 2);
+            $this->markVehiclesDirty($partnerId, $dirtyIds);
+            $this->bumpVersionDebounced($partnerId, 1);
         }
 
-        return [
-            'partner_id' => $partnerId,
-            'updated' => count($fleetOut),
-            'changed' => $changed,
-        ];
-    }
-
-    public function refreshAllPartnersOfflineStatusesFromRedis(): array
-    {
-        $partnerIds = AssociationUserVoiture::query()
-            ->distinct()
-            ->pluck('user_id')
-            ->map(fn ($x) => (int) $x)
-            ->filter()
-            ->values()
-            ->all();
-
-        $results = [];
-        $totalChanged = 0;
-
-        foreach ($partnerIds as $partnerId) {
-            $res = $this->refreshOfflineStatusesFromRedis($partnerId);
-            $results[] = $res;
-            $totalChanged += (int) ($res['changed'] ?? 0);
-        }
-
-        return [
-            'partners' => count($partnerIds),
-            'changed' => $totalChanged,
-            'results' => $results,
-        ];
+        return ['partner_id' => $partnerId, 'updated' => count($fleet), 'changed' => $changed];
     }
 
     private function pickLatestPerMacByLocId(array $items): array
@@ -505,21 +833,6 @@ class DashboardCacheService
         ];
     }
 
-    private function applyDynamicLiveStatusOnRow(array $vehicle): array
-    {
-        $oldLiveStatus = (array) ($vehicle['live_status'] ?? []);
-        if (!empty($oldLiveStatus)) {
-            $newLiveStatus = $this->recomputeOfflineLiveStatusFromRedis($oldLiveStatus);
-            $vehicle['live_status'] = $newLiveStatus;
-
-            $vehicle['gps']['online'] = $newLiveStatus['is_online'] ?? null;
-            $vehicle['gps']['state'] = ($newLiveStatus['is_online'] ?? null) === true ? 'ONLINE' : 'OFFLINE';
-            $vehicle['gps']['last_seen'] = (string) ($newLiveStatus['heart_time'] ?? $newLiveStatus['datetime'] ?? $newLiveStatus['sys_time'] ?? ($vehicle['gps']['last_seen'] ?? ''));
-        }
-
-        return $vehicle;
-    }
-
     private function isNewerLocIdThanCached(int $partnerId, int $vehicleId, int $incomingLocId): bool
     {
         try {
@@ -537,19 +850,24 @@ class DashboardCacheService
         }
     }
 
-    private function getFleetVehicleRowFromRedis(int $partnerId, int $vehicleId): ?array
+    private function applyDynamicLiveStatusOnRow(array $vehicle): array
     {
-        try {
-            $json = Redis::hget($this->kFleetH($partnerId), (string) $vehicleId);
-            if (!$json) {
-                return null;
-            }
+        $oldLiveStatus = (array) ($vehicle['live_status'] ?? []);
+        if (!empty($oldLiveStatus)) {
+            $newLiveStatus = $this->recomputeOfflineLiveStatusFromRedis($oldLiveStatus);
+            $vehicle['live_status'] = $newLiveStatus;
 
-            $row = json_decode($json, true);
-            return is_array($row) ? $row : null;
-        } catch (\Throwable) {
-            return null;
+            $vehicle['gps']['online'] = $newLiveStatus['is_online'] ?? null;
+            $vehicle['gps']['state'] = ($newLiveStatus['is_online'] ?? null) === true ? 'ONLINE' : 'OFFLINE';
+            $vehicle['gps']['last_seen'] = (string) (
+                $newLiveStatus['heart_time']
+                ?? $newLiveStatus['datetime']
+                ?? $newLiveStatus['sys_time']
+                ?? ($vehicle['gps']['last_seen'] ?? '')
+            );
         }
+
+        return $vehicle;
     }
 
     private function isGpsOnline($lastSeen): ?bool
@@ -563,9 +881,6 @@ class DashboardCacheService
         return $diffMs <= ($this->gpsOfflineMinutes * 60 * 1000);
     }
 
-    // =========================
-    // LIVE STATUS HELPERS
-    // =========================
     private function durationHuman(?int $seconds): ?string
     {
         if ($seconds === null || $seconds < 0) {
@@ -577,51 +892,27 @@ class DashboardCacheService
         $minutes = intdiv($seconds % 3600, 60);
         $secs = $seconds % 60;
 
-        if ($days > 0) {
-            return "{$days}j {$hours}h {$minutes}min";
-        }
-
-        if ($hours > 0) {
-            return "{$hours}h {$minutes}min";
-        }
-
-        if ($minutes > 0) {
-            return "{$minutes}min" . ($secs > 0 ? " {$secs}s" : '');
-        }
-
+        if ($days > 0) return "{$days}j {$hours}h {$minutes}min";
+        if ($hours > 0) return "{$hours}h {$minutes}min";
+        if ($minutes > 0) return "{$minutes}min" . ($secs > 0 ? " {$secs}s" : '');
         return "{$secs}s";
     }
 
     private function toMs($value): ?int
     {
-        if ($value === null) {
-            return null;
-        }
+        if ($value === null) return null;
 
         if (is_numeric($value)) {
             $n = (int) $value;
-            if ($n <= 0) {
-                return null;
-            }
-
-            if ($n >= 1000000000000) {
-                return $n;
-            }
-
-            if ($n >= 1000000000) {
-                return $n * 1000;
-            }
+            if ($n <= 0) return null;
+            if ($n >= 1000000000000) return $n;
+            if ($n >= 1000000000) return $n * 1000;
         }
 
         if (is_string($value)) {
             $s = trim((string) $value);
-            if ($s === '') {
-                return null;
-            }
-
-            if (is_numeric($s)) {
-                return $this->toMs((int) $s);
-            }
+            if ($s === '') return null;
+            if (is_numeric($s)) return $this->toMs((int) $s);
 
             try {
                 return Carbon::parse($s)->getTimestampMs();
@@ -635,9 +926,7 @@ class DashboardCacheService
 
     private function msToDateTime(?int $ms): ?string
     {
-        if (!$ms || $ms <= 0) {
-            return null;
-        }
+        if (!$ms || $ms <= 0) return null;
 
         try {
             return Carbon::createFromTimestampMs($ms)
@@ -661,10 +950,8 @@ class DashboardCacheService
         $sysMs   = $this->toMs($location['sys_time'] ?? null);
 
         $nowMs = now()->getTimestampMs();
-        $refNowMs = $nowMs;
-
         $onlineRefMs = $heartMs ?: $gpsMs ?: $sysMs;
-        $isOnline = $onlineRefMs ? (($refNowMs - $onlineRefMs) < $offlineThresholdMs) : false;
+        $isOnline = $onlineRefMs ? (($nowMs - $onlineRefMs) < $offlineThresholdMs) : false;
 
         $prevMovementState = (string) ($previousLiveStatus['movement_state'] ?? '');
         $prevStoppedSinceMs = isset($previousLiveStatus['stopped_since_ms']) ? (int) $previousLiveStatus['stopped_since_ms'] : null;
@@ -705,16 +992,11 @@ class DashboardCacheService
                 if (!$stoppedSinceMs || $prevMovementState !== 'STOPPED') {
                     $stoppedSinceMs = $gpsMs ?: $sysMs ?: $onlineRefMs ?: $nowMs;
                 }
-            } else {
-                $movementState = 'UNKNOWN';
-                $connectivityState = 'UNKNOWN';
-                $uiStatus = 'UNKNOWN';
-                $isMoving = null;
             }
         }
 
-        $stoppedSinceSeconds = $stoppedSinceMs ? max(0, (int) floor(($refNowMs - $stoppedSinceMs) / 1000)) : null;
-        $offlineSinceSeconds = $offlineSinceMs ? max(0, (int) floor(($refNowMs - $offlineSinceMs) / 1000)) : null;
+        $stoppedSinceSeconds = $stoppedSinceMs ? max(0, (int) floor(($nowMs - $stoppedSinceMs) / 1000)) : null;
+        $offlineSinceSeconds = $offlineSinceMs ? max(0, (int) floor(($nowMs - $offlineSinceMs) / 1000)) : null;
 
         return [
             'ui_status' => $uiStatus,
@@ -722,28 +1004,22 @@ class DashboardCacheService
             'connectivity_state' => $connectivityState,
             'is_online' => $isOnline,
             'is_moving' => $isMoving,
-
             'speed' => $speed,
             'speed_raw' => $speedRaw,
             'moving_threshold' => $this->movingThreshold,
-
             'stopped_since_ms' => $stoppedSinceMs,
             'stopped_since_seconds' => $stoppedSinceSeconds,
             'stopped_since_human' => $this->durationHuman($stoppedSinceSeconds),
-
             'offline_since_ms' => $offlineSinceMs,
             'offline_since_seconds' => $offlineSinceSeconds,
             'offline_since_human' => $this->durationHuman($offlineSinceSeconds),
-
             'datetime' => $this->msToDateTime($gpsMs),
             'heart_time' => $this->msToDateTime($heartMs),
             'sys_time' => $this->msToDateTime($sysMs),
-
             'heart_time_ms' => $heartMs,
             'datetime_ms' => $gpsMs,
             'sys_time_ms' => $sysMs,
             'updated_at_ms' => $nowMs,
-
             'offline_threshold_minutes' => $offlineThresholdMinutes,
         ];
     }
@@ -752,7 +1028,6 @@ class DashboardCacheService
     {
         $offlineThresholdMinutes = (int) ($liveStatus['offline_threshold_minutes'] ?? $this->gpsOfflineMinutes);
         $offlineThresholdMs = $offlineThresholdMinutes * 60 * 1000;
-
         $nowMs = now()->getTimestampMs();
 
         $heartMs = isset($liveStatus['heart_time_ms']) ? (int) $liveStatus['heart_time_ms'] : null;
@@ -771,7 +1046,6 @@ class DashboardCacheService
             }
 
             $offlineSinceSeconds = max(0, (int) floor(($nowMs - $offlineSinceMs) / 1000));
-
             $liveStatus['ui_status'] = 'OFFLINE';
             $liveStatus['movement_state'] = 'OFFLINE';
             $liveStatus['connectivity_state'] = 'OFFLINE';
@@ -794,9 +1068,6 @@ class DashboardCacheService
                 $liveStatus['ui_status'] = 'ONLINE_MOVING';
                 $liveStatus['connectivity_state'] = 'ONLINE_MOVING';
                 $liveStatus['is_moving'] = true;
-            } else {
-                $liveStatus['ui_status'] = 'UNKNOWN';
-                $liveStatus['connectivity_state'] = 'UNKNOWN';
             }
         }
 
@@ -812,86 +1083,10 @@ class DashboardCacheService
         return $liveStatus;
     }
 
-    // =========================
-    // ALERTS
-    // =========================
-    public function getAlertsFromRedis(int $partnerId): array
-    {
-        $json = Redis::get($this->kAlerts($partnerId));
-        return $json ? (json_decode($json, true) ?: []) : [];
-    }
-
-    public function rebuildAlerts(int $partnerId, int $limit = 10): array
-    {
-        $vehicleIds = $this->partnerVehicleIds($partnerId);
-
-        if (empty($vehicleIds)) {
-            Redis::setex($this->kAlerts($partnerId), $this->ttlAlerts, json_encode([], JSON_UNESCAPED_UNICODE));
-            $this->bumpVersionDebounced($partnerId, 2);
-            return [];
-        }
-
-        $start = now()->startOfDay();
-        $end   = now()->endOfDay();
-
-        $alerts = Alert::query()
-            ->with(['voiture'])
-            ->whereIn('voiture_id', $vehicleIds)
-            ->where(function ($q) {
-                $q->where('processed', 0)->orWhereNull('processed');
-            })
-            ->where(function ($q) use ($start, $end) {
-                $q->whereBetween('alerted_at', [$start, $end])
-                    ->orWhere(function ($qq) use ($start, $end) {
-                        $qq->whereNull('alerted_at')
-                            ->whereBetween('created_at', [$start, $end]);
-                    });
-            })
-            ->orderBy('alerted_at', 'desc')
-            ->limit($limit)
-            ->get()
-            ->map(function (Alert $a) {
-                $v = $a->voiture;
-                $typeNorm = $this->normalizeAlertType($a->alert_type);
-
-                return [
-                    'id'           => $a->id,
-                    'vehicle'      => $v?->immatriculation ?? 'N/A',
-                    'type'         => $typeNorm,
-                    'type_label'   => $this->alertTypeLabel($typeNorm),
-                    'time'         => optional($a->alerted_at ?? $a->created_at)->format('d/m/Y H:i:s'),
-                    'processed'    => (bool) ($a->processed ?? false),
-                    'status'       => 'Ouvert',
-                    'status_color' => 'bg-red-500',
-                ];
-            })
-            ->values()
-            ->toArray();
-
-        Redis::setex($this->kAlerts($partnerId), $this->ttlAlerts, json_encode($alerts, JSON_UNESCAPED_UNICODE));
-        $this->bumpVersionDebounced($partnerId, 2);
-
-        return $alerts;
-    }
-
-    public function rebuildAll(int $partnerId): array
-    {
-        $stats  = $this->rebuildStats($partnerId);
-        $fleet  = $this->rebuildFleet($partnerId);
-        $alerts = $this->rebuildAlerts($partnerId, 10);
-
-        return compact('stats', 'fleet', 'alerts');
-    }
-
-    // =========================
-    // NORMALISATION ALERT TYPES
-    // =========================
     private function normalizeAlertType(?string $t): string
     {
         $t = strtolower(trim((string) $t));
-        if ($t === '') {
-            return 'unknown';
-        }
+        if ($t === '') return 'unknown';
 
         return match ($t) {
             'overspeed', 'speeding', 'speed' => 'speed',

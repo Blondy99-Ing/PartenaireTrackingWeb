@@ -559,15 +559,8 @@
 }
 
 @keyframes pulse {
-
-    0%,
-    100% {
-        opacity: 1
-    }
-
-    50% {
-        opacity: .25
-    }
+    0%, 100% { opacity: 1 }
+    50% { opacity: .25 }
 }
 
 .empty {
@@ -947,7 +940,7 @@
 }
 
 /* =========================
-   Vehicle modal (NEW)
+   Vehicle modal
    ========================= */
 #vehicleModal {
     position: absolute;
@@ -963,10 +956,8 @@
     display: block
 }
 
-/* Reuse same tm-h / tm-b / tm-grid / tm-box structure — see HTML below */
-
 /* =========================
-   Replay UI — FIX: vitesse + follow toggle
+   Replay UI
    ========================= */
 #tripReplay {
     position: absolute;
@@ -1094,7 +1085,8 @@
     padding: .6rem;
     font-size: .72rem;
     line-height: 1.55;
-    color: var(--color-text)
+    color: var(--color-text);
+    white-space: pre-line;
 }
 
 .ad-btns {
@@ -1134,6 +1126,44 @@
 .ad-btns .b2:hover {
     background: var(--color-primary-hover, #e07318)
 }
+
+/* Selected vehicle follow state */
+.follow-pill {
+    position: absolute;
+    top: 14px;
+    left: 14px;
+    z-index: calc(var(--z-map-ui) + 2);
+    display: inline-flex;
+    align-items: center;
+    gap: .45rem;
+    border: 1px solid rgba(255, 255, 255, .14);
+    background: rgba(17, 24, 39, .62);
+    color: #fff;
+    border-radius: 9999px;
+    padding: .38rem .65rem;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .25);
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-size: .60rem;
+    cursor: pointer;
+    user-select: none;
+}
+
+.follow-pill:hover {
+    border-color: rgba(255, 255, 255, .28);
+}
+
+.follow-pill.off {
+    opacity: .72;
+}
+
+.follow-pill .d {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: #22c55e;
+}
 </style>
 @endpush
 
@@ -1148,7 +1178,6 @@ $alertTypesMeta = [
 ];
 @endphp
 
-{{-- ===================== KPI STICKY ===================== --}}
 <div class="kpi-sticky" id="kpiBar">
     <div class="kpi-grid">
         <div class="card kpi" style="grid-column:span 2" onclick="window.switchTab('flotte')">
@@ -1177,8 +1206,7 @@ $alertTypesMeta = [
                         <p class="t">{{ $label }}</p>
                         <p class="n" id="kA_{{ $k }}">{{ (int)($alertStats[$k] ?? 0) }}</p>
                     </div>
-                    <div
-                        style="width:30px;height:25px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:var(--color-primary-light)">
+                    <div style="width:30px;height:25px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:var(--color-primary-light)">
                         <i class="fas {{ $icon }}" style="color:var(--color-primary);font-size:.7rem"></i>
                     </div>
                 </div>
@@ -1188,19 +1216,16 @@ $alertTypesMeta = [
     </div>
 </div>
 
-{{-- ===================== MAIN ===================== --}}
 <div class="content">
     <div class="grid-main">
 
-        {{-- LEFT --}}
         <div class="col-left">
             <div class="card" style="height:100%;display:flex;flex-direction:column;min-height:0">
 
                 <div class="tabs">
                     <button class="tab active" id="tab-flotte" onclick="window.switchTab('flotte')">📍 Flotte</button>
                     <button class="tab" id="tab-trajets" onclick="window.switchTab('trajets')">🛣️ Trajets</button>
-                    <button class="tab" id="tab-alertes" onclick="window.switchTab('alertes')">🚨 <span class="badge"
-                            id="bAlerts">0</span></button>
+                    <button class="tab" id="tab-alertes" onclick="window.switchTab('alertes')">🚨 <span class="badge" id="bAlerts">0</span></button>
                 </div>
 
                 <div class="search">
@@ -1211,59 +1236,42 @@ $alertTypesMeta = [
                     </div>
                 </div>
 
-                {{-- ============ PANE FLOTTE ============ --}}
                 <div class="pane active" id="pane-flotte">
                     <div class="modebar">
-                        <button class="mbtn" id="mode-flotte-simple"
-                            onclick="window.setMode('flotte','simple')">Liste</button>
-                        <button class="mbtn active" id="mode-flotte-detailed"
-                            onclick="window.setMode('flotte','detailed')">Détaillé</button>
+                        <button class="mbtn" id="mode-flotte-simple" onclick="window.setMode('flotte','simple')">Liste</button>
+                        <button class="mbtn active" id="mode-flotte-detailed" onclick="window.setMode('flotte','detailed')">Détaillé</button>
                     </div>
                     <div class="fbar">
-                        <button class="fbtn" onclick="window.togglePaneFilters('flotte')"><i
-                                class="fas fa-sliders-h"></i> Filtres</button>
-                        <button class="fbtn2" onclick="window.resetFleetFilters()"><i class="fas fa-rotate-left"></i>
-                            Reset</button>
+                        <button class="fbtn" onclick="window.togglePaneFilters('flotte')"><i class="fas fa-sliders-h"></i> Filtres</button>
+                        <button class="fbtn2" onclick="window.resetFleetFilters()"><i class="fas fa-rotate-left"></i> Reset</button>
                     </div>
                     <div class="filters" id="vf">
                         <span class="f active" data-f="all" onclick="window.setVehFilter(this,'all')">Tous</span>
-                        <span class="f" data-f="moving" onclick="window.setVehFilter(this,'moving')">● En
-                            mouvement</span>
+                        <span class="f" data-f="moving" onclick="window.setVehFilter(this,'moving')">● En mouvement</span>
                         <span class="f" data-f="idle" onclick="window.setVehFilter(this,'idle')">● En arrêt</span>
                         <span class="f" data-f="online" onclick="window.setVehFilter(this,'online')">● Online</span>
                         <span class="f" data-f="offline" onclick="window.setVehFilter(this,'offline')">● Offline</span>
                     </div>
                     <div class="scroll" id="vehList">
-                        <div class="empty"><i class="fas fa-circle-notch fa-spin"></i>
-                            <div style="margin-top:.6rem">Chargement…</div>
-                        </div>
+                        <div class="empty"><i class="fas fa-circle-notch fa-spin"></i><div style="margin-top:.6rem">Chargement…</div></div>
                     </div>
                 </div>
 
-                {{-- ============ PANE TRAJETS ============ --}}
                 <div class="pane" id="pane-trajets">
                     <div class="modebar">
-                        <button class="mbtn" id="mode-trajets-simple"
-                            onclick="window.setMode('trajets','simple')">Liste</button>
-                        <button class="mbtn active" id="mode-trajets-detailed"
-                            onclick="window.setMode('trajets','detailed')">Détaillé</button>
+                        <button class="mbtn" id="mode-trajets-simple" onclick="window.setMode('trajets','simple')">Liste</button>
+                        <button class="mbtn active" id="mode-trajets-detailed" onclick="window.setMode('trajets','detailed')">Détaillé</button>
                     </div>
                     <div class="fbar">
-                        <button class="fbtn" onclick="window.togglePaneFilters('trajets')"><i
-                                class="fas fa-sliders-h"></i> Filtres</button>
-                        <button class="fbtn2" onclick="window.toggleTripsCustom()"><i class="fas fa-calendar"></i>
-                            Personnaliser</button>
+                        <button class="fbtn" onclick="window.togglePaneFilters('trajets')"><i class="fas fa-sliders-h"></i> Filtres</button>
+                        <button class="fbtn2" onclick="window.toggleTripsCustom()"><i class="fas fa-calendar"></i> Personnaliser</button>
                     </div>
                     <div class="quickbar" id="tQuick">
-                        <span class="qc active" data-q="today"
-                            onclick="window.setTripsQuick(this,'today')">Aujourd'hui</span>
+                        <span class="qc active" data-q="today" onclick="window.setTripsQuick(this,'today')">Aujourd'hui</span>
                         <span class="qc" data-q="yesterday" onclick="window.setTripsQuick(this,'yesterday')">Hier</span>
-                        <span class="qc" data-q="this_week"
-                            onclick="window.setTripsQuick(this,'this_week')">Semaine</span>
-                        <span class="qc" data-q="this_month"
-                            onclick="window.setTripsQuick(this,'this_month')">Mois</span>
-                        <span class="qc" data-q="this_year"
-                            onclick="window.setTripsQuick(this,'this_year')">Année</span>
+                        <span class="qc" data-q="this_week" onclick="window.setTripsQuick(this,'this_week')">Semaine</span>
+                        <span class="qc" data-q="this_month" onclick="window.setTripsQuick(this,'this_month')">Mois</span>
+                        <span class="qc" data-q="this_year" onclick="window.setTripsQuick(this,'this_year')">Année</span>
                     </div>
                     <div class="datebox" id="tDateBox">
                         <div class="dr">
@@ -1278,54 +1286,34 @@ $alertTypesMeta = [
                         <span class="f" data-f="done" onclick="window.setTripFilter(this,'done')">Terminés</span>
                     </div>
                     <div class="scroll" id="tripList">
-                        <div class="empty"><i class="fas fa-route"></i>
-                            <div style="margin-top:.6rem">Aucun trajet chargé</div>
-                        </div>
+                        <div class="empty"><i class="fas fa-route"></i><div style="margin-top:.6rem">Aucun trajet chargé</div></div>
                     </div>
                 </div>
 
-                {{-- ============ PANE ALERTES ============ --}}
                 <div class="pane" id="pane-alertes">
                     <div class="modebar">
-                        <button class="mbtn" id="mode-alertes-simple"
-                            onclick="window.setMode('alertes','simple')">Liste</button>
-                        <button class="mbtn active" id="mode-alertes-detailed"
-                            onclick="window.setMode('alertes','detailed')">Détaillé</button>
+                        <button class="mbtn" id="mode-alertes-simple" onclick="window.setMode('alertes','simple')">Liste</button>
+                        <button class="mbtn active" id="mode-alertes-detailed" onclick="window.setMode('alertes','detailed')">Détaillé</button>
                     </div>
                     <div class="fbar">
-                        <button class="fbtn" onclick="window.togglePaneFilters('alertes')"><i
-                                class="fas fa-sliders-h"></i> Filtres</button>
-                        <button class="fbtn2" onclick="window.toggleAlertsCustom()"><i class="fas fa-calendar"></i>
-                            Personnaliser</button>
+                        <button class="fbtn" onclick="window.togglePaneFilters('alertes')"><i class="fas fa-sliders-h"></i> Filtres</button>
+                        <button class="fbtn2" onclick="window.toggleAlertsCustom()"><i class="fas fa-calendar"></i> Personnaliser</button>
                     </div>
                     <div class="quickbar" id="aQuick">
-                        <span class="qc active" data-q="today"
-                            onclick="window.setAlertsQuick(this,'today')">Aujourd'hui</span>
-                        <span class="qc" data-q="yesterday"
-                            onclick="window.setAlertsQuick(this,'yesterday')">Hier</span>
-                        <span class="qc" data-q="this_week"
-                            onclick="window.setAlertsQuick(this,'this_week')">Semaine</span>
-                        <span class="qc" data-q="this_month"
-                            onclick="window.setAlertsQuick(this,'this_month')">Mois</span>
-                        <span class="qc" data-q="this_year"
-                            onclick="window.setAlertsQuick(this,'this_year')">Année</span>
+                        <span class="qc active" data-q="today" onclick="window.setAlertsQuick(this,'today')">Aujourd'hui</span>
+                        <span class="qc" data-q="yesterday" onclick="window.setAlertsQuick(this,'yesterday')">Hier</span>
+                        <span class="qc" data-q="this_week" onclick="window.setAlertsQuick(this,'this_week')">Semaine</span>
+                        <span class="qc" data-q="this_month" onclick="window.setAlertsQuick(this,'this_month')">Mois</span>
+                        <span class="qc" data-q="this_year" onclick="window.setAlertsQuick(this,'this_year')">Année</span>
                     </div>
-                    <div class="quickbar" id="aResolveBar">
-                        <span class="qc active" data-r="open" onclick="window.setAlertResolve(this,'open')">Non
-                            résolues</span>
-                        <span class="qc" data-r="resolved"
-                            onclick="window.setAlertResolve(this,'resolved')">Résolues</span>
-                        <span class="qc" data-r="all" onclick="window.setAlertResolve(this,'all')">Toutes</span>
-                    </div>
+
                     <div class="filters" id="af">
                         <span class="f active" data-at="all" onclick="window.setAlertType(this,'all')">Toutes</span>
                         <span class="f" data-at="stolen" onclick="window.setAlertType(this,'stolen')">🔴 Vol</span>
                         <span class="f" data-at="geofence" onclick="window.setAlertType(this,'geofence')">🔲 Geo</span>
-                        <span class="f" data-at="safe_zone" onclick="window.setAlertType(this,'safe_zone')">🛡️
-                            Safe</span>
+                        <span class="f" data-at="safe_zone" onclick="window.setAlertType(this,'safe_zone')">🛡️ Safe</span>
                         <span class="f" data-at="speed" onclick="window.setAlertType(this,'speed')">⚡ Vitesse</span>
-                        <span class="f" data-at="time_zone" onclick="window.setAlertType(this,'time_zone')">🌙
-                            Time</span>
+                        <span class="f" data-at="time_zone" onclick="window.setAlertType(this,'time_zone')">🌙 Time</span>
                     </div>
                     <div class="datebox" id="aDateBox">
                         <div class="dr">
@@ -1340,31 +1328,31 @@ $alertTypesMeta = [
                         </div>
                     </div>
                     <div class="scroll" id="alertList">
-                        <div class="empty"><i class="fas fa-bell"></i>
-                            <div style="margin-top:.6rem">Aucune alerte chargée</div>
-                        </div>
+                        <div class="empty"><i class="fas fa-bell"></i><div style="margin-top:.6rem">Aucune alerte chargée</div></div>
                     </div>
                 </div>
 
             </div>
         </div>
 
-        {{-- MAP --}}
         <div class="col-map" style="grid-column:span 3;min-height:0">
             <div class="card mapwrap" style="height:100%">
 
                 <div class="maphead">
                     <h2>Localisation de la flotte</h2>
                     <div style="display:flex;align-items:center;gap:.6rem">
-                        <span class="sse"><span class="ssedot" id="sseDot"></span><span
-                                id="sseTxt">Connexion…</span></span>
+                        <span class="sse"><span class="ssedot" id="sseDot"></span><span id="sseTxt">Connexion…</span></span>
                         <span id="lastUp" style="font-size:.65rem;color:var(--color-secondary-text,#8b949e)"></span>
                     </div>
                 </div>
 
                 <div id="fleetMap"></div>
 
-                {{-- Map type dropdown --}}
+                <div class="follow-pill" id="followSelectedPill" onclick="window.toggleSelectedVehicleFollow()">
+                    <span class="d"></span>
+                    <span id="followSelectedTxt">Suivi véhicule : ON</span>
+                </div>
+
                 <div class="maptype" id="mapTypeCtrl">
                     <button class="btn" onclick="window.toggleMapTypeMenu()" title="Type de carte">
                         <i class="fas fa-map"></i>
@@ -1385,7 +1373,6 @@ $alertTypesMeta = [
                     </div>
                 </div>
 
-                {{-- Top-center trips KPIs --}}
                 <div id="topTripsKpis">
                     <div class="pill"><i class="fas fa-route"></i> <span class="v" id="tkCount">0</span> trajets</div>
                     <div class="pill"><i class="fas fa-road"></i> <span class="v" id="tkDist">0.0 km</span></div>
@@ -1393,23 +1380,20 @@ $alertTypesMeta = [
                     <div class="pill"><i class="fas fa-gauge-high"></i> <span class="v" id="tkMax">0 km/h</span></div>
                 </div>
 
-                {{-- Bottom legend --}}
                 <div class="legend">
                     <div class="leg"><span class="d" style="background:#16a34a"></span> En mouvement</div>
+                    <div class="leg"><span class="d" style="background:#2563eb"></span> En ligne</div>
                     <div class="leg"><span class="d" style="background:#d97706"></span> À l’arrêt</div>
-                    <div class="leg"><span class="d" style="background:#6b7280"></span> Hors ligne</div>
                     <div class="leg"><span class="d" style="background:#6b7280"></span> Offline</div>
                 </div>
 
-                {{-- ===== Trip detail modal ===== --}}
                 <div class="card" id="tripModal">
                     <div class="tm-h">
                         <div style="min-width:0">
                             <strong id="tmTitle">Trajet</strong>
                             <small id="tmSub">—</small>
                         </div>
-                        <button class="mbtn" style="flex:0 0 auto;padding:.3rem .55rem;border-radius:10px"
-                            onclick="window.closeTripModal()">✕</button>
+                        <button class="mbtn" style="flex:0 0 auto;padding:.3rem .55rem;border-radius:10px" onclick="window.closeTripModal()">✕</button>
                     </div>
                     <div class="tm-b">
                         <div class="tm-grid">
@@ -1448,15 +1432,13 @@ $alertTypesMeta = [
                     </div>
                 </div>
 
-                {{-- ===== Vehicle modal (NEW) ===== --}}
                 <div class="card" id="vehicleModal">
                     <div class="tm-h">
                         <div style="min-width:0">
                             <strong id="vmTitle">Véhicule</strong>
                             <small id="vmSub">—</small>
                         </div>
-                        <button class="mbtn" style="flex:0 0 auto;padding:.3rem .55rem;border-radius:10px"
-                            onclick="window.closeVehicleModal()">✕</button>
+                        <button class="mbtn" style="flex:0 0 auto;padding:.3rem .55rem;border-radius:10px" onclick="window.closeVehicleModal()">✕</button>
                     </div>
                     <div class="tm-b">
                         <div class="tm-grid">
@@ -1488,8 +1470,7 @@ $alertTypesMeta = [
                         <div class="tm-grid" style="margin-top:.35rem">
                             <div class="tm-box" style="grid-column:span 2">
                                 <div class="k">Position</div>
-                                <div class="v" id="vmPos"
-                                    style="font-size:.72rem;font-family:var(--font-mono,monospace)">—</div>
+                                <div class="v" id="vmPos" style="font-size:.72rem;font-family:var(--font-mono,monospace)">—</div>
                             </div>
                         </div>
                         <div class="tm-actions">
@@ -1498,7 +1479,6 @@ $alertTypesMeta = [
                     </div>
                 </div>
 
-                {{-- ===== Replay panel (FIXED: speed chips + follow toggle) ===== --}}
                 <div class="card" id="tripReplay">
                     <div class="rp">
                         <strong>Replay</strong>
@@ -1506,31 +1486,25 @@ $alertTypesMeta = [
                         <button onclick="window.replayPause()">⏸</button>
                         <button onclick="window.replayStop()">⏹</button>
 
-                        {{-- Speed chips --}}
                         <div class="speed-chips">
                             <button class="speed-chip" data-spd="0.25" onclick="window.replaySetSpeed(0.25)">¼x</button>
                             <button class="speed-chip" data-spd="0.5" onclick="window.replaySetSpeed(0.5)">½x</button>
-                            <button class="speed-chip active-chip" data-spd="1"
-                                onclick="window.replaySetSpeed(1)">1x</button>
+                            <button class="speed-chip active-chip" data-spd="1" onclick="window.replaySetSpeed(1)">1x</button>
                             <button class="speed-chip" data-spd="2" onclick="window.replaySetSpeed(2)">2x</button>
                             <button class="speed-chip" data-spd="4" onclick="window.replaySetSpeed(4)">4x</button>
                             <button class="speed-chip" data-spd="8" onclick="window.replaySetSpeed(8)">8x</button>
                             <button class="speed-chip" data-spd="16" onclick="window.replaySetSpeed(16)">16x</button>
                         </div>
 
-                        {{-- +/- buttons --}}
                         <button onclick="window.replaySlower()" title="Ralentir">−</button>
                         <small>x<span id="rpSpeed">1</span></small>
                         <button onclick="window.replayFaster()" title="Accélérer">+</button>
 
-                        {{-- Follow toggle --}}
-                        <button id="rpFollow" class="active-btn" onclick="window.toggleFollow()"
-                            title="Suivre le véhicule">
+                        <button id="rpFollow" class="active-btn" onclick="window.toggleFollow()" title="Suivre le véhicule">
                             🎯 Suivre
                         </button>
 
-                        <input id="rpRange" type="range" min="0" max="0" value="0"
-                            oninput="window.replaySeek(this.value)">
+                        <input id="rpRange" type="range" min="0" max="0" value="0" oninput="window.replaySeek(this.value)">
                         <small id="rpMeta">0/0</small>
                         <button onclick="window.closeReplay()">✕</button>
                     </div>
@@ -1543,14 +1517,11 @@ $alertTypesMeta = [
                             <strong id="adTitle">—</strong>
                             <small id="adVeh">—</small>
                         </div>
-                        <button class="mbtn" style="flex:0 0 auto;padding:.3rem .55rem;border-radius:10px"
-                            onclick="window.closeAlertDetail()">✕</button>
+                        <button class="mbtn" style="flex:0 0 auto;padding:.3rem .55rem;border-radius:10px" onclick="window.closeAlertDetail()">✕</button>
                     </div>
                     <div class="ad-b">
                         <div class="ad-desc" id="adDesc">—</div>
                         <div class="ad-btns">
-                            <button class="b1" onclick="window.markAlertRead()">✓ Lu</button>
-                            <button class="b1" onclick="window.markAlertProcessed()">🛠️ Traiter</button>
                             <button class="b2" onclick="window.locateAlert()">📍 Localiser</button>
                         </div>
                     </div>
@@ -1569,7 +1540,6 @@ $alertTypesMeta = [
 (() => {
     'use strict';
 
-    /* ========================= ROUTES ========================= */
     const R = {
         stream: @json(route('dashboard.stream')),
         alertsDay: @json(url('/alerts')),
@@ -1580,7 +1550,6 @@ $alertTypesMeta = [
         },
     };
 
-    /* ========================= COLORS ========================= */
     const COLORS = {
         moving: '#16a34a',
         online: '#2563eb',
@@ -1588,12 +1557,16 @@ $alertTypesMeta = [
         offline: '#6b7280',
     };
 
-    /* ========================= STATE ========================= */
     const ALLOWED_ALERT_TYPES = new Set(['stolen', 'geofence', 'safe_zone', 'time_zone', 'speed']);
+
     let map = null;
     let sse = null;
     let markers = {};
     let selectedVehicleId = null;
+    let selectedVehicleIndicator = null;
+    let selectedVehicleIndicatorEl = null;
+    let followSelectedVehicle = true;
+    let vehicleHeadingCache = new Map();
 
     let vehicles = @json($vehicles ?? []);
     let trips = [];
@@ -1612,7 +1585,6 @@ $alertTypesMeta = [
     };
     let currentAlert = null;
 
-    /* Trip state */
     let currentTrip = null;
     let tripPolyline = null;
     let tripCursor = null;
@@ -1624,26 +1596,24 @@ $alertTypesMeta = [
 
     const SPEED_STEPS = [0.25, 0.5, 1, 2, 4, 8, 16];
 
-    /* ========================= UTILS ========================= */
-    const esc = (s) => String(s ?? '').replace(/[&<>"']/g,
-        m => ({
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&#039;'
-        } [m]));
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, m => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    }[m]));
 
     const fmtMin = (m) => {
         m = parseInt(m || 0, 10);
-        const h = Math.floor(m / 60),
-            r = m % 60;
+        const h = Math.floor(m / 60), r = m % 60;
         if (h <= 0) return r + 'm';
         return h + 'h' + String(r).padStart(2, '0');
     };
 
     function toast(msg, ok = true) {
         const t = document.getElementById('toast');
+        if (!t) return;
         t.style.background = ok ? '#16a34a' : '#dc2626';
         t.textContent = msg;
         t.style.display = 'block';
@@ -1674,15 +1644,173 @@ $alertTypesMeta = [
     function measureHeights() {
         const k = document.getElementById('kpiBar');
         const n = document.getElementById('navbar');
-        if (k) document.documentElement.style.setProperty('--kpi-h', Math.round(k.getBoundingClientRect().height) +
-            'px');
-        if (n) document.documentElement.style.setProperty('--navbar-h', Math.round(n.getBoundingClientRect()
-            .height) + 'px');
+        if (k) document.documentElement.style.setProperty('--kpi-h', Math.round(k.getBoundingClientRect().height) + 'px');
+        if (n) document.documentElement.style.setProperty('--navbar-h', Math.round(n.getBoundingClientRect().height) + 'px');
     }
 
-    /* ========================= LIVE STATUS HELPERS ========================= */
+    function toMsSafe(v) {
+        if (v == null) return null;
+
+        if (typeof v === 'number' && Number.isFinite(v)) {
+            return v > 1e12 ? v : v * 1000;
+        }
+
+        if (typeof v === 'string') {
+            const s = v.trim();
+            if (!s) return null;
+
+            if (/^\d+$/.test(s)) {
+                const n = Number(s);
+                return n > 1e12 ? n : n * 1000;
+            }
+
+            const parsed = Date.parse(s.replace(' ', 'T'));
+            return Number.isFinite(parsed) ? parsed : null;
+        }
+
+        return null;
+    }
+
+    function humanDurationFromSeconds(sec) {
+        sec = parseInt(sec || 0, 10);
+        if (sec < 0) sec = 0;
+
+        const d = Math.floor(sec / 86400);
+        const h = Math.floor((sec % 86400) / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        const s = sec % 60;
+
+        if (d > 0) return `${d}j ${h}h ${m}min`;
+        if (h > 0) return `${h}h ${m}min`;
+        if (m > 0) return `${m}min${s > 0 ? ` ${s}s` : ''}`;
+        return `${s}s`;
+    }
+
+    function computeBearing(lat1, lon1, lat2, lon2) {
+        const toRad = (d) => d * Math.PI / 180;
+        const toDeg = (r) => r * 180 / Math.PI;
+
+        const φ1 = toRad(lat1);
+        const φ2 = toRad(lat2);
+        const λ1 = toRad(lon1);
+        const λ2 = toRad(lon2);
+
+        const y = Math.sin(λ2 - λ1) * Math.cos(φ2);
+        const x = Math.cos(φ1) * Math.sin(φ2) -
+            Math.sin(φ1) * Math.cos(φ2) * Math.cos(λ2 - λ1);
+
+        return (toDeg(Math.atan2(y, x)) + 360) % 360;
+    }
+
+    function updateVehicleHeadingCache(nextFleet) {
+        const prevById = new Map(vehicles.map(v => [String(v.id), v]));
+
+        (Array.isArray(nextFleet) ? nextFleet : []).forEach(v => {
+            const prev = prevById.get(String(v.id));
+
+            const lat1 = Number(prev?.lat);
+            const lng1 = Number(prev?.lon);
+            const lat2 = Number(v?.lat);
+            const lng2 = Number(v?.lon);
+
+            const explicitDirection = Number(v?.direction);
+            if (Number.isFinite(explicitDirection)) {
+                vehicleHeadingCache.set(String(v.id), explicitDirection);
+                return;
+            }
+
+            if (
+                Number.isFinite(lat1) && Number.isFinite(lng1) &&
+                Number.isFinite(lat2) && Number.isFinite(lng2) &&
+                (lat1 !== lat2 || lng1 !== lng2)
+            ) {
+                vehicleHeadingCache.set(String(v.id), computeBearing(lat1, lng1, lat2, lng2));
+            }
+        });
+    }
+
+    function getVehicleHeading(v) {
+        const explicit = Number(v?.direction);
+        if (Number.isFinite(explicit)) return explicit;
+
+        const cached = vehicleHeadingCache.get(String(v?.id));
+        if (Number.isFinite(cached)) return cached;
+
+        return 0;
+    }
+
     function getVehicleLiveStatus(v) {
         return v?.live_status || {};
+    }
+
+    function enrichVehicleLiveStatus(v) {
+        if (!v) return v;
+
+        const ls = { ...(v.live_status || {}) };
+        const now = Date.now();
+
+        const thresholdMinutes = parseInt(ls.offline_threshold_minutes || 10, 10);
+        const thresholdMs = thresholdMinutes * 60 * 1000;
+
+        const lastSeenMs =
+            toMsSafe(ls.heart_time_ms) ||
+            toMsSafe(ls.datetime_ms) ||
+            toMsSafe(ls.sys_time_ms) ||
+            toMsSafe(v?.gps?.last_seen);
+
+        const isOnline = lastSeenMs ? ((now - lastSeenMs) < thresholdMs) : false;
+
+        if (!isOnline) {
+            const offlineSinceMs = toMsSafe(ls.offline_since_ms) || lastSeenMs || now;
+            const offlineSinceSeconds = Math.max(0, Math.floor((now - offlineSinceMs) / 1000));
+
+            ls.is_online = false;
+            ls.is_moving = null;
+            ls.ui_status = 'OFFLINE';
+            ls.movement_state = 'OFFLINE';
+            ls.connectivity_state = 'OFFLINE';
+            ls.offline_since_ms = offlineSinceMs;
+            ls.offline_since_seconds = offlineSinceSeconds;
+            ls.offline_since_human = humanDurationFromSeconds(offlineSinceSeconds);
+        } else {
+            ls.is_online = true;
+            ls.offline_since_ms = null;
+            ls.offline_since_seconds = null;
+            ls.offline_since_human = null;
+
+            if (ls.movement_state === 'STOPPED') {
+                ls.ui_status = 'ONLINE_STOPPED';
+                ls.connectivity_state = 'ONLINE_STATIONARY';
+                ls.is_moving = false;
+            } else if (ls.movement_state === 'MOVING') {
+                ls.ui_status = 'ONLINE_MOVING';
+                ls.connectivity_state = 'ONLINE_MOVING';
+                ls.is_moving = true;
+            } else {
+                ls.ui_status = 'UNKNOWN';
+                ls.connectivity_state = 'UNKNOWN';
+            }
+        }
+
+        if (ls.movement_state === 'STOPPED' && ls.stopped_since_ms) {
+            const stoppedSinceMs = toMsSafe(ls.stopped_since_ms);
+            if (stoppedSinceMs) {
+                const stoppedSinceSeconds = Math.max(0, Math.floor((now - stoppedSinceMs) / 1000));
+                ls.stopped_since_seconds = stoppedSinceSeconds;
+                ls.stopped_since_human = humanDurationFromSeconds(stoppedSinceSeconds);
+            }
+        }
+
+        return {
+            ...v,
+            gps: {
+                ...(v.gps || {}),
+                online: !!ls.is_online,
+                state: ls.is_online ? 'ONLINE' : 'OFFLINE',
+                last_seen: v?.gps?.last_seen ?? ls.heart_time ?? ls.datetime ?? ls.sys_time ?? '—',
+            },
+            live_status: ls,
+        };
     }
 
     function getVehicleUiStatus(v) {
@@ -1709,10 +1837,16 @@ $alertTypesMeta = [
 
     function getVehicleStatusColor(v) {
         const ui = getVehicleUiStatus(v);
+        const online = isVehicleOnline(v);
+        const moving = isVehicleMoving(v);
 
         if (ui === 'ONLINE_MOVING') return COLORS.moving;
         if (ui === 'ONLINE_STOPPED') return COLORS.idle;
         if (ui === 'OFFLINE') return COLORS.offline;
+
+        if (online && moving) return COLORS.moving;
+        if (online && !moving) return COLORS.idle;
+        if (online) return COLORS.online;
 
         return COLORS.offline;
     }
@@ -1726,30 +1860,32 @@ $alertTypesMeta = [
         }
 
         if (ls.ui_status === 'ONLINE_STOPPED') {
-            return ls.stopped_since_human ?
-                `À l’arrêt depuis ${ls.stopped_since_human}` :
-                'À l’arrêt';
+            return ls.stopped_since_human ? `À l’arrêt depuis ${ls.stopped_since_human}` : 'À l’arrêt';
         }
 
         if (ls.ui_status === 'OFFLINE') {
-            return ls.offline_since_human ?
-                `Offline depuis ${ls.offline_since_human}` :
-                'Offline';
+            return ls.offline_since_human ? `Offline depuis ${ls.offline_since_human}` : 'Offline';
         }
+
+        if (isVehicleOnline(v)) return 'En ligne';
 
         return 'Statut inconnu';
     }
 
     function getVehicleUpdatedAt(v) {
         const ls = getVehicleLiveStatus(v);
-        return ls.heart_time ?? ls.sys_time ?? v?.gps?.last_seen ?? v?.updated_at ?? '—';
+        return ls.heart_time ?? ls.sys_time ?? ls.datetime ?? v?.gps?.last_seen ?? v?.updated_at ?? '—';
     }
 
     function getVehicleDotAnimation(v) {
         return getVehicleUiStatus(v) === 'ONLINE_MOVING' ? 'animation:pulse 1.5s infinite' : '';
     }
 
-    /* ========================= FILTER VISIBILITY ========================= */
+    function mergeFleetRealtime(nextFleet) {
+        updateVehicleHeadingCache(nextFleet);
+        return (Array.isArray(nextFleet) ? nextFleet : []).map(enrichVehicleLiveStatus);
+    }
+
     window.togglePaneFilters = (pane) => {
         if (pane === 'flotte') {
             document.getElementById('vf')?.classList.toggle('show');
@@ -1760,12 +1896,10 @@ $alertTypesMeta = [
         }
         if (pane === 'alertes') {
             document.getElementById('aQuick')?.classList.toggle('show');
-            document.getElementById('aResolveBar')?.classList.toggle('show');
             document.getElementById('af')?.classList.toggle('show');
         }
     };
 
-    /* ========================= TABS ========================= */
     window.switchTab = (t) => {
         ['flotte', 'trajets', 'alertes'].forEach(x => {
             document.getElementById('tab-' + x)?.classList.toggle('active', x === t);
@@ -1775,8 +1909,9 @@ $alertTypesMeta = [
         document.getElementById('topTripsKpis')?.classList.toggle('show', t === 'trajets');
 
         if (t !== 'trajets') {
-            document.getElementById('tripModal').classList.remove('show');
-            document.getElementById('tripReplay').style.display = 'none';
+            document.getElementById('tripModal')?.classList.remove('show');
+            const rp = document.getElementById('tripReplay');
+            if (rp) rp.style.display = 'none';
             tripPolyline?.setMap(null);
             tripCursor?.setMap(null);
             window.replayPause();
@@ -1785,33 +1920,40 @@ $alertTypesMeta = [
         if (t === 'trajets' && currentTrip) {
             if (tripPolyline) tripPolyline.setMap(map);
             if (tripCursor) tripCursor.setMap(map);
-            document.getElementById('tripModal').classList.add('show');
+            document.getElementById('tripModal')?.classList.add('show');
             if (replayPoints.length > 0) {
-                document.getElementById('tripReplay').style.display = 'block';
+                const rp = document.getElementById('tripReplay');
+                if (rp) rp.style.display = 'block';
             }
         }
 
         if (t !== 'flotte') {
-            document.getElementById('vehicleModal').classList.remove('show');
+            document.getElementById('vehicleModal')?.classList.remove('show');
         }
 
         if (t !== 'alertes') {
-            document.getElementById('alertDetail').style.display = 'none';
+            const ad = document.getElementById('alertDetail');
+            if (ad) ad.style.display = 'none';
         }
 
-        document.getElementById('q').value = '';
-        document.getElementById('qClear').classList.remove('show');
+        const q = document.getElementById('q');
+        const qc = document.getElementById('qClear');
+        if (q) q.value = '';
+        qc?.classList.remove('show');
         window.doSearch();
 
-        if (t === 'flotte') renderVehicleList();
+        if (t === 'flotte') {
+            renderVehicleList();
+            updateSelectedVehicleIndicator();
+        }
         if (t === 'trajets') loadTrips();
         if (t === 'alertes') loadAlerts();
     };
 
-    /* ========================= SEARCH ========================= */
     window.doSearch = () => {
-        const q = document.getElementById('q').value.toLowerCase().trim();
-        document.getElementById('qClear').classList.toggle('show', q.length > 0);
+        const qEl = document.getElementById('q');
+        const q = (qEl?.value || '').toLowerCase().trim();
+        document.getElementById('qClear')?.classList.toggle('show', q.length > 0);
 
         const activePane = document.querySelector('.pane.active')?.id || 'pane-flotte';
         const sel = activePane === 'pane-flotte' ? '#vehList .item' :
@@ -1825,12 +1967,12 @@ $alertTypesMeta = [
     };
 
     window.clearSearch = () => {
-        document.getElementById('q').value = '';
-        document.getElementById('qClear').classList.remove('show');
+        const q = document.getElementById('q');
+        if (q) q.value = '';
+        document.getElementById('qClear')?.classList.remove('show');
         window.doSearch();
     };
 
-    /* ========================= MODES ========================= */
     window.setMode = (tab, mode) => {
         viewMode[tab] = mode;
         ['simple', 'detailed'].forEach(m => {
@@ -1841,9 +1983,9 @@ $alertTypesMeta = [
         if (tab === 'alertes') renderAlertList();
     };
 
-    /* ========================= CUSTOM TOGGLES ========================= */
     window.toggleTripsCustom = () => {
         const box = document.getElementById('tDateBox');
+        if (!box) return;
         const willShow = !box.classList.contains('show');
         box.classList.toggle('show', willShow);
         if (willShow) {
@@ -1854,6 +1996,7 @@ $alertTypesMeta = [
 
     window.toggleAlertsCustom = () => {
         const box = document.getElementById('aDateBox');
+        if (!box) return;
         const willShow = !box.classList.contains('show');
         box.classList.toggle('show', willShow);
         if (willShow) {
@@ -1862,7 +2005,6 @@ $alertTypesMeta = [
         }
     };
 
-    /* ========================= QUICK DATES ========================= */
     function rangeForQuick(q) {
         const now = new Date();
         let from, to;
@@ -1894,10 +2036,7 @@ $alertTypesMeta = [
             from = to = ymd(now);
         }
 
-        return {
-            from,
-            to
-        };
+        return { from, to };
     }
 
     window.setTripsQuick = (el, q) => {
@@ -1920,7 +2059,6 @@ $alertTypesMeta = [
         loadAlerts();
     };
 
-    /* ========================= VEHICLES ========================= */
     window.resetFleetFilters = () => {
         vehFilter = 'all';
         document.querySelectorAll('#vf .f').forEach(x => x.classList.remove('active'));
@@ -1950,11 +2088,12 @@ $alertTypesMeta = [
 
     function renderVehicleList() {
         const box = document.getElementById('vehList');
+        if (!box) return;
+
         const list = vehicles.filter(vehMatchesFilter);
 
         if (!list.length) {
-            box.innerHTML =
-                `<div class="empty"><i class="fas fa-filter"></i><div style="margin-top:.6rem">Aucun résultat</div></div>`;
+            box.innerHTML = `<div class="empty"><i class="fas fa-filter"></i><div style="margin-top:.6rem">Aucun résultat</div></div>`;
             return;
         }
 
@@ -2006,6 +2145,13 @@ $alertTypesMeta = [
           ${esc(statusText)}
         </span>
       `;
+            } else if (isVehicleOnline(v)) {
+                tagHtml = `
+        <span class="tag" style="background:rgba(37,99,235,.12);color:${COLORS.online}">
+          <span class="dot" style="background:${COLORS.online}"></span>
+          En ligne
+        </span>
+      `;
             } else {
                 tagHtml = `
         <span class="tag" style="background:rgba(107,114,128,.12);color:${COLORS.offline}">
@@ -2032,20 +2178,19 @@ $alertTypesMeta = [
                 box.querySelectorAll('.item').forEach(x => x.classList.remove('sel'));
                 el.classList.add('sel');
                 selectedVehicleId = parseInt(el.dataset.id, 10);
-                focusVehicle(selectedVehicleId);
+                followSelectedVehicle = true;
+                updateFollowSelectedPill();
+                focusVehicle(selectedVehicleId, true);
                 openVehicleModal(selectedVehicleId);
 
-                if (document.getElementById('pane-alertes').classList.contains('active'))
-                    loadAlerts();
-                if (document.getElementById('pane-trajets').classList.contains('active'))
-                loadTrips();
+                if (document.getElementById('pane-alertes')?.classList.contains('active')) loadAlerts();
+                if (document.getElementById('pane-trajets')?.classList.contains('active')) loadTrips();
             });
         });
 
         window.doSearch();
     }
 
-    /* ========================= VEHICLE MODAL ========================= */
     function openVehicleModal(id) {
         const v = vehicles.find(x => String(x.id) === String(id));
         if (!v) return;
@@ -2061,47 +2206,84 @@ $alertTypesMeta = [
         const statusTxt = getVehicleStatusText(v);
         const statusColor = getVehicleStatusColor(v);
 
-        document.getElementById('vmTitle').textContent = `Véhicule • ${imm}`;
-        document.getElementById('vmSub').textContent = brand;
-        document.getElementById('vmImmat').textContent = imm;
-        document.getElementById('vmBrand').textContent = brand;
-        document.getElementById('vmDriver').textContent = drv;
-        document.getElementById('vmSpeed').textContent = `${spd} km/h`;
-        document.getElementById('vmStatus').innerHTML =
-            `<span style="color:${statusColor}">${esc(statusTxt)}</span>`;
-        document.getElementById('vmUpdated').textContent = updated;
-        document.getElementById('vmPos').textContent = lat !== '—' ? `${lat}, ${lng}` : '—';
+        const t = document.getElementById('vmTitle');
+        const s = document.getElementById('vmSub');
+        const i = document.getElementById('vmImmat');
+        const b = document.getElementById('vmBrand');
+        const d = document.getElementById('vmDriver');
+        const sp = document.getElementById('vmSpeed');
+        const st = document.getElementById('vmStatus');
+        const up = document.getElementById('vmUpdated');
+        const p = document.getElementById('vmPos');
+        const modal = document.getElementById('vehicleModal');
 
-        document.getElementById('vehicleModal').dataset.vid = id;
-        document.getElementById('vehicleModal').classList.add('show');
+        if (t) t.textContent = `Véhicule • ${imm}`;
+        if (s) s.textContent = brand;
+        if (i) i.textContent = imm;
+        if (b) b.textContent = brand;
+        if (d) d.textContent = drv;
+        if (sp) sp.textContent = `${spd} km/h`;
+        if (st) st.innerHTML = `<span style="color:${statusColor}">${esc(statusTxt)}</span>`;
+        if (up) up.textContent = updated;
+        if (p) p.textContent = lat !== '—' ? `${lat}, ${lng}` : '—';
+
+        if (modal) {
+            modal.dataset.vid = id;
+            modal.classList.add('show');
+        }
     }
 
     window.closeVehicleModal = () => {
-        document.getElementById('vehicleModal').classList.remove('show');
+        document.getElementById('vehicleModal')?.classList.remove('show');
     };
 
     window.locateVehicleFromModal = () => {
-        const id = document.getElementById('vehicleModal').dataset.vid;
-        if (id) focusVehicle(id);
+        const id = document.getElementById('vehicleModal')?.dataset?.vid;
+        if (id) focusVehicle(id, true);
     };
 
-    /* ========================= MAP ========================= */
+    function selectVehicleInList(id) {
+        document.querySelectorAll('#vehList .item').forEach(x => x.classList.remove('sel'));
+        document.querySelector(`#vehList .item[data-id="${id}"]`)?.classList.add('sel');
+    }
+
+    function getAlertVehicleId(a) {
+        if (!a) return null;
+
+        const direct = a.vehicle_id ?? a.vehicule_id ?? a.car_id ?? a.voiture_id ?? null;
+        if (direct != null && String(direct).trim() !== '') return String(direct);
+
+        const nested = a.vehicle?.id ?? a.voiture?.id ?? null;
+        if (nested != null && String(nested).trim() !== '') return String(nested);
+
+        const imm = a.vehicle?.label ?? a.immatriculation ?? null;
+        if (imm) {
+            const v = vehicles.find(x => String(x.immatriculation || '').trim().toLowerCase() === String(imm).trim().toLowerCase());
+            if (v?.id != null) return String(v.id);
+        }
+
+        return null;
+    }
+
     window.initFleetMap = function() {
         map = new google.maps.Map(document.getElementById('fleetMap'), {
-            center: {
-                lat: 4.0511,
-                lng: 9.7679
-            },
+            center: { lat: 4.0511, lng: 9.7679 },
             zoom: 7,
             disableDefaultUI: true,
             gestureHandling: 'greedy',
             mapTypeId: 'roadmap',
         });
 
+        ensureSelectedVehicleIndicator();
+        moveFollowPillNearMapType();
         renderVehicleMarkers(true);
+        updateFollowSelectedPill();
         startSSE();
         setTimeout(measureHeights, 250);
         map.addListener('click', () => document.getElementById('mapTypeMenu')?.classList.remove('show'));
+        map.addListener('zoom_changed', () => updateSelectedVehicleIndicator());
+        map.addListener('center_changed', () => updateSelectedVehicleIndicator());
+        google.maps.event.addListenerOnce(map, 'idle', () => updateSelectedVehicleIndicator());
     };
 
     function loadGoogleMaps() {
@@ -2111,8 +2293,7 @@ $alertTypesMeta = [
         }
 
         const s = document.createElement('script');
-        s.src =
-            'https://maps.googleapis.com/maps/api/js?key=AIzaSyBn88TP5X-xaRCYo5gYxvGnVy_0WYotZWo&callback=initFleetMap';
+        s.src = 'https://maps.googleapis.com/maps/api/js?key=AIzaSyBn88TP5X-xaRCYo5gYxvGnVy_0WYotZWo&callback=initFleetMap';
         s.async = true;
         s.defer = true;
         document.head.appendChild(s);
@@ -2125,6 +2306,168 @@ $alertTypesMeta = [
             anchor: new google.maps.Point(17, 17),
         };
     }
+
+    function ensureSelectedVehicleIndicator() {
+        if (!map || selectedVehicleIndicator) return;
+
+        const el = document.createElement('div');
+        el.className = 'selected-vehicle-indicator';
+        el.style.position = 'absolute';
+        el.style.width = '30px';
+        el.style.height = '42px';
+        el.style.display = 'none';
+        el.style.pointerEvents = 'none';
+        el.style.transform = 'translate(-50%, -100%)';
+        el.style.zIndex = '1000';
+
+        el.innerHTML = `
+            <div style="
+                position:absolute;
+                left:50%;
+                top:0;
+                transform:translateX(-50%);
+                animation:selectedVehicleBounce 1.1s ease-in-out infinite;
+                display:flex;
+                flex-direction:column;
+                align-items:center;
+                gap:2px;
+            ">
+                <div style="
+                    width:26px;
+                    height:26px;
+                    border-radius:9999px;
+                    background:rgba(17,24,39,.78);
+                    border:2px solid #fff;
+                    box-shadow:0 8px 24px rgba(0,0,0,.28);
+                    display:flex;
+                    align-items:center;
+                    justify-content:center;
+                    color:#fff;
+                    font-size:13px;
+                    line-height:1;
+                ">
+                    <i class="fas fa-location-arrow"></i>
+                </div>
+                <div style="
+                    width:0;
+                    height:0;
+                    border-left:7px solid transparent;
+                    border-right:7px solid transparent;
+                    border-top:10px solid rgba(17,24,39,.78);
+                    filter:drop-shadow(0 4px 8px rgba(0,0,0,.2));
+                "></div>
+            </div>
+        `;
+
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes selectedVehicleBounce {
+                0%, 100% { transform: translateX(-50%) translateY(0); }
+                50% { transform: translateX(-50%) translateY(-8px); }
+            }
+        `;
+        document.head.appendChild(style);
+
+        selectedVehicleIndicator = new google.maps.OverlayView();
+
+        selectedVehicleIndicator.onAdd = function() {
+            const panes = this.getPanes();
+            panes.overlayMouseTarget.appendChild(el);
+        };
+
+        selectedVehicleIndicator.draw = function() {
+            updateSelectedVehicleIndicator();
+        };
+
+        selectedVehicleIndicator.onRemove = function() {
+            if (el.parentNode) el.parentNode.removeChild(el);
+        };
+
+        selectedVehicleIndicator.setMap(map);
+        selectedVehicleIndicatorEl = el;
+    }
+
+    function updateSelectedVehicleIndicator() {
+        if (!map || !selectedVehicleIndicatorEl || !selectedVehicleIndicator) return;
+
+        if (!selectedVehicleId) {
+            selectedVehicleIndicatorEl.style.display = 'none';
+            return;
+        }
+
+        const v = vehicles.find(x => String(x.id) === String(selectedVehicleId));
+        if (!v || v.lat == null || v.lon == null) {
+            selectedVehicleIndicatorEl.style.display = 'none';
+            return;
+        }
+
+        const projection = selectedVehicleIndicator.getProjection();
+        if (!projection) {
+            selectedVehicleIndicatorEl.style.display = 'none';
+            return;
+        }
+
+        const point = projection.fromLatLngToDivPixel(
+            new google.maps.LatLng(parseFloat(v.lat), parseFloat(v.lon))
+        );
+
+        if (!point) {
+            selectedVehicleIndicatorEl.style.display = 'none';
+            return;
+        }
+
+        selectedVehicleIndicatorEl.style.display = 'block';
+        selectedVehicleIndicatorEl.style.left = `${point.x}px`;
+        selectedVehicleIndicatorEl.style.top = `${point.y - 24}px`;
+
+        const bubble = selectedVehicleIndicatorEl.querySelector('div > div');
+        const arrow = bubble?.querySelector('i');
+        const color = getVehicleStatusColor(v);
+
+        if (bubble) {
+            bubble.style.background = 'rgba(17,24,39,.78)';
+            bubble.style.boxShadow = `0 8px 24px rgba(0,0,0,.28), 0 0 0 3px ${color}33`;
+        }
+        if (arrow) {
+            arrow.style.color = color;
+            arrow.style.transform = `rotate(${getVehicleHeading(v)}deg)`;
+            arrow.style.display = 'inline-block';
+        }
+    }
+
+    function moveFollowPillNearMapType() {
+        const pill = document.getElementById('followSelectedPill');
+        const ctrl = document.getElementById('mapTypeCtrl');
+        if (!pill || !ctrl) return;
+
+        const btn = ctrl.querySelector('.btn');
+        if (!btn) return;
+
+        pill.style.position = 'absolute';
+        pill.style.top = '70px';
+        pill.style.left = '66px';
+        pill.style.zIndex = 'calc(var(--z-map-ui) + 3)';
+    }
+
+    function updateFollowSelectedPill() {
+        const pill = document.getElementById('followSelectedPill');
+        const txt = document.getElementById('followSelectedTxt');
+        if (!pill || !txt) return;
+
+        const shouldShow = !!selectedVehicleId;
+        pill.style.display = shouldShow ? 'inline-flex' : 'none';
+        pill.classList.toggle('off', !followSelectedVehicle);
+        txt.textContent = followSelectedVehicle ? 'Suivi véhicule : ON' : 'Suivi véhicule : OFF';
+    }
+
+    window.toggleSelectedVehicleFollow = () => {
+        followSelectedVehicle = !followSelectedVehicle;
+        updateFollowSelectedPill();
+
+        if (followSelectedVehicle && selectedVehicleId) {
+            focusVehicle(selectedVehicleId, false);
+        }
+    };
 
     function renderVehicleMarkers(fit) {
         if (!map) return;
@@ -2142,6 +2485,7 @@ $alertTypesMeta = [
                 lat: parseFloat(v.lat),
                 lng: parseFloat(v.lon)
             };
+
             let m = markers[id];
 
             if (!m) {
@@ -2150,21 +2494,20 @@ $alertTypesMeta = [
                     position: pos,
                     title: v.immatriculation || '',
                     icon: carIcon(),
+                    zIndex: 20,
                 });
 
                 m.addListener('click', () => {
                     selectedVehicleId = parseInt(v.id, 10);
-                    document.querySelectorAll('#vehList .item').forEach(x => x.classList.remove(
-                        'sel'));
-                    document.querySelector(`#vehList .item[data-id="${v.id}"]`)?.classList.add(
-                        'sel');
-                    focusVehicle(v.id);
+                    followSelectedVehicle = true;
+                    updateFollowSelectedPill();
+
+                    selectVehicleInList(v.id);
+                    focusVehicle(v.id, true);
                     openVehicleModal(v.id);
 
-                    if (document.getElementById('pane-alertes').classList.contains('active'))
-                        loadAlerts();
-                    if (document.getElementById('pane-trajets').classList.contains('active'))
-                        loadTrips();
+                    if (document.getElementById('pane-alertes')?.classList.contains('active')) loadAlerts();
+                    if (document.getElementById('pane-trajets')?.classList.contains('active')) loadTrips();
                 });
 
                 markers[id] = m;
@@ -2183,23 +2526,32 @@ $alertTypesMeta = [
             }
         });
 
+        updateSelectedVehicleIndicator();
+
         if (fit && !bounds.isEmpty()) {
             map.fitBounds(bounds);
             const l = google.maps.event.addListener(map, 'idle', () => {
                 if (map.getZoom() > 14) map.setZoom(14);
                 google.maps.event.removeListener(l);
+                updateSelectedVehicleIndicator();
             });
         }
     }
 
-    function focusVehicle(id) {
+    function focusVehicle(id, forceFollow = false) {
         const m = markers[String(id)];
         if (!m || !map) return;
+
+        if (forceFollow) {
+            followSelectedVehicle = true;
+            updateFollowSelectedPill();
+        }
+
         map.setCenter(m.getPosition());
         map.setZoom(15);
+        updateSelectedVehicleIndicator();
     }
 
-    /* ========================= MAP TYPE ========================= */
     window.toggleMapTypeMenu = () => document.getElementById('mapTypeMenu')?.classList.toggle('show');
 
     window.setMapType = (el, type) => {
@@ -2210,49 +2562,32 @@ $alertTypesMeta = [
         document.getElementById('mapTypeMenu')?.classList.remove('show');
     };
 
-    /* ========================= SSE ========================= */
     function sseState(state) {
         const dot = document.getElementById('sseDot');
         const txt = document.getElementById('sseTxt');
 
         const m = {
-            connected: {
-                c: '#22c55e',
-                t: 'Connecté'
-            },
-            connecting: {
-                c: '#eab308',
-                t: 'Connexion…'
-            },
-            reconnecting: {
-                c: '#f97316',
-                t: 'Reconnexion…'
-            },
-            paused: {
-                c: '#9ca3af',
-                t: 'En pause'
-            },
-        } [state] || {
-            c: '#9ca3af',
-            t: '—'
-        };
+            connected: { c: '#22c55e', t: 'Connecté' },
+            connecting: { c: '#eab308', t: 'Connexion…' },
+            reconnecting: { c: '#f97316', t: 'Reconnexion…' },
+            paused: { c: '#9ca3af', t: 'En pause' },
+        }[state] || { c: '#9ca3af', t: '—' };
 
-        dot.style.background = m.c;
-        txt.textContent = m.t;
+        if (dot) dot.style.background = m.c;
+        if (txt) txt.textContent = m.t;
     }
 
     function startSSE() {
         try {
             sse?.close();
-            sse = new EventSource(R.stream, {
-                withCredentials: true
-            });
+            sse = new EventSource(R.stream, { withCredentials: true });
             sseState('connecting');
 
             sse.addEventListener('hello', () => sseState('connected'));
 
-            sse.addEventListener('dashboard', (e) => {
+            sse.addEventListener('dashboard.init', (e) => {
                 sseState('connected');
+
                 let p;
                 try {
                     p = JSON.parse(e.data);
@@ -2260,27 +2595,191 @@ $alertTypesMeta = [
                     return;
                 }
 
-                if (p.ts) document.getElementById('lastUp').textContent = 'Maj: ' + p.ts;
+                if (p.ts) {
+                    const lastUp = document.getElementById('lastUp');
+                    if (lastUp) lastUp.textContent = 'Maj: ' + p.ts;
+                }
 
                 if (p.stats) {
-                    if (p.stats.usersCount != null) document.getElementById('kUsers').textContent =
-                        parseInt(p.stats.usersCount, 10);
-                    if (p.stats.vehiclesCount != null) document.getElementById('kVeh').textContent =
-                        parseInt(p.stats.vehiclesCount, 10);
+                    if (p.stats.usersCount != null) {
+                        const kUsers = document.getElementById('kUsers');
+                        if (kUsers) kUsers.textContent = parseInt(p.stats.usersCount, 10);
+                    }
+
+                    if (p.stats.vehiclesCount != null) {
+                        const kVeh = document.getElementById('kVeh');
+                        if (kVeh) kVeh.textContent = parseInt(p.stats.vehiclesCount, 10);
+                    }
+
+                    if (p.stats.alertsByType) {
+                        Object.entries(p.stats.alertsByType).forEach(([type, count]) => {
+                            const el = document.getElementById('kA_' + type);
+                            if (el) el.textContent = parseInt(count || 0, 10);
+                        });
+                    }
+
+                    if (p.stats.alertsCount != null) {
+                        const b = document.getElementById('bAlerts');
+                        if (b) b.textContent = parseInt(p.stats.alertsCount, 10);
+                    }
                 }
 
                 if (Array.isArray(p.fleet)) {
-                    vehicles = p.fleet;
+                    vehicles = mergeFleetRealtime(p.fleet);
                     renderVehicleList();
                     renderVehicleMarkers(false);
 
                     if (selectedVehicleId) {
                         const stillExists = vehicles.some(v => String(v.id) === String(selectedVehicleId));
-                        if (stillExists && document.getElementById('vehicleModal').classList.contains(
-                                'show')) {
-                            openVehicleModal(selectedVehicleId);
+
+                        if (!stillExists) {
+                            selectedVehicleId = null;
+                            updateFollowSelectedPill();
+                            updateSelectedVehicleIndicator();
+                            document.getElementById('vehicleModal')?.classList.remove('show');
+                        } else {
+                            updateSelectedVehicleIndicator();
+
+                            if (document.getElementById('vehicleModal')?.classList.contains('show')) {
+                                openVehicleModal(selectedVehicleId);
+                            }
+
+                            if (followSelectedVehicle) {
+                                focusVehicle(selectedVehicleId, false);
+                            }
                         }
                     }
+                }
+
+                if (Array.isArray(p.alerts)) {
+                    alerts = p.alerts;
+                    renderAlertList();
+                }
+            });
+
+            sse.addEventListener('fleet.reset', (e) => {
+                sseState('connected');
+
+                let p;
+                try {
+                    p = JSON.parse(e.data);
+                } catch {
+                    return;
+                }
+
+                if (Array.isArray(p.fleet)) {
+                    vehicles = mergeFleetRealtime(p.fleet);
+                    renderVehicleList();
+                    renderVehicleMarkers(false);
+
+                    if (selectedVehicleId) {
+                        const stillExists = vehicles.some(v => String(v.id) === String(selectedVehicleId));
+
+                        if (!stillExists) {
+                            selectedVehicleId = null;
+                            updateFollowSelectedPill();
+                            updateSelectedVehicleIndicator();
+                            document.getElementById('vehicleModal')?.classList.remove('show');
+                        } else {
+                            updateSelectedVehicleIndicator();
+
+                            if (document.getElementById('vehicleModal')?.classList.contains('show')) {
+                                openVehicleModal(selectedVehicleId);
+                            }
+
+                            if (followSelectedVehicle) {
+                                focusVehicle(selectedVehicleId, false);
+                            }
+                        }
+                    }
+                }
+            });
+
+            sse.addEventListener('vehicle.updated', (e) => {
+                sseState('connected');
+
+                let p;
+                try {
+                    p = JSON.parse(e.data);
+                } catch {
+                    return;
+                }
+
+                if (!p?.vehicle || !p.vehicle.id) return;
+
+                const next = enrichVehicleLiveStatus(p.vehicle);
+                const idx = vehicles.findIndex(v => String(v.id) === String(next.id));
+
+                if (idx >= 0) {
+                    vehicles[idx] = next;
+                } else {
+                    vehicles.push(next);
+                }
+
+                renderVehicleList();
+                renderVehicleMarkers(false);
+
+                if (selectedVehicleId && String(selectedVehicleId) === String(next.id)) {
+                    updateSelectedVehicleIndicator();
+
+                    if (document.getElementById('vehicleModal')?.classList.contains('show')) {
+                        openVehicleModal(selectedVehicleId);
+                    }
+
+                    if (followSelectedVehicle) {
+                        focusVehicle(selectedVehicleId, false);
+                    }
+                }
+            });
+
+            sse.addEventListener('alerts.updated', (e) => {
+                sseState('connected');
+
+                let p;
+                try {
+                    p = JSON.parse(e.data);
+                } catch {
+                    return;
+                }
+
+                if (Array.isArray(p.alerts)) {
+                    alerts = p.alerts;
+                    renderAlertList();
+                }
+            });
+
+            sse.addEventListener('stats.updated', (e) => {
+                sseState('connected');
+
+                let p;
+                try {
+                    p = JSON.parse(e.data);
+                } catch {
+                    return;
+                }
+
+                if (!p.stats) return;
+
+                if (p.stats.usersCount != null) {
+                    const kUsers = document.getElementById('kUsers');
+                    if (kUsers) kUsers.textContent = parseInt(p.stats.usersCount, 10);
+                }
+
+                if (p.stats.vehiclesCount != null) {
+                    const kVeh = document.getElementById('kVeh');
+                    if (kVeh) kVeh.textContent = parseInt(p.stats.vehiclesCount, 10);
+                }
+
+                if (p.stats.alertsByType) {
+                    Object.entries(p.stats.alertsByType).forEach(([type, count]) => {
+                        const el = document.getElementById('kA_' + type);
+                        if (el) el.textContent = parseInt(count || 0, 10);
+                    });
+                }
+
+                if (p.stats.alertsCount != null) {
+                    const b = document.getElementById('bAlerts');
+                    if (b) b.textContent = parseInt(p.stats.alertsCount, 10);
                 }
             });
 
@@ -2302,29 +2801,23 @@ $alertTypesMeta = [
         }
     }
 
-    /* ========================= TOP-CENTER TRIPS KPIs ========================= */
-    function setTopTripsKpis({
-        count = 0,
-        dist = 0,
-        durMin = 0,
-        max = 0
-    }) {
-        document.getElementById('tkCount').textContent = String(count);
-        document.getElementById('tkDist').textContent = `${Number(dist || 0).toFixed(1)} km`;
-        document.getElementById('tkDur').textContent = fmtMin(durMin || 0);
-        document.getElementById('tkMax').textContent = `${Math.round(max || 0)} km/h`;
+    function setTopTripsKpis({ count = 0, dist = 0, durMin = 0, max = 0 }) {
+        const c = document.getElementById('tkCount');
+        const d = document.getElementById('tkDist');
+        const du = document.getElementById('tkDur');
+        const m = document.getElementById('tkMax');
+
+        if (c) c.textContent = String(count);
+        if (d) d.textContent = `${Number(dist || 0).toFixed(1)} km`;
+        if (du) du.textContent = fmtMin(durMin || 0);
+        if (m) m.textContent = `${Math.round(max || 0)} km/h`;
     }
 
     function computeTripAgg(list) {
         const dist = list.reduce((s, t) => s + (parseFloat(t.total_distance_km || 0) || 0), 0);
         const dur = list.reduce((s, t) => s + (parseInt(t.duration_minutes || 0, 10) || 0), 0);
         const max = list.reduce((m, t) => Math.max(m, (parseFloat(t.max_speed_kmh || 0) || 0)), 0);
-        return {
-            count: list.length,
-            dist,
-            durMin: dur,
-            max
-        };
+        return { count: list.length, dist, durMin: dur, max };
     }
 
     function filterTripsForUi(list) {
@@ -2334,7 +2827,6 @@ $alertTypesMeta = [
         return out;
     }
 
-    /* ========================= TRIPS ========================= */
     window.setTripFilter = (el, f) => {
         tripFilter = f;
         document.querySelectorAll('#tf .f').forEach(x => x.classList.remove('active'));
@@ -2344,11 +2836,12 @@ $alertTypesMeta = [
 
     window.loadTrips = () => {
         const box = document.getElementById('tripList');
-        box.innerHTML =
-            `<div class="empty"><i class="fas fa-circle-notch fa-spin"></i><div style="margin-top:.6rem">Chargement…</div></div>`;
+        if (box) {
+            box.innerHTML = `<div class="empty"><i class="fas fa-circle-notch fa-spin"></i><div style="margin-top:.6rem">Chargement…</div></div>`;
+        }
 
-        const from = document.getElementById('tFrom').value;
-        const to = document.getElementById('tTo').value;
+        const from = document.getElementById('tFrom')?.value || '';
+        const to = document.getElementById('tTo')?.value || '';
 
         const url = new URL(R.trajetsList);
         url.searchParams.set('format', 'json');
@@ -2365,37 +2858,39 @@ $alertTypesMeta = [
         }
 
         fetch(url.toString(), {
-                headers: {
-                    'Accept': 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest'
-                }
-            })
-            .then(r => {
-                if (!r.ok) throw new Error(r.status);
-                return r.json();
-            })
-            .then(json => {
-                trips = json.data || [];
-                renderTripList();
-                if (!currentTrip) {
-                    setTopTripsKpis(computeTripAgg(filterTripsForUi(trips)));
-                }
-            })
-            .catch(() => {
-                box.innerHTML =
-                    `<div class="empty"><i class="fas fa-exclamation-triangle"></i><div style="margin-top:.6rem">Erreur endpoint trajets JSON</div></div>`;
-            });
+            headers: {
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+        .then(r => {
+            if (!r.ok) throw new Error(r.status);
+            return r.json();
+        })
+        .then(json => {
+            trips = json.data || [];
+            renderTripList();
+            if (!currentTrip) {
+                setTopTripsKpis(computeTripAgg(filterTripsForUi(trips)));
+            }
+        })
+        .catch(() => {
+            if (box) {
+                box.innerHTML = `<div class="empty"><i class="fas fa-exclamation-triangle"></i><div style="margin-top:.6rem">Erreur endpoint trajets JSON</div></div>`;
+            }
+        });
     };
 
     function renderTripList() {
         const box = document.getElementById('tripList');
+        if (!box) return;
+
         const list = filterTripsForUi(trips);
 
         if (!currentTrip) setTopTripsKpis(computeTripAgg(list));
 
         if (!list.length) {
-            box.innerHTML =
-                `<div class="empty"><i class="fas fa-route"></i><div style="margin-top:.6rem">Aucun trajet</div></div>`;
+            box.innerHTML = `<div class="empty"><i class="fas fa-route"></i><div style="margin-top:.6rem">Aucun trajet</div></div>`;
             return;
         }
 
@@ -2408,8 +2903,7 @@ $alertTypesMeta = [
             const dur = fmtMin(t.duration_minutes || 0);
             const mx = Math.round(t.max_speed_kmh || 0);
             const isCurrent = currentTrip && String(currentTrip.id) === String(t.id);
-            const dotStyle =
-                `background:${isAct ? COLORS.moving : COLORS.offline};${isAct ? 'animation:pulse 1.5s infinite' : ''}`;
+            const dotStyle = `background:${isAct ? COLORS.moving : COLORS.offline};${isAct ? 'animation:pulse 1.5s infinite' : ''}`;
 
             if (viewMode.trajets === 'simple') {
                 return `
@@ -2445,7 +2939,7 @@ $alertTypesMeta = [
                 if (!tripId || !vehId) return;
 
                 if (currentTrip && String(currentTrip.id) === String(tripId)) {
-                    document.getElementById('tripModal').classList.add('show');
+                    document.getElementById('tripModal')?.classList.add('show');
                     return;
                 }
 
@@ -2459,9 +2953,8 @@ $alertTypesMeta = [
         window.doSearch();
     }
 
-    /* ========================= OPEN TRIP ========================= */
     async function openTrip(vehicleId, trajetId) {
-        document.getElementById('tripModal').classList.remove('show');
+        document.getElementById('tripModal')?.classList.remove('show');
 
         try {
             const url = R.trajetDetail(vehicleId, trajetId);
@@ -2480,8 +2973,7 @@ $alertTypesMeta = [
             const track = data?.track ?? {};
 
             const pointsRaw = Array.isArray(track?.points) ? track.points :
-                Array.isArray(data?.points) ? data.points :
-                [];
+                Array.isArray(data?.points) ? data.points : [];
 
             const points = pointsRaw.map(p => ({
                 lat: parseFloat(p.lat ?? p.latitude ?? NaN),
@@ -2506,25 +2998,28 @@ $alertTypesMeta = [
                 bounds: null,
             };
 
-            setTopTripsKpis({
-                count: 1,
-                dist,
-                durMin: dur,
-                max
-            });
+            setTopTripsKpis({ count: 1, dist, durMin: dur, max });
 
             const imm = esc(trajet.immatriculation ?? '');
-            document.getElementById('tmTitle').textContent = imm ? `Trajet • ${imm}` : `Trajet #${trajetId}`;
-            document.getElementById('tmSub').textContent =
-                `${trajet.start_time ?? trajet.start_at ?? '—'} → ${trajet.end_time ?? trajet.end_at ?? '—'}`;
-            document.getElementById('tmDist').textContent = `${Number(dist).toFixed(2)} km`;
-            document.getElementById('tmDur').textContent = fmtMin(dur);
-            document.getElementById('tmMax').textContent = `${Math.round(max)} km/h`;
-            document.getElementById('tmPts').textContent = String(ptCount);
-            document.getElementById('tmStart').textContent = trajet.start_time ?? trajet.start_at ?? '—';
-            document.getElementById('tmEnd').textContent = trajet.end_time ?? trajet.end_at ?? '—';
+            const tmTitle = document.getElementById('tmTitle');
+            const tmSub = document.getElementById('tmSub');
+            const tmDist = document.getElementById('tmDist');
+            const tmDur = document.getElementById('tmDur');
+            const tmMax = document.getElementById('tmMax');
+            const tmPts = document.getElementById('tmPts');
+            const tmStart = document.getElementById('tmStart');
+            const tmEnd = document.getElementById('tmEnd');
 
-            document.getElementById('tripModal').classList.add('show');
+            if (tmTitle) tmTitle.textContent = imm ? `Trajet • ${imm}` : `Trajet #${trajetId}`;
+            if (tmSub) tmSub.textContent = `${trajet.start_time ?? trajet.start_at ?? '—'} → ${trajet.end_time ?? trajet.end_at ?? '—'}`;
+            if (tmDist) tmDist.textContent = `${Number(dist).toFixed(2)} km`;
+            if (tmDur) tmDur.textContent = fmtMin(dur);
+            if (tmMax) tmMax.textContent = `${Math.round(max)} km/h`;
+            if (tmPts) tmPts.textContent = String(ptCount);
+            if (tmStart) tmStart.textContent = trajet.start_time ?? trajet.start_at ?? '—';
+            if (tmEnd) tmEnd.textContent = trajet.end_time ?? trajet.end_at ?? '—';
+
+            document.getElementById('tripModal')?.classList.add('show');
 
             if (points.length >= 2) {
                 drawTrip(points);
@@ -2536,25 +3031,21 @@ $alertTypesMeta = [
         } catch (e) {
             console.error('[openTrip]', e);
             toast('Erreur lors du chargement du trajet', false);
-            document.getElementById('tripModal').classList.add('show');
+            document.getElementById('tripModal')?.classList.add('show');
         }
     }
 
     window.closeTripModal = () => {
-        document.getElementById('tripModal').classList.remove('show');
+        document.getElementById('tripModal')?.classList.remove('show');
     };
 
     window.focusTrip = () => {
         if (!map || !currentTrip?.points?.length) return;
         const b = new google.maps.LatLngBounds();
-        currentTrip.points.forEach(p => b.extend({
-            lat: p.lat,
-            lng: p.lng
-        }));
+        currentTrip.points.forEach(p => b.extend({ lat: p.lat, lng: p.lng }));
         map.fitBounds(b);
     };
 
-    /* ========================= DRAW TRIP ========================= */
     function drawTrip(points) {
         if (!map) return;
 
@@ -2562,10 +3053,7 @@ $alertTypesMeta = [
         tripCursor?.setMap(null);
         window.replayPause();
 
-        const path = points.map(p => ({
-            lat: p.lat,
-            lng: p.lng
-        }));
+        const path = points.map(p => ({ lat: p.lat, lng: p.lng }));
 
         tripPolyline = new google.maps.Polyline({
             map,
@@ -2595,17 +3083,23 @@ $alertTypesMeta = [
         updateSpeedUI(1);
 
         const rg = document.getElementById('rpRange');
-        rg.min = 0;
-        rg.max = Math.max(0, replayPoints.length - 1);
-        rg.value = 0;
+        if (rg) {
+            rg.min = 0;
+            rg.max = Math.max(0, replayPoints.length - 1);
+            rg.value = 0;
+        }
 
-        document.getElementById('rpMeta').textContent = `1/${replayPoints.length}`;
-        document.getElementById('tripReplay').style.display = 'block';
+        const meta = document.getElementById('rpMeta');
+        if (meta) meta.textContent = `1/${replayPoints.length}`;
+
+        const replay = document.getElementById('tripReplay');
+        if (replay) replay.style.display = 'block';
     }
 
-    /* ========================= REPLAY ========================= */
     function updateSpeedUI(spd) {
-        document.getElementById('rpSpeed').textContent = spd % 1 === 0 ? String(spd) : spd.toString();
+        const rp = document.getElementById('rpSpeed');
+        if (rp) rp.textContent = spd % 1 === 0 ? String(spd) : spd.toString();
+
         document.querySelectorAll('.speed-chip').forEach(c => {
             c.classList.toggle('active-chip', parseFloat(c.dataset.spd) === spd);
         });
@@ -2615,18 +3109,17 @@ $alertTypesMeta = [
         i = Math.max(0, Math.min(replayPoints.length - 1, parseInt(i, 10) || 0));
         replayIndex = i;
         const p = replayPoints[replayIndex];
-        const pos = {
-            lat: p.lat,
-            lng: p.lng
-        };
+        const pos = { lat: p.lat, lng: p.lng };
         tripCursor?.setPosition(pos);
 
         if (replayFollow && map && replayTimer) {
             map.panTo(pos);
         }
 
-        document.getElementById('rpRange').value = replayIndex;
-        document.getElementById('rpMeta').textContent = `${replayIndex + 1}/${replayPoints.length}`;
+        const range = document.getElementById('rpRange');
+        const meta = document.getElementById('rpMeta');
+        if (range) range.value = replayIndex;
+        if (meta) meta.textContent = `${replayIndex + 1}/${replayPoints.length}`;
     }
 
     window.replayPlay = () => {
@@ -2678,13 +3171,16 @@ $alertTypesMeta = [
     window.toggleFollow = () => {
         replayFollow = !replayFollow;
         const btn = document.getElementById('rpFollow');
-        btn?.classList.toggle('active-btn', replayFollow);
+        if (!btn) return;
+        btn.classList.toggle('active-btn', replayFollow);
         btn.textContent = replayFollow ? '🎯 Suivre' : '🎯 Libre';
     };
 
     window.closeReplay = () => {
         window.replayPause();
-        document.getElementById('tripReplay').style.display = 'none';
+        const rp = document.getElementById('tripReplay');
+        if (rp) rp.style.display = 'none';
+
         tripPolyline?.setMap(null);
         tripPolyline = null;
         tripCursor?.setMap(null);
@@ -2693,21 +3189,13 @@ $alertTypesMeta = [
         replayIndex = 0;
         currentTrip = null;
 
-        document.getElementById('tripModal').classList.remove('show');
+        document.getElementById('tripModal')?.classList.remove('show');
 
-        const inTrajets = document.getElementById('pane-trajets').classList.contains('active');
+        const inTrajets = document.getElementById('pane-trajets')?.classList.contains('active');
         if (inTrajets) {
             setTopTripsKpis(computeTripAgg(filterTripsForUi(trips)));
             renderTripList();
         }
-    };
-
-    /* ========================= ALERTS ========================= */
-    window.setAlertResolve = (el, r) => {
-        resolvedFilter = r;
-        document.querySelectorAll('#aResolveBar .qc').forEach(x => x.classList.remove('active'));
-        el?.classList.add('active');
-        loadAlerts();
     };
 
     window.setAlertType = (el, t) => {
@@ -2726,13 +3214,14 @@ $alertTypesMeta = [
 
     window.loadAlerts = () => {
         const box = document.getElementById('alertList');
-        box.innerHTML =
-            `<div class="empty"><i class="fas fa-circle-notch fa-spin"></i><div style="margin-top:.6rem">Chargement…</div></div>`;
+        if (box) {
+            box.innerHTML = `<div class="empty"><i class="fas fa-circle-notch fa-spin"></i><div style="margin-top:.6rem">Chargement…</div></div>`;
+        }
 
-        const dFrom = document.getElementById('aFrom').value;
-        const dTo = document.getElementById('aTo').value;
-        const hFrom = document.getElementById('aHFrom').value;
-        const hTo = document.getElementById('aHTo').value;
+        const dFrom = document.getElementById('aFrom')?.value || '';
+        const dTo = document.getElementById('aTo')?.value || '';
+        const hFrom = document.getElementById('aHFrom')?.value || '';
+        const hTo = document.getElementById('aHTo')?.value || '';
 
         const url = new URL(R.alertsDay);
         url.searchParams.set('per_page', '50');
@@ -2748,46 +3237,46 @@ $alertTypesMeta = [
         }
 
         if (selectedVehicleId) url.searchParams.set('vehicle_id', String(selectedVehicleId));
-        if (alertType !== 'all' && ALLOWED_ALERT_TYPES.has(alertType)) url.searchParams.set('alert_type',
-            alertType);
-        if (resolvedFilter === 'open') url.searchParams.set('resolved', '0');
-        if (resolvedFilter === 'resolved') url.searchParams.set('resolved', '1');
+        if (alertType !== 'all' && ALLOWED_ALERT_TYPES.has(alertType)) url.searchParams.set('alert_type', alertType);
 
         fetch(url.toString(), {
-                headers: {
-                    'Accept': 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest'
-                }
-            })
-            .then(r => {
-                if (!r.ok) throw new Error(r.status);
-                return r.json();
-            })
-            .then(json => {
-                alerts = json.data || [];
-                renderAlertList();
+            headers: {
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+        .then(r => {
+            if (!r.ok) throw new Error(r.status);
+            return r.json();
+        })
+        .then(json => {
+            alerts = json.data || [];
+            renderAlertList();
 
-                const by = json.stats?.by_type || {};
-                Object.entries(by).forEach(([type, count]) => {
-                    const el = document.getElementById('kA_' + type);
-                    if (el) el.textContent = count;
-                });
-
-                document.getElementById('bAlerts').textContent = (json.meta?.total ?? alerts.length);
-            })
-            .catch(() => {
-                box.innerHTML =
-                    `<div class="empty"><i class="fas fa-exclamation-triangle"></i><div style="margin-top:.6rem">Erreur endpoint alertes JSON</div></div>`;
+            const by = json.stats?.by_type || {};
+            Object.entries(by).forEach(([type, count]) => {
+                const el = document.getElementById('kA_' + type);
+                if (el) el.textContent = count;
             });
+
+            const b = document.getElementById('bAlerts');
+            if (b) b.textContent = (json.meta?.total ?? alerts.length);
+        })
+        .catch(() => {
+            if (box) {
+                box.innerHTML = `<div class="empty"><i class="fas fa-exclamation-triangle"></i><div style="margin-top:.6rem">Erreur endpoint alertes JSON</div></div>`;
+            }
+        });
     };
 
     function renderAlertList() {
         const box = document.getElementById('alertList');
+        if (!box) return;
+
         const list = alerts.slice();
 
         if (!list.length) {
-            box.innerHTML =
-                `<div class="empty"><i class="fas fa-bell-slash"></i><div style="margin-top:.6rem">Aucune alerte</div></div>`;
+            box.innerHTML = `<div class="empty"><i class="fas fa-bell-slash"></i><div style="margin-top:.6rem">Aucune alerte</div></div>`;
             return;
         }
 
@@ -2803,14 +3292,13 @@ $alertTypesMeta = [
                 type === 'time_zone' ? 'Time Zone' :
                 'Alerte';
 
-            const sevColor = type === 'stolen' ? '#dc2626' : type === 'speed' ? '#d97706' :
-                'var(--color-primary)';
+            const sevColor = type === 'stolen' ? '#dc2626' : type === 'speed' ? '#d97706' : 'var(--color-primary)';
             const s = `${imm} ${title} ${type}`.toLowerCase();
             const tss = esc(a.created_at ?? '—');
             const read = !!(a.is_read);
             const badge = read ?
-                `<span class="tag" style="background:rgba(22,163,74,.12);color:#16a34a">Lu</span>` :
-                `<span class="tag" style="background:rgba(217,119,6,.12);color:#d97706">Non lu</span>`;
+               `<span class="tag" style="background:rgba(22,163,74,.12);color:#16a34a">Lue</span>` :
+               `<span class="tag" style="background:rgba(217,119,6,.12);color:#d97706">Nouvelle</span>`;
 
             if (simple) {
                 return `
@@ -2865,20 +3353,23 @@ $alertTypesMeta = [
             `Véhicule : ${imm}`,
             a.speed ? `Vitesse : ${a.speed} km/h` : null,
             a.location ? `Lieu : ${a.location}` : null,
-            a.lat && a.lng ? `Position : ${parseFloat(a.lat).toFixed(5)}, ${parseFloat(a.lng).toFixed(5)}` :
-            null,
+            a.lat && a.lng ? `Position : ${parseFloat(a.lat).toFixed(5)}, ${parseFloat(a.lng).toFixed(5)}` : null,
             a.created_at ? `Date : ${a.created_at}` : null,
-            a.description ? `\n${a.description}` : null,
+            a.description ? `${a.description}` : null,
         ].filter(Boolean).join('\n');
 
-        document.getElementById('adTitle').textContent = title;
-        document.getElementById('adVeh').textContent = imm;
-        document.getElementById('adDesc').textContent = desc || '—';
+        const adTitle = document.getElementById('adTitle');
+        const adVeh = document.getElementById('adVeh');
+        const adDesc = document.getElementById('adDesc');
+        const ad = document.getElementById('alertDetail');
+
+        if (adTitle) adTitle.textContent = title;
+        if (adVeh) adVeh.textContent = imm;
+        if (adDesc) adDesc.textContent = desc || '—';
 
         currentAlert = a;
 
-        const el = document.getElementById('alertDetail');
-        el.style.display = 'block';
+        if (ad) ad.style.display = 'block';
 
         if (a.lat && a.lng && map) {
             map.setCenter({
@@ -2889,9 +3380,9 @@ $alertTypesMeta = [
         }
     }
 
-    /* ========================= ALERT DETAIL ACTIONS ========================= */
     window.closeAlertDetail = () => {
-        document.getElementById('alertDetail').style.display = 'none';
+        const ad = document.getElementById('alertDetail');
+        if (ad) ad.style.display = 'none';
         document.querySelectorAll('#alertList .item').forEach(x => x.classList.remove('sel'));
         currentAlert = null;
     };
@@ -2904,16 +3395,44 @@ $alertTypesMeta = [
     window.markAlertProcessed = () => toast('Alerte marquée comme traitée');
 
     window.locateAlert = () => {
+        if (!currentAlert) return;
+
+        const vehicleId = getAlertVehicleId(currentAlert);
+
+        if (vehicleId) {
+            selectedVehicleId = parseInt(vehicleId, 10);
+            followSelectedVehicle = true;
+            updateFollowSelectedPill();
+
+            window.switchTab('flotte');
+
+            requestAnimationFrame(() => {
+                renderVehicleList();
+                selectVehicleInList(vehicleId);
+                focusVehicle(vehicleId, true);
+                openVehicleModal(vehicleId);
+                window.closeAlertDetail();
+                toast('Véhicule localisé');
+            });
+
+            return;
+        }
+
         if (currentAlert?.lat && currentAlert?.lng && map) {
+            window.switchTab('flotte');
             map.setCenter({
                 lat: parseFloat(currentAlert.lat),
                 lng: parseFloat(currentAlert.lng)
             });
-            map.setZoom(15);
+            map.setZoom(16);
+            window.closeAlertDetail();
+            toast('Position de l’alerte localisée');
+            return;
         }
+
+        toast('Impossible de localiser ce véhicule', false);
     };
 
-    /* ========================= AUTO FILTER BINDINGS ========================= */
     function bindAutoFilters() {
         const loadTripsDeb = debounce(() => loadTrips(), 250);
         const loadAlertsDeb = debounce(() => loadAlerts(), 250);
@@ -2946,34 +3465,69 @@ $alertTypesMeta = [
         });
     }
 
-    /* ========================= INIT DATES ========================= */
     function initDates() {
         const today = new Date().toISOString().slice(0, 10);
-        document.getElementById('tFrom').value = today;
-        document.getElementById('tTo').value = today;
-        document.getElementById('aFrom').value = today;
-        document.getElementById('aTo').value = today;
-        document.getElementById('aHFrom').value = '';
-        document.getElementById('aHTo').value = '';
-        resolvedFilter = 'open';
 
-        ['vf', 'tQuick', 'tf', 'tDateBox', 'aQuick', 'aResolveBar', 'af', 'aDateBox'].forEach(id => {
+        const tFrom = document.getElementById('tFrom');
+        const tTo = document.getElementById('tTo');
+        const aFrom = document.getElementById('aFrom');
+        const aTo = document.getElementById('aTo');
+        const aHFrom = document.getElementById('aHFrom');
+        const aHTo = document.getElementById('aHTo');
+
+        if (tFrom) tFrom.value = today;
+        if (tTo) tTo.value = today;
+        if (aFrom) aFrom.value = today;
+        if (aTo) aTo.value = today;
+        if (aHFrom) aHFrom.value = '';
+        if (aHTo) aHTo.value = '';
+
+        ['vf', 'tQuick', 'tf', 'tDateBox', 'aQuick', 'af', 'aDateBox'].forEach(id => {
             document.getElementById(id)?.classList.remove('show');
         });
     }
 
-    window.addEventListener('resize', measureHeights);
+    setInterval(() => {
+        if (!vehicles.length) return;
 
-    /* ========================= BOOT ========================= */
+        vehicles = vehicles.map(enrichVehicleLiveStatus);
+
+        const inFleetTab = document.getElementById('pane-flotte')?.classList.contains('active');
+        const modalOpen = document.getElementById('vehicleModal')?.classList.contains('show');
+
+        if (inFleetTab) {
+            renderVehicleList();
+        }
+
+        if (selectedVehicleId) {
+            updateSelectedVehicleIndicator();
+
+            if (modalOpen) {
+                openVehicleModal(selectedVehicleId);
+            }
+
+            if (followSelectedVehicle && map && markers[String(selectedVehicleId)]) {
+                focusVehicle(selectedVehicleId, false);
+            }
+        }
+    }, 1000);
+
+    window.addEventListener('resize', () => {
+        measureHeights();
+        moveFollowPillNearMapType();
+        updateSelectedVehicleIndicator();
+    });
+
     document.addEventListener('DOMContentLoaded', () => {
+        vehicles = mergeFleetRealtime(vehicles);
         initDates();
         bindAutoFilters();
         renderVehicleList();
+        updateFollowSelectedPill();
         loadGoogleMaps();
         measureHeights();
         loadAlerts();
     });
 })();
 </script>
-
 @endpush
