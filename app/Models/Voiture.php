@@ -176,4 +176,18 @@ class Voiture extends Model
         return $this->hasMany(HistoriqueAssociationChauffeurVoiturePartner::class, 'voiture_id')
             ->orderByDesc('start_at');
     }
+
+
+
+    public function chauffeurActuelPourPartner(int $partnerId)
+{
+    return $this->associationsChauffeurPartner()
+        ->whereHas('chauffeur', function ($q) use ($partnerId) {
+            $q->where('partner_id', $partnerId);
+        })
+        ->with('chauffeur:id,prenom,nom,partner_id')
+        ->latest('assigned_at')
+        ->first()?->chauffeur;
+}
+
 }

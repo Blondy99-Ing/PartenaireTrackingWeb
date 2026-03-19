@@ -327,7 +327,6 @@ class DashboardCacheService
 
         $voitures = Voiture::query()
             ->whereIn('id', $vehicleIds)
-            ->with(['chauffeurActuelPartner.chauffeur:id,prenom,nom,partner_id'])
             ->select(['id', 'immatriculation', 'marque', 'model', 'mac_id_gps'])
             ->get();
 
@@ -363,7 +362,7 @@ class DashboardCacheService
                 continue;
             }
 
-            $row = $this->buildVehicleRow($v, $loc, null);
+            $row = $this->buildVehicleRow($partnerId, $v, $loc, null);
             if (!$row) {
                 continue;
             }
@@ -410,12 +409,6 @@ class DashboardCacheService
 
     public function updateVehicleFromLocation(int|Location $partnerIdOrLocation, ?Location $location = null, bool $bump = true): void
     {
-        /**
-         * Compatibilité double :
-         * - ancien webhook : updateVehicleFromLocation(int $partnerId, Location $location, bool $bump = true)
-         * - autre usage éventuel : updateVehicleFromLocation(Location $location)
-         */
-
         if ($partnerIdOrLocation instanceof Location) {
             $incomingLocation = $partnerIdOrLocation;
             $mac = trim((string) ($incomingLocation->mac_id_gps ?? ''));
@@ -460,15 +453,6 @@ class DashboardCacheService
 
     public function updateFleetBatchFromLocations(int|iterable $partnerIdOrLocations, array $items = [], bool $bump = true): void
     {
-        /**
-         * Compatibilité double :
-         * - contrat réel webhook :
-         *   updateFleetBatchFromLocations(int $partnerId, array $items, bool $bump = true)
-         *
-         * - usage éventuel :
-         *   updateFleetBatchFromLocations(iterable $locations)
-         */
-
         if (is_iterable($partnerIdOrLocations) && !is_int($partnerIdOrLocations)) {
             $latestByMac = [];
 
@@ -496,7 +480,6 @@ class DashboardCacheService
 
             $vehicles = Voiture::query()
                 ->whereIn('mac_id_gps', $macs)
-                ->with(['chauffeurActuelPartner.chauffeur:id,prenom,nom,partner_id'])
                 ->select(['id', 'immatriculation', 'marque', 'model', 'mac_id_gps'])
                 ->get();
 
@@ -535,7 +518,7 @@ class DashboardCacheService
 
                 foreach ($existingPartners as $partnerId) {
                     $existingRow = $this->getFleetVehicleRowFromRedis((int) $partnerId, (int) $vehicle->id);
-                    $row = $this->buildVehicleRow($vehicle, $location->toArray(), $existingRow);
+                    $row = $this->buildVehicleRow((int) $partnerId, $vehicle, $location->toArray(), $existingRow);
 
                     if (!$row) {
                         continue;
@@ -597,7 +580,6 @@ class DashboardCacheService
         $voitures = Voiture::query()
             ->whereIn('id', $partnerVehicleIds)
             ->whereIn('mac_id_gps', $macs)
-            ->with(['chauffeurActuelPartner.chauffeur:id,prenom,nom,partner_id'])
             ->select(['id', 'immatriculation', 'marque', 'model', 'mac_id_gps'])
             ->get();
 
@@ -621,7 +603,7 @@ class DashboardCacheService
             }
 
             $existingRow = $this->getFleetVehicleRowFromRedis($partnerId, (int) $voiture->id);
-            $row = $this->buildVehicleRow($voiture, $data, $existingRow);
+            $row = $this->buildVehicleRow($partnerId, $voiture, $data, $existingRow);
             if (!$row) {
                 continue;
             }
@@ -784,7 +766,7 @@ class DashboardCacheService
         return array_values($best);
     }
 
-    private function buildVehicleRow(Voiture $voiture, array $locationData, ?array $existingRow = null): ?array
+    private function buildVehicleRow(int $partnerId, Voiture $voiture, array $locationData, ?array $existingRow = null): ?array
     {
         $lat = $locationData['latitude'] ?? null;
         $lon = $locationData['longitude'] ?? null;
@@ -793,7 +775,7 @@ class DashboardCacheService
             return null;
         }
 
-        $chauffeur = $voiture->chauffeurActuelPartner?->chauffeur;
+        $chauffeur = $voiture->chauffeurActuelPourPartner($partnerId);
         $driverLabel = $chauffeur
             ? trim(($chauffeur->prenom ?? '') . ' ' . ($chauffeur->nom ?? ''))
             : 'Non associé';
