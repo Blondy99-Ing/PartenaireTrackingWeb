@@ -135,11 +135,7 @@ class TrackingWebhookController extends Controller
             }
 
             foreach ($partnerIds as $partnerId) {
-                if ($this->cache->shouldRefreshAlertsNow($partnerId, 2)) {
-                    $this->cache->rebuildAlerts($partnerId, $limit);
-                } else {
-                    $this->cache->bumpVersionDebounced($partnerId, 1);
-                }
+                $this->refreshPartnerAlertsAndStats((int) $partnerId, $limit);
             }
 
             return response()->json(['ok' => true, 'event' => $event, 'partner_ids' => $partnerIds]);
@@ -151,12 +147,7 @@ class TrackingWebhookController extends Controller
 
             if (!empty($data['partner_id'])) {
                 $partnerId = (int) $data['partner_id'];
-
-                if ($this->cache->shouldRefreshAlertsNow($partnerId, 2)) {
-                    $this->cache->rebuildAlerts($partnerId, $limit);
-                } else {
-                    $this->cache->bumpVersionDebounced($partnerId, 1);
-                }
+                $this->refreshPartnerAlertsAndStats($partnerId, $limit);
 
                 return response()->json([
                     'ok' => true,
@@ -198,11 +189,7 @@ class TrackingWebhookController extends Controller
             }
 
             foreach ($partnerIds as $partnerId) {
-                if ($this->cache->shouldRefreshAlertsNow($partnerId, 2)) {
-                    $this->cache->rebuildAlerts($partnerId, $limit);
-                } else {
-                    $this->cache->bumpVersionDebounced($partnerId, 1);
-                }
+                $this->refreshPartnerAlertsAndStats((int) $partnerId, $limit);
             }
 
             return response()->json([
@@ -214,6 +201,17 @@ class TrackingWebhookController extends Controller
         }
 
         return response()->json(['ok' => false, 'error' => 'Unknown event'], 422);
+    }
+
+    private function refreshPartnerAlertsAndStats(int $partnerId, int $limit = 10): void
+    {
+        if ($this->cache->shouldRefreshAlertsNow($partnerId, 2)) {
+            $this->cache->rebuildAlerts($partnerId, $limit);
+            $this->cache->rebuildStats($partnerId);
+            return;
+        }
+
+        $this->cache->bumpVersionDebounced($partnerId, 1);
     }
 
     private function resolvePartnerIdsFromAlertPayload(array $data): array
@@ -249,7 +247,9 @@ class TrackingWebhookController extends Controller
 
         return AssociationUserVoiture::query()
             ->whereIn('voiture_id', $voitureIds)
-            ->pluck('user_id')
+            ->join('users', 'users.id', '=', 'association_user_voitures.user_id')
+            ->whereNull('users.partner_id')
+            ->pluck('association_user_voitures.user_id')
             ->map(fn ($x) => (int) $x)
             ->unique()
             ->values()
@@ -308,8 +308,10 @@ class TrackingWebhookController extends Controller
         }
 
         $pivot = AssociationUserVoiture::query()
-            ->whereIn('voiture_id', $voitureIds)
-            ->select(['voiture_id', 'user_id'])
+            ->join('users', 'users.id', '=', 'association_user_voitures.user_id')
+            ->whereNull('users.partner_id')
+            ->whereIn('association_user_voitures.voiture_id', $voitureIds)
+            ->select(['association_user_voitures.voiture_id', 'association_user_voitures.user_id'])
             ->get();
 
         $partnersByVoiture = [];

@@ -1930,4 +1930,693 @@ public function getVehicleStateByMacId(string $macId, float $movingThreshold = 5
     ];
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/**
+ * Convertit une date/heure en timestamp UTC millisecondes pour l'API history provider.
+ */
+private function toUtcMsForHistory($value): ?int
+{
+    if ($value === null) {
+        return null;
+    }
+
+    if (is_numeric($value)) {
+        $n = (int) $value;
+
+        if ($n <= 0) {
+            return null;
+        }
+
+        if ($n >= 1000000000000) {
+            return $n; // déjà en ms
+        }
+
+        if ($n >= 1000000000) {
+            return $n * 1000; // sec -> ms
+        }
+
+        return null;
+    }
+
+    if (is_string($value)) {
+        $s = trim($value);
+
+        if ($s === '') {
+            return null;
+        }
+
+        if (is_numeric($s)) {
+            return $this->toUtcMsForHistory((int) $s);
+        }
+
+        try {
+            return Carbon::parse($s, config('app.timezone'))->utc()->getTimestampMs();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    if ($value instanceof \DateTimeInterface) {
+        try {
+            return Carbon::instance($value)->utc()->getTimestampMs();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Extrait la string brute de points depuis la réponse provider.
+ */
+private function extractHistoryPointsString(array $raw): ?string
+{
+    if (isset($raw['Point']) && is_string($raw['Point'])) {
+        return trim($raw['Point']);
+    }
+
+    if (isset($raw['point']) && is_string($raw['point'])) {
+        return trim($raw['point']);
+    }
+
+    if (isset($raw['data']) && is_string($raw['data'])) {
+        return trim($raw['data']);
+    }
+
+    if (isset($raw[0]) && is_string($raw[0])) {
+        return trim($raw[0]);
+    }
+
+    if (isset($raw['data']) && is_array($raw['data'])) {
+        $first = $raw['data'][0] ?? null;
+
+        if (is_array($first)) {
+            if (isset($first['Point']) && is_string($first['Point'])) {
+                return trim($first['Point']);
+            }
+
+            if (isset($first['point']) && is_string($first['point'])) {
+                return trim($first['point']);
+            }
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Parse un point brut provider.
+ * Format attendu :
+ * lng,lat,ts_ms,speed,direction,bool#...$value#...
+ */
+private function parseProviderHistoryPoint(string $rawPoint): ?array
+{
+    $rawPoint = trim($rawPoint);
+
+    if ($rawPoint === '') {
+        return null;
+    }
+
+    $boolPart = null;
+    $valuePart = null;
+    $mainPart = $rawPoint;
+
+    if (str_contains($mainPart, 'bool#')) {
+        [$mainPart, $afterBool] = explode('bool#', $mainPart, 2);
+
+        if (str_contains($afterBool, 'value#')) {
+            [$boolPart, $valuePart] = explode('value#', $afterBool, 2);
+        } else {
+            $boolPart = $afterBool;
+        }
+    } elseif (str_contains($mainPart, 'value#')) {
+        [$mainPart, $valuePart] = explode('value#', $mainPart, 2);
+    }
+
+    $mainPart = trim($mainPart, ", \t\n\r\0\x0B");
+    $parts = array_map('trim', explode(',', $mainPart));
+
+    if (count($parts) < 5) {
+        return null;
+    }
+
+    $lng = is_numeric($parts[0] ?? null) ? (float) $parts[0] : null;
+    $lat = is_numeric($parts[1] ?? null) ? (float) $parts[1] : null;
+    $tsMs = is_numeric($parts[2] ?? null) ? (int) $parts[2] : null;
+    $speed = is_numeric($parts[3] ?? null) ? (float) $parts[3] : null;
+    $direction = is_numeric($parts[4] ?? null) ? (float) $parts[4] : null;
+
+    if ($lat === null || $lng === null || $tsMs === null) {
+        return null;
+    }
+
+    $boolValues = null;
+    if ($boolPart !== null) {
+        $boolPart = trim($boolPart, ", \t\n\r\0\x0B");
+        $boolValues = explode('|', $boolPart);
+    }
+
+    $valueValues = null;
+    if ($valuePart !== null) {
+        $valuePart = trim($valuePart, ", \t\n\r\0\x0B");
+        $valueValues = explode('|', $valuePart);
+    }
+
+    $ts = null;
+    try {
+        $ts = Carbon::createFromTimestampMs($tsMs)
+            ->setTimezone(config('app.timezone'))
+            ->toDateTimeString();
+    } catch (\Throwable) {
+    }
+
+    return [
+        'lat' => $lat,
+        'lng' => $lng,
+        'ts' => $ts,
+        'ts_ms' => $tsMs,
+        'speed' => $speed,
+        'direction' => $direction,
+        'bool_values' => $boolValues,
+        'value_values' => $valueValues,
+        'raw' => $rawPoint,
+    ];
+}
+
+/**
+ * Parse la string provider complète en liste de points.
+ */
+private function parseProviderHistoryPointsString(?string $pointsString): array
+{
+    $pointsString = trim((string) $pointsString);
+
+    if ($pointsString === '') {
+        return [];
+    }
+
+    $chunks = array_filter(array_map('trim', explode(';', $pointsString)));
+    $out = [];
+
+    foreach ($chunks as $chunk) {
+        $parsed = $this->parseProviderHistoryPoint($chunk);
+        if ($parsed) {
+            $out[] = $parsed;
+        }
+    }
+
+    return $out;
+}
+
+/**
+ * Appel brut historique provider par macId.
+ */
+public function getHistoryRawByMacId(
+    string $macId,
+    $from,
+    $to,
+    ?string $mapType = null,
+    bool $playLBS = true
+): array {
+    $macId = trim($macId);
+
+    if ($macId === '') {
+        return [
+            'success' => 'false',
+            'errorCode' => '400',
+            'errorDescribe' => 'macId is required',
+        ];
+    }
+
+    $this->ensureAccountForMacId($macId);
+
+    $fromMs = $this->toUtcMsForHistory($from);
+    $toMs   = $this->toUtcMsForHistory($to);
+
+    if (!$fromMs || !$toMs || $fromMs >= $toMs) {
+        return [
+            'success' => 'false',
+            'errorCode' => '400',
+            'errorDescribe' => 'from/to invalid',
+        ];
+    }
+
+    return $this->callGetDate('getHistoryMByMUtcNew', [
+        'macid'   => $macId,
+        'mapType' => trim((string) ($mapType ?? $this->defaultMapType ?: 'BAIDU')),
+        'from'    => $fromMs,
+        'to'      => $toMs,
+        'playLBS' => $playLBS ? 'true' : 'false',
+    ], true);
+}
+
+/**
+ * Appel brut historique provider par userId.
+ */
+public function getHistoryRawByUserId(
+    string $userId,
+    $from,
+    $to,
+    ?string $mapType = null,
+    bool $playLBS = true
+): array {
+    $userId = trim($userId);
+
+    if ($userId === '') {
+        return [
+            'success' => 'false',
+            'errorCode' => '400',
+            'errorDescribe' => 'userId is required',
+        ];
+    }
+
+    $fromMs = $this->toUtcMsForHistory($from);
+    $toMs   = $this->toUtcMsForHistory($to);
+
+    if (!$fromMs || !$toMs || $fromMs >= $toMs) {
+        return [
+            'success' => 'false',
+            'errorCode' => '400',
+            'errorDescribe' => 'from/to invalid',
+        ];
+    }
+
+    return $this->callGetDate('getHistoryMByMUtc', [
+        'userID'  => $userId,
+        'mapType' => trim((string) ($mapType ?? $this->defaultMapType ?: 'BAIDU')),
+        'from'    => $fromMs,
+        'to'      => $toMs,
+        'playLBS' => $playLBS ? 'true' : 'false',
+    ], true);
+}
+
+/**
+ * Version parsée par macId.
+ */
+public function getHistoryByMacId(
+    string $macId,
+    $from,
+    $to,
+    ?string $mapType = null,
+    bool $playLBS = true
+): array {
+    $raw = $this->getHistoryRawByMacId($macId, $from, $to, $mapType, $playLBS);
+
+    if (!$this->isProviderSuccess($raw)) {
+        return [
+            'success' => false,
+            'message' => $raw['errorDescribe'] ?? 'Provider history call failed',
+            'errorCode' => $raw['errorCode'] ?? null,
+            'raw' => $raw,
+            'points' => [],
+            'count' => 0,
+        ];
+    }
+
+    $pointsString = $this->extractHistoryPointsString($raw);
+    $points = $this->parseProviderHistoryPointsString($pointsString);
+
+    return [
+        'success' => true,
+        'source' => 'provider',
+        'account' => $this->account,
+        'mac_id_gps' => trim($macId),
+        'from_utc_ms' => $this->toUtcMsForHistory($from),
+        'to_utc_ms' => $this->toUtcMsForHistory($to),
+        'points' => $points,
+        'count' => count($points),
+        'raw_points' => $pointsString,
+        'raw' => $raw,
+    ];
+}
+
+/**
+ * Version parsée par userId.
+ */
+public function getHistoryByUserId(
+    string $userId,
+    $from,
+    $to,
+    ?string $mapType = null,
+    bool $playLBS = true
+): array {
+    $raw = $this->getHistoryRawByUserId($userId, $from, $to, $mapType, $playLBS);
+
+    if (!$this->isProviderSuccess($raw)) {
+        return [
+            'success' => false,
+            'message' => $raw['errorDescribe'] ?? 'Provider history call failed',
+            'errorCode' => $raw['errorCode'] ?? null,
+            'raw' => $raw,
+            'points' => [],
+            'count' => 0,
+        ];
+    }
+
+    $pointsString = $this->extractHistoryPointsString($raw);
+    $points = $this->parseProviderHistoryPointsString($pointsString);
+
+    return [
+        'success' => true,
+        'source' => 'provider',
+        'account' => $this->account,
+        'user_id' => trim($userId),
+        'from_utc_ms' => $this->toUtcMsForHistory($from),
+        'to_utc_ms' => $this->toUtcMsForHistory($to),
+        'points' => $points,
+        'count' => count($points),
+        'raw_points' => $pointsString,
+        'raw' => $raw,
+    ];
+}
+
+/**
+ * Historique complet paginé par macId.
+ */
+public function getFullHistoryByMacId(
+    string $macId,
+    $from,
+    $to,
+    ?string $mapType = null,
+    bool $playLBS = true,
+    int $maxLoops = 20
+): array {
+    $fromMs = $this->toUtcMsForHistory($from);
+    $toMs   = $this->toUtcMsForHistory($to);
+
+    if (!$fromMs || !$toMs || $fromMs >= $toMs) {
+        return [
+            'success' => false,
+            'message' => 'from/to invalid',
+            'points' => [],
+            'count' => 0,
+        ];
+    }
+
+    $allPoints = [];
+    $loops = 0;
+    $cursorFrom = $fromMs;
+
+    while ($loops < $maxLoops && $cursorFrom < $toMs) {
+        $loops++;
+
+        $resp = $this->getHistoryByMacId($macId, $cursorFrom, $toMs, $mapType, $playLBS);
+
+        if (!($resp['success'] ?? false)) {
+            return $resp + [
+                'loops' => $loops,
+                'partial_points' => $allPoints,
+                'partial_count' => count($allPoints),
+            ];
+        }
+
+        $points = $resp['points'] ?? [];
+        $count = count($points);
+
+        if ($count === 0) {
+            break;
+        }
+
+        foreach ($points as $pt) {
+            $allPoints[] = $pt;
+        }
+
+        if ($count < 1000) {
+            break;
+        }
+
+        $maxTs = collect($points)->max('ts_ms');
+        $maxTs = is_numeric($maxTs) ? (int) $maxTs : null;
+
+        if (!$maxTs || $maxTs <= $cursorFrom) {
+            break;
+        }
+
+        $cursorFrom = $maxTs + 1;
+    }
+
+    $allPoints = collect($allPoints)
+        ->sortBy('ts_ms')
+        ->unique(fn ($p) => ($p['lat'] ?? '') . '|' . ($p['lng'] ?? '') . '|' . ($p['ts_ms'] ?? ''))
+        ->values()
+        ->all();
+
+    return [
+        'success' => true,
+        'source' => 'provider',
+        'account' => $this->account,
+        'mac_id_gps' => trim($macId),
+        'from_utc_ms' => $fromMs,
+        'to_utc_ms' => $toMs,
+        'points' => $allPoints,
+        'count' => count($allPoints),
+        'loops' => $loops,
+    ];
+}
+
+/**
+ * Historique complet paginé par userId.
+ */
+public function getFullHistoryByUserId(
+    string $userId,
+    $from,
+    $to,
+    ?string $mapType = null,
+    bool $playLBS = true,
+    int $maxLoops = 20
+): array {
+    $fromMs = $this->toUtcMsForHistory($from);
+    $toMs   = $this->toUtcMsForHistory($to);
+
+    if (!$fromMs || !$toMs || $fromMs >= $toMs) {
+        return [
+            'success' => false,
+            'message' => 'from/to invalid',
+            'points' => [],
+            'count' => 0,
+        ];
+    }
+
+    $allPoints = [];
+    $loops = 0;
+    $cursorFrom = $fromMs;
+
+    while ($loops < $maxLoops && $cursorFrom < $toMs) {
+        $loops++;
+
+        $resp = $this->getHistoryByUserId($userId, $cursorFrom, $toMs, $mapType, $playLBS);
+
+        if (!($resp['success'] ?? false)) {
+            return $resp + [
+                'loops' => $loops,
+                'partial_points' => $allPoints,
+                'partial_count' => count($allPoints),
+            ];
+        }
+
+        $points = $resp['points'] ?? [];
+        $count = count($points);
+
+        if ($count === 0) {
+            break;
+        }
+
+        foreach ($points as $pt) {
+            $allPoints[] = $pt;
+        }
+
+        if ($count < 1000) {
+            break;
+        }
+
+        $maxTs = collect($points)->max('ts_ms');
+        $maxTs = is_numeric($maxTs) ? (int) $maxTs : null;
+
+        if (!$maxTs || $maxTs <= $cursorFrom) {
+            break;
+        }
+
+        $cursorFrom = $maxTs + 1;
+    }
+
+    $allPoints = collect($allPoints)
+        ->sortBy('ts_ms')
+        ->unique(fn ($p) => ($p['lat'] ?? '') . '|' . ($p['lng'] ?? '') . '|' . ($p['ts_ms'] ?? ''))
+        ->values()
+        ->all();
+
+    return [
+        'success' => true,
+        'source' => 'provider',
+        'account' => $this->account,
+        'user_id' => trim($userId),
+        'from_utc_ms' => $fromMs,
+        'to_utc_ms' => $toMs,
+        'points' => $allPoints,
+        'count' => count($allPoints),
+        'loops' => $loops,
+    ];
+}
+
+/**
+ * Résout objectid/userId provider depuis sim_gps pour un macId.
+ */
+public function resolveProviderUserIdByMacId(string $macId): ?string
+{
+    $macId = trim($macId);
+
+    if ($macId === '') {
+        return null;
+    }
+
+    $this->ensureAccountForMacId($macId);
+
+    $userId = (string) (SimGps::query()
+        ->where('mac_id', $macId)
+        ->value('objectid') ?? '');
+
+    $userId = trim($userId);
+
+    if ($userId !== '') {
+        return $userId;
+    }
+
+    $devices = $this->getAccountDeviceList();
+
+    $userId = (string) ($this->resolveUserIdFromDeviceList($macId, $devices) ?? '');
+    $userId = trim($userId);
+
+    return $userId !== '' ? $userId : null;
+}
+
+/**
+ * Historique trajet provider "métier" par macId.
+ * Priorité : userId -> fallback macId.
+ */
+public function getTripHistoryByMacId(
+    string $macId,
+    $from,
+    $to,
+    ?string $mapType = null,
+    bool $playLBS = true,
+    int $maxLoops = 20,
+    bool $fallbackToMacId = true
+): array {
+    $macId = trim($macId);
+
+    if ($macId === '') {
+        return [
+            'success' => false,
+            'message' => 'mac_id_gps vide',
+            'points' => [],
+            'count' => 0,
+        ];
+    }
+
+    $this->ensureAccountForMacId($macId);
+
+    $userId = $this->resolveProviderUserIdByMacId($macId);
+
+    if ($userId) {
+        $resp = $this->getFullHistoryByUserId(
+            $userId,
+            $from,
+            $to,
+            $mapType,
+            $playLBS,
+            $maxLoops
+        );
+
+        if (($resp['success'] ?? false) && (int) ($resp['count'] ?? 0) > 0) {
+            $resp['mac_id_gps'] = $macId;
+            $resp['resolved_by'] = 'user_id';
+            return $resp;
+        }
+
+        if (!$fallbackToMacId) {
+            return $resp + [
+                'mac_id_gps' => $macId,
+                'resolved_by' => 'user_id',
+            ];
+        }
+    }
+
+    $resp = $this->getFullHistoryByMacId(
+        $macId,
+        $from,
+        $to,
+        $mapType,
+        $playLBS,
+        $maxLoops
+    );
+
+    $resp['mac_id_gps'] = $macId;
+    $resp['resolved_by'] = 'mac_id';
+
+    return $resp;
+}
+
+/**
+ * Historique trajet provider avec meta enrichie.
+ */
+public function getTripHistoryPayloadByMacId(
+    string $macId,
+    $from,
+    $to,
+    ?string $mapType = null,
+    bool $playLBS = true,
+    int $maxLoops = 20,
+    bool $fallbackToMacId = true
+): array {
+    $resp = $this->getTripHistoryByMacId(
+        $macId,
+        $from,
+        $to,
+        $mapType,
+        $playLBS,
+        $maxLoops,
+        $fallbackToMacId
+    );
+
+    return [
+        'success' => (bool) ($resp['success'] ?? false),
+        'source' => 'provider',
+        'account' => $resp['account'] ?? $this->account,
+        'mac_id_gps' => trim($macId),
+        'user_id' => $resp['user_id'] ?? $this->resolveProviderUserIdByMacId($macId),
+        'resolved_by' => $resp['resolved_by'] ?? null,
+        'from_utc_ms' => $resp['from_utc_ms'] ?? $this->toUtcMsForHistory($from),
+        'to_utc_ms' => $resp['to_utc_ms'] ?? $this->toUtcMsForHistory($to),
+        'count' => (int) ($resp['count'] ?? 0),
+        'loops' => (int) ($resp['loops'] ?? 0),
+        'message' => $resp['message'] ?? null,
+        'points' => array_values($resp['points'] ?? []),
+        'raw' => $resp['raw'] ?? null,
+        'raw_points' => $resp['raw_points'] ?? null,
+    ];
+}
+
 }

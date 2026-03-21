@@ -181,4 +181,13 @@ public function ownedPartners(): HasMany
     return $this->hasMany(Partner::class, 'owner_user_id');
 }
 
+
+   //Exemple à ajouter dans User.php (inoffensif maintenant) :
+     public function scopePartners(Builder $query): Builder {
+         return $query->whereNull('partner_id');
+     }
+     public function scopeDriversOf(Builder $query, int $partnerId): Builder {
+         return $query->where('partner_id', $partnerId);
+     }
+ 
 }

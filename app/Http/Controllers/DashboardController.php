@@ -5,9 +5,22 @@ namespace App\Http\Controllers;
 use App\Services\DashboardCacheService;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
+/**
+ * DashboardController — version corrigée
+ *
+ * CORRECTIONS APPLIQUÉES :
+ *   [FIX-A] dashboardStream : usleep réduit à 800ms (était 2000ms)
+ *   [FIX-B] dashboardStream : après fleet.reset, dirty:vehicles est vidé
+ *           pour éviter les double-notifications vehicle.updated parasites
+ *   [FIX-C] buildInitPayload : rebuild si cache vide (démarrage à froid)
+ */
 class DashboardController extends Controller
 {
     public function __construct(private DashboardCacheService $cache) {}
+
+    // ─────────────────────────────────────────────────────────────
+    // Page principale
+    // ─────────────────────────────────────────────────────────────
 
     public function index()
     {
@@ -36,6 +49,10 @@ class DashboardController extends Controller
         ]);
     }
 
+    // ─────────────────────────────────────────────────────────────
+    // Stream SSE
+    // ─────────────────────────────────────────────────────────────
+
     public function dashboardStream(): StreamedResponse
     {
         $partnerId = (int) auth()->id();
@@ -63,6 +80,7 @@ class DashboardController extends Controller
             echo "data: {\"ok\":true}\n\n";
             $this->flushNow();
 
+            // [FIX-C] buildInitPayload rebuild si cache vide (démarrage à froid)
             echo "event: dashboard.init\n";
             echo "data: " . $this->buildInitPayload($partnerId) . "\n\n";
             $this->flushNow();
@@ -76,6 +94,10 @@ class DashboardController extends Controller
                     $lastVersion = $version;
 
                     if ($this->cache->consumeFleetReset($partnerId)) {
+                        // [FIX-B] Vider dirty:vehicles pour éviter vehicle.updated parasites
+                        // fleet.reset envoie la flotte complète — dirty:vehicles est redondant
+                        $this->cache->consumeDirtyVehicleRows($partnerId);
+
                         echo "event: fleet.reset\n";
                         echo "data: " . json_encode([
                             'fleet' => $this->cache->getFleetFromRedis($partnerId),
@@ -107,7 +129,8 @@ class DashboardController extends Controller
                     $this->flushNow();
                 }
 
-                usleep(2000000);
+                // [FIX-A] 800ms au lieu de 2000ms — latence perçue divisée par 2.5
+                usleep(800000);
             }
         }, 200, [
             'Content-Type'      => 'text/event-stream; charset=UTF-8',
@@ -117,6 +140,10 @@ class DashboardController extends Controller
             'X-Accel-Buffering' => 'no',
         ]);
     }
+
+    // ─────────────────────────────────────────────────────────────
+    // Rebuild manuel (endpoint POST /dashboard/rebuild)
+    // ─────────────────────────────────────────────────────────────
 
     public function rebuildCache()
     {
@@ -131,16 +158,35 @@ class DashboardController extends Controller
         ]);
     }
 
+    // ─────────────────────────────────────────────────────────────
+    // Helpers privés
+    // ─────────────────────────────────────────────────────────────
+
+    /**
+     * [FIX-C] Rebuild les données si le cache Redis est vide.
+     * Évite un dashboard init vide au démarrage à froid.
+     */
     private function buildInitPayload(int $partnerId): string
     {
-        $stats  = $this->cache->getStatsFromRedis($partnerId) ?: [];
-        $fleet  = $this->cache->getFleetFromRedis($partnerId);
+        $stats = $this->cache->getStatsFromRedis($partnerId);
+        if (empty($stats)) {
+            $stats = $this->cache->rebuildStats($partnerId);
+        }
+
+        $fleet = $this->cache->getFleetFromRedis($partnerId);
+        if (empty($fleet)) {
+            $fleet = $this->cache->rebuildFleet($partnerId);
+        }
+
         $alerts = $this->cache->getAlertsFromRedis($partnerId);
+        if (empty($alerts)) {
+            $alerts = $this->cache->rebuildAlerts($partnerId, 10);
+        }
 
         return json_encode([
             'ts'     => now()->toDateTimeString(),
             'stats'  => $stats,
-            'fleet'  => is_array($fleet) ? $fleet : [],
+            'fleet'  => is_array($fleet)  ? $fleet  : [],
             'alerts' => is_array($alerts) ? $alerts : [],
         ], JSON_UNESCAPED_UNICODE);
     }

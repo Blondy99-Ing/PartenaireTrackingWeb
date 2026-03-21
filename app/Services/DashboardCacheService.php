@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Alert;
+use App\Models\AssociationChauffeurVoiturePartner;
 use App\Models\AssociationUserVoiture;
 use App\Models\Location;
 use App\Models\User;
@@ -10,6 +11,13 @@ use App\Models\Voiture;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Redis;
 
+/**
+ * DashboardCacheService — version corrigée
+ *
+ * Architecture actuelle :
+ * - partenaire = User avec partner_id NULL
+ * - chauffeur  = User avec partner_id = id du partenaire
+ */
 class DashboardCacheService
 {
     private int $ttlStats  = 900;
@@ -20,7 +28,6 @@ class DashboardCacheService
     private float $movingThreshold = 5.0;
 
     private function kStats(int $partnerId): string      { return "dash:p:$partnerId:stats"; }
-    private function kFleet(int $partnerId): string      { return "dash:p:$partnerId:fleet"; }
     private function kFleetH(int $partnerId): string     { return "dash:p:$partnerId:fleet:h"; }
     private function kAlerts(int $partnerId): string     { return "dash:p:$partnerId:alerts"; }
     private function kVersion(int $partnerId): string    { return "dash:p:$partnerId:version"; }
@@ -67,8 +74,10 @@ class DashboardCacheService
         }
 
         $ids = AssociationUserVoiture::query()
-            ->where('user_id', $partnerId)
-            ->pluck('voiture_id')
+            ->join('users', 'users.id', '=', 'association_user_voitures.user_id')
+            ->whereNull('users.partner_id')
+            ->where('association_user_voitures.user_id', $partnerId)
+            ->pluck('association_user_voitures.voiture_id')
             ->map(fn ($x) => (int) $x)
             ->unique()
             ->values()
@@ -77,6 +86,24 @@ class DashboardCacheService
         Redis::setex($this->kVehicleIds($partnerId), $this->ttlFleet, json_encode($ids, JSON_UNESCAPED_UNICODE));
 
         return $ids;
+    }
+
+    public function invalidateVehicleIds(int $partnerId): void
+    {
+        Redis::del($this->kVehicleIds($partnerId));
+    }
+
+    public function partnerIdsForVehicle(int $voitureId): array
+    {
+        return AssociationUserVoiture::query()
+            ->where('voiture_id', $voitureId)
+            ->join('users', 'users.id', '=', 'association_user_voitures.user_id')
+            ->whereNull('users.partner_id')
+            ->pluck('association_user_voitures.user_id')
+            ->map(fn ($x) => (int) $x)
+            ->unique()
+            ->values()
+            ->all();
     }
 
     public function getStatsFromRedis(int $partnerId): ?array
@@ -97,7 +124,7 @@ class DashboardCacheService
             $all = Redis::hgetall($this->kFleetH($partnerId));
             if (is_array($all) && !empty($all)) {
                 $out = [];
-                foreach ($all as $vehicleId => $json) {
+                foreach ($all as $json) {
                     $row = json_decode($json, true);
                     if (is_array($row)) {
                         $out[] = $this->applyDynamicLiveStatusOnRow($row);
@@ -108,14 +135,7 @@ class DashboardCacheService
         } catch (\Throwable) {
         }
 
-        $json = Redis::get($this->kFleet($partnerId));
-        $fleet = $json ? (json_decode($json, true) ?: []) : [];
-
-        if (!is_array($fleet)) {
-            return [];
-        }
-
-        return array_map(fn ($row) => is_array($row) ? $this->applyDynamicLiveStatusOnRow($row) : $row, $fleet);
+        return [];
     }
 
     public function getFleetVehicleRowFromRedis(int $partnerId, int $vehicleId): ?array
@@ -125,7 +145,6 @@ class DashboardCacheService
             if (!$json) {
                 return null;
             }
-
             $row = json_decode($json, true);
             return is_array($row) ? $row : null;
         } catch (\Throwable) {
@@ -157,6 +176,7 @@ class DashboardCacheService
 
         $out = [];
         $countRows = count($ids);
+
         for ($i = 0; $i < $countRows; $i++) {
             $json = $rows[$i] ?? null;
             if (!$json) {
@@ -211,7 +231,6 @@ class DashboardCacheService
         }
 
         Redis::del($this->kFleetReset($partnerId));
-
         return true;
     }
 
@@ -250,7 +269,9 @@ class DashboardCacheService
         $vehiclesCount = count($vehicleIds);
 
         $associationsCount = AssociationUserVoiture::query()
-            ->where('user_id', $partnerId)
+            ->join('users', 'users.id', '=', 'association_user_voitures.user_id')
+            ->whereNull('users.partner_id')
+            ->where('association_user_voitures.user_id', $partnerId)
             ->count();
 
         $alertsCount = 0;
@@ -269,6 +290,7 @@ class DashboardCacheService
 
             $baseOpenToday = Alert::query()
                 ->whereIn('voiture_id', $vehicleIds)
+                ->partnerVisible()
                 ->where(function ($q) {
                     $q->where('processed', 0)->orWhereNull('processed');
                 })
@@ -315,7 +337,6 @@ class DashboardCacheService
         if (empty($vehicleIds)) {
             Redis::pipeline(function ($pipe) use ($partnerId) {
                 $pipe->del($this->kFleetH($partnerId));
-                $pipe->setex($this->kFleet($partnerId), $this->ttlFleet, json_encode([], JSON_UNESCAPED_UNICODE));
                 $pipe->del($this->kDirtyVehicles($partnerId));
             });
 
@@ -351,39 +372,44 @@ class DashboardCacheService
             }
         }
 
+        $assignmentsGrouped = AssociationChauffeurVoiturePartner::query()
+            ->whereIn('voiture_id', $vehicleIds)
+            ->whereHas('chauffeur', fn ($q) => $q->where('partner_id', $partnerId))
+            ->with('chauffeur:id,prenom,nom,partner_id')
+            ->orderByDesc('assigned_at')
+            ->get()
+            ->groupBy('voiture_id');
+
         $fleet = [];
         $hashPayload = [];
-        $dirtyIds = [];
 
         foreach ($voitures as $v) {
             $loc = $latestByMac[(string) $v->mac_id_gps] ?? null;
-
             if (!$loc) {
                 continue;
             }
 
-            $row = $this->buildVehicleRow($partnerId, $v, $loc, null);
+            $chauffeurRow = $assignmentsGrouped->get((int) $v->id)?->first();
+            $chauffeur = $chauffeurRow?->chauffeur;
+
+            $row = $this->buildVehicleRowWithDriver($partnerId, $v, $loc, null, $chauffeur);
             if (!$row) {
                 continue;
             }
 
             $fleet[] = $row;
             $hashPayload[(string) $v->id] = json_encode($row, JSON_UNESCAPED_UNICODE);
-            $dirtyIds[] = (int) $v->id;
         }
 
-        Redis::pipeline(function ($pipe) use ($partnerId, $hashPayload, $fleet) {
+        Redis::pipeline(function ($pipe) use ($partnerId, $hashPayload) {
             $pipe->del($this->kFleetH($partnerId));
 
             if (!empty($hashPayload)) {
                 $pipe->hMSet($this->kFleetH($partnerId), $hashPayload);
                 $pipe->expire($this->kFleetH($partnerId), $this->ttlFleet);
             }
-
-            $pipe->setex($this->kFleet($partnerId), $this->ttlFleet, json_encode($fleet, JSON_UNESCAPED_UNICODE));
         });
 
-        $this->markVehiclesDirty($partnerId, $dirtyIds);
         $this->markFleetResetDirty($partnerId);
         $this->bumpVersionDebounced($partnerId, 1);
 
@@ -393,8 +419,10 @@ class DashboardCacheService
     public function rebuildFleetForVehicleAssociations(Voiture $voiture): void
     {
         $partnerIds = AssociationUserVoiture::query()
-            ->where('voiture_id', (int) $voiture->id)
-            ->pluck('user_id')
+            ->join('users', 'users.id', '=', 'association_user_voitures.user_id')
+            ->whereNull('users.partner_id')
+            ->where('association_user_voitures.voiture_id', $voiture->id)
+            ->pluck('association_user_voitures.user_id')
             ->map(fn ($x) => (int) $x)
             ->unique()
             ->values()
@@ -402,8 +430,6 @@ class DashboardCacheService
 
         foreach ($partnerIds as $partnerId) {
             $this->rebuildFleet((int) $partnerId);
-            $this->markFleetResetDirty((int) $partnerId);
-            $this->bumpVersionDebounced((int) $partnerId, 1);
         }
     }
 
@@ -428,8 +454,10 @@ class DashboardCacheService
             $vehicleIds = $vehicles->pluck('id')->map(fn ($x) => (int) $x)->all();
 
             $partnerIds = AssociationUserVoiture::query()
-                ->whereIn('voiture_id', $vehicleIds)
-                ->pluck('user_id')
+                ->join('users', 'users.id', '=', 'association_user_voitures.user_id')
+                ->whereNull('users.partner_id')
+                ->whereIn('association_user_voitures.voiture_id', $vehicleIds)
+                ->pluck('association_user_voitures.user_id')
                 ->map(fn ($x) => (int) $x)
                 ->unique()
                 ->values()
@@ -490,8 +518,10 @@ class DashboardCacheService
             $vehicleIds = $vehicles->pluck('id')->map(fn ($x) => (int) $x)->all();
 
             $associations = AssociationUserVoiture::query()
-                ->whereIn('voiture_id', $vehicleIds)
-                ->get(['user_id', 'voiture_id']);
+                ->join('users', 'users.id', '=', 'association_user_voitures.user_id')
+                ->whereNull('users.partner_id')
+                ->whereIn('association_user_voitures.voiture_id', $vehicleIds)
+                ->get(['association_user_voitures.user_id', 'association_user_voitures.voiture_id']);
 
             if ($associations->isEmpty()) {
                 return;
@@ -535,8 +565,8 @@ class DashboardCacheService
                 }
             }
 
-            foreach ($dirtyByPartner as $partnerId => $vehicleIds) {
-                $this->markVehiclesDirty((int) $partnerId, $vehicleIds);
+            foreach ($dirtyByPartner as $partnerId => $vIds) {
+                $this->markVehiclesDirty((int) $partnerId, $vIds);
                 $this->bumpVersionDebounced((int) $partnerId, 1);
             }
 
@@ -645,6 +675,7 @@ class DashboardCacheService
         $alerts = Alert::query()
             ->with(['voiture'])
             ->whereIn('voiture_id', $vehicleIds)
+            ->partnerVisible()
             ->where(function ($q) {
                 $q->where('processed', 0)->orWhereNull('processed');
             })
@@ -664,13 +695,17 @@ class DashboardCacheService
 
                 return [
                     'id'           => $a->id,
+                    'voiture_id'   => $a->voiture_id,
                     'vehicle'      => $v?->immatriculation ?? 'N/A',
                     'type'         => $typeNorm,
                     'type_label'   => $this->alertTypeLabel($typeNorm),
                     'time'         => optional($a->alerted_at ?? $a->created_at)->format('d/m/Y H:i:s'),
                     'processed'    => (bool) ($a->processed ?? false),
+                    'read'         => (bool) ($a->read ?? false),
                     'status'       => 'Ouvert',
                     'status_color' => 'bg-red-500',
+                    'lat'          => $a->latitude,
+                    'lng'          => $a->longitude,
                 ];
             })
             ->values()
@@ -734,6 +769,35 @@ class DashboardCacheService
         return ['partner_id' => $partnerId, 'updated' => count($fleet), 'changed' => $changed];
     }
 
+    public function refreshAllPartnersOfflineStatusesFromRedis(): array
+    {
+        $partnerIds = User::query()
+            ->whereNull('partner_id')
+            ->pluck('id')
+            ->map(fn ($x) => (int) $x)
+            ->values()
+            ->all();
+
+        if (empty($partnerIds)) {
+            return ['partners' => 0, 'changed' => 0, 'details' => []];
+        }
+
+        $details = [];
+        $changed = 0;
+
+        foreach ($partnerIds as $partnerId) {
+            $result = $this->refreshOfflineStatusesFromRedis($partnerId);
+            $details[] = $result;
+            $changed += (int) ($result['changed'] ?? 0);
+        }
+
+        return [
+            'partners' => count($partnerIds),
+            'changed'  => $changed,
+            'details'  => $details,
+        ];
+    }
+
     private function pickLatestPerMacByLocId(array $items): array
     {
         $best = [];
@@ -768,6 +832,17 @@ class DashboardCacheService
 
     private function buildVehicleRow(int $partnerId, Voiture $voiture, array $locationData, ?array $existingRow = null): ?array
     {
+        $chauffeur = $voiture->chauffeurActuelPourPartner($partnerId);
+        return $this->buildVehicleRowWithDriver($partnerId, $voiture, $locationData, $existingRow, $chauffeur);
+    }
+
+    private function buildVehicleRowWithDriver(
+        int $partnerId,
+        Voiture $voiture,
+        array $locationData,
+        ?array $existingRow,
+        mixed $chauffeur
+    ): ?array {
         $lat = $locationData['latitude'] ?? null;
         $lon = $locationData['longitude'] ?? null;
 
@@ -775,7 +850,6 @@ class DashboardCacheService
             return null;
         }
 
-        $chauffeur = $voiture->chauffeurActuelPourPartner($partnerId);
         $driverLabel = $chauffeur
             ? trim(($chauffeur->prenom ?? '') . ' ' . ($chauffeur->nom ?? ''))
             : 'Non associé';
@@ -822,10 +896,8 @@ class DashboardCacheService
             if (!$json) {
                 return true;
             }
-
             $row = json_decode($json, true);
             $cachedLocId = (int) ($row['loc_id'] ?? 0);
-
             return $incomingLocId >= $cachedLocId;
         } catch (\Throwable) {
             return true;
@@ -839,8 +911,8 @@ class DashboardCacheService
             $newLiveStatus = $this->recomputeOfflineLiveStatusFromRedis($oldLiveStatus);
             $vehicle['live_status'] = $newLiveStatus;
 
-            $vehicle['gps']['online'] = $newLiveStatus['is_online'] ?? null;
-            $vehicle['gps']['state'] = ($newLiveStatus['is_online'] ?? null) === true ? 'ONLINE' : 'OFFLINE';
+            $vehicle['gps']['online']    = $newLiveStatus['is_online'] ?? null;
+            $vehicle['gps']['state']     = ($newLiveStatus['is_online'] ?? null) === true ? 'ONLINE' : 'OFFLINE';
             $vehicle['gps']['last_seen'] = (string) (
                 $newLiveStatus['heart_time']
                 ?? $newLiveStatus['datetime']
@@ -869,32 +941,51 @@ class DashboardCacheService
             return null;
         }
 
-        $days = intdiv($seconds, 86400);
-        $hours = intdiv($seconds % 86400, 3600);
+        $days    = intdiv($seconds, 86400);
+        $hours   = intdiv($seconds % 86400, 3600);
         $minutes = intdiv($seconds % 3600, 60);
-        $secs = $seconds % 60;
+        $secs    = $seconds % 60;
 
-        if ($days > 0) return "{$days}j {$hours}h {$minutes}min";
-        if ($hours > 0) return "{$hours}h {$minutes}min";
-        if ($minutes > 0) return "{$minutes}min" . ($secs > 0 ? " {$secs}s" : '');
+        if ($days > 0) {
+            return "{$days}j {$hours}h {$minutes}min";
+        }
+        if ($hours > 0) {
+            return "{$hours}h {$minutes}min";
+        }
+        if ($minutes > 0) {
+            return "{$minutes}min" . ($secs > 0 ? " {$secs}s" : '');
+        }
+
         return "{$secs}s";
     }
 
     private function toMs($value): ?int
     {
-        if ($value === null) return null;
+        if ($value === null) {
+            return null;
+        }
 
         if (is_numeric($value)) {
             $n = (int) $value;
-            if ($n <= 0) return null;
-            if ($n >= 1000000000000) return $n;
-            if ($n >= 1000000000) return $n * 1000;
+            if ($n <= 0) {
+                return null;
+            }
+            if ($n >= 1000000000000) {
+                return $n;
+            }
+            if ($n >= 1000000000) {
+                return $n * 1000;
+            }
         }
 
         if (is_string($value)) {
             $s = trim((string) $value);
-            if ($s === '') return null;
-            if (is_numeric($s)) return $this->toMs((int) $s);
+            if ($s === '') {
+                return null;
+            }
+            if (is_numeric($s)) {
+                return $this->toMs((int) $s);
+            }
 
             try {
                 return Carbon::parse($s)->getTimestampMs();
@@ -908,7 +999,9 @@ class DashboardCacheService
 
     private function msToDateTime(?int $ms): ?string
     {
-        if (!$ms || $ms <= 0) return null;
+        if (!$ms || $ms <= 0) {
+            return null;
+        }
 
         try {
             return Carbon::createFromTimestampMs($ms)
@@ -931,27 +1024,27 @@ class DashboardCacheService
         $gpsMs   = $this->toMs($location['datetime'] ?? null);
         $sysMs   = $this->toMs($location['sys_time'] ?? null);
 
-        $nowMs = now()->getTimestampMs();
+        $nowMs       = now()->getTimestampMs();
         $onlineRefMs = $heartMs ?: $gpsMs ?: $sysMs;
-        $isOnline = $onlineRefMs ? (($nowMs - $onlineRefMs) < $offlineThresholdMs) : false;
+        $isOnline    = $onlineRefMs ? (($nowMs - $onlineRefMs) < $offlineThresholdMs) : false;
 
-        $prevMovementState = (string) ($previousLiveStatus['movement_state'] ?? '');
+        $prevMovementState  = (string) ($previousLiveStatus['movement_state'] ?? '');
         $prevStoppedSinceMs = isset($previousLiveStatus['stopped_since_ms']) ? (int) $previousLiveStatus['stopped_since_ms'] : null;
         $prevOfflineSinceMs = isset($previousLiveStatus['offline_since_ms']) ? (int) $previousLiveStatus['offline_since_ms'] : null;
 
-        $movementState = 'UNKNOWN';
+        $movementState     = 'UNKNOWN';
         $connectivityState = 'UNKNOWN';
-        $uiStatus = 'UNKNOWN';
-        $isMoving = null;
+        $uiStatus          = 'UNKNOWN';
+        $isMoving          = null;
 
         $stoppedSinceMs = $prevStoppedSinceMs;
         $offlineSinceMs = $prevOfflineSinceMs;
 
         if ($isOnline === false) {
-            $movementState = 'OFFLINE';
+            $movementState     = 'OFFLINE';
             $connectivityState = 'OFFLINE';
-            $uiStatus = 'OFFLINE';
-            $isMoving = null;
+            $uiStatus          = 'OFFLINE';
+            $isMoving          = null;
 
             if (!$offlineSinceMs) {
                 $offlineSinceMs = $onlineRefMs ?: $nowMs;
@@ -960,16 +1053,16 @@ class DashboardCacheService
             $offlineSinceMs = null;
 
             if ($speed !== null && $speed >= $this->movingThreshold) {
-                $movementState = 'MOVING';
+                $movementState     = 'MOVING';
                 $connectivityState = 'ONLINE_MOVING';
-                $uiStatus = 'ONLINE_MOVING';
-                $isMoving = true;
-                $stoppedSinceMs = null;
+                $uiStatus          = 'ONLINE_MOVING';
+                $isMoving          = true;
+                $stoppedSinceMs    = null;
             } elseif ($speed !== null && $speed >= 0) {
-                $movementState = 'STOPPED';
+                $movementState     = 'STOPPED';
                 $connectivityState = 'ONLINE_STATIONARY';
-                $uiStatus = 'ONLINE_STOPPED';
-                $isMoving = false;
+                $uiStatus          = 'ONLINE_STOPPED';
+                $isMoving          = false;
 
                 if (!$stoppedSinceMs || $prevMovementState !== 'STOPPED') {
                     $stoppedSinceMs = $gpsMs ?: $sysMs ?: $onlineRefMs ?: $nowMs;
@@ -981,27 +1074,27 @@ class DashboardCacheService
         $offlineSinceSeconds = $offlineSinceMs ? max(0, (int) floor(($nowMs - $offlineSinceMs) / 1000)) : null;
 
         return [
-            'ui_status' => $uiStatus,
-            'movement_state' => $movementState,
-            'connectivity_state' => $connectivityState,
-            'is_online' => $isOnline,
-            'is_moving' => $isMoving,
-            'speed' => $speed,
-            'speed_raw' => $speedRaw,
-            'moving_threshold' => $this->movingThreshold,
-            'stopped_since_ms' => $stoppedSinceMs,
-            'stopped_since_seconds' => $stoppedSinceSeconds,
-            'stopped_since_human' => $this->durationHuman($stoppedSinceSeconds),
-            'offline_since_ms' => $offlineSinceMs,
-            'offline_since_seconds' => $offlineSinceSeconds,
-            'offline_since_human' => $this->durationHuman($offlineSinceSeconds),
-            'datetime' => $this->msToDateTime($gpsMs),
-            'heart_time' => $this->msToDateTime($heartMs),
-            'sys_time' => $this->msToDateTime($sysMs),
-            'heart_time_ms' => $heartMs,
-            'datetime_ms' => $gpsMs,
-            'sys_time_ms' => $sysMs,
-            'updated_at_ms' => $nowMs,
+            'ui_status'                 => $uiStatus,
+            'movement_state'            => $movementState,
+            'connectivity_state'        => $connectivityState,
+            'is_online'                 => $isOnline,
+            'is_moving'                 => $isMoving,
+            'speed'                     => $speed,
+            'speed_raw'                 => $speedRaw,
+            'moving_threshold'          => $this->movingThreshold,
+            'stopped_since_ms'          => $stoppedSinceMs,
+            'stopped_since_seconds'     => $stoppedSinceSeconds,
+            'stopped_since_human'       => $this->durationHuman($stoppedSinceSeconds),
+            'offline_since_ms'          => $offlineSinceMs,
+            'offline_since_seconds'     => $offlineSinceSeconds,
+            'offline_since_human'       => $this->durationHuman($offlineSinceSeconds),
+            'datetime'                  => $this->msToDateTime($gpsMs),
+            'heart_time'                => $this->msToDateTime($heartMs),
+            'sys_time'                  => $this->msToDateTime($sysMs),
+            'heart_time_ms'             => $heartMs,
+            'datetime_ms'               => $gpsMs,
+            'sys_time_ms'               => $sysMs,
+            'updated_at_ms'             => $nowMs,
             'offline_threshold_minutes' => $offlineThresholdMinutes,
         ];
     }
@@ -1012,15 +1105,15 @@ class DashboardCacheService
         $offlineThresholdMs = $offlineThresholdMinutes * 60 * 1000;
         $nowMs = now()->getTimestampMs();
 
-        $heartMs = isset($liveStatus['heart_time_ms']) ? (int) $liveStatus['heart_time_ms'] : null;
+        $heartMs    = isset($liveStatus['heart_time_ms']) ? (int) $liveStatus['heart_time_ms'] : null;
         $datetimeMs = isset($liveStatus['datetime_ms']) ? (int) $liveStatus['datetime_ms'] : null;
-        $sysMs = isset($liveStatus['sys_time_ms']) ? (int) $liveStatus['sys_time_ms'] : null;
+        $sysMs      = isset($liveStatus['sys_time_ms']) ? (int) $liveStatus['sys_time_ms'] : null;
 
         $onlineRefMs = $heartMs ?: $datetimeMs ?: $sysMs;
-        $isOnline = $onlineRefMs ? (($nowMs - $onlineRefMs) < $offlineThresholdMs) : false;
+        $isOnline    = $onlineRefMs ? (($nowMs - $onlineRefMs) < $offlineThresholdMs) : false;
 
         $offlineSinceMs = isset($liveStatus['offline_since_ms']) ? (int) $liveStatus['offline_since_ms'] : null;
-        $movementState = (string) ($liveStatus['movement_state'] ?? 'UNKNOWN');
+        $movementState  = (string) ($liveStatus['movement_state'] ?? 'UNKNOWN');
 
         if ($isOnline === false) {
             if (!$offlineSinceMs) {
@@ -1028,28 +1121,28 @@ class DashboardCacheService
             }
 
             $offlineSinceSeconds = max(0, (int) floor(($nowMs - $offlineSinceMs) / 1000));
-            $liveStatus['ui_status'] = 'OFFLINE';
-            $liveStatus['movement_state'] = 'OFFLINE';
-            $liveStatus['connectivity_state'] = 'OFFLINE';
-            $liveStatus['is_online'] = false;
-            $liveStatus['is_moving'] = null;
-            $liveStatus['offline_since_ms'] = $offlineSinceMs;
+            $liveStatus['ui_status']             = 'OFFLINE';
+            $liveStatus['movement_state']        = 'OFFLINE';
+            $liveStatus['connectivity_state']    = 'OFFLINE';
+            $liveStatus['is_online']             = false;
+            $liveStatus['is_moving']             = null;
+            $liveStatus['offline_since_ms']      = $offlineSinceMs;
             $liveStatus['offline_since_seconds'] = $offlineSinceSeconds;
-            $liveStatus['offline_since_human'] = $this->durationHuman($offlineSinceSeconds);
+            $liveStatus['offline_since_human']   = $this->durationHuman($offlineSinceSeconds);
         } else {
-            $liveStatus['is_online'] = true;
-            $liveStatus['offline_since_ms'] = null;
+            $liveStatus['is_online']             = true;
+            $liveStatus['offline_since_ms']      = null;
             $liveStatus['offline_since_seconds'] = null;
-            $liveStatus['offline_since_human'] = null;
+            $liveStatus['offline_since_human']   = null;
 
             if ($movementState === 'STOPPED') {
-                $liveStatus['ui_status'] = 'ONLINE_STOPPED';
+                $liveStatus['ui_status']          = 'ONLINE_STOPPED';
                 $liveStatus['connectivity_state'] = 'ONLINE_STATIONARY';
-                $liveStatus['is_moving'] = false;
+                $liveStatus['is_moving']          = false;
             } elseif ($movementState === 'MOVING') {
-                $liveStatus['ui_status'] = 'ONLINE_MOVING';
+                $liveStatus['ui_status']          = 'ONLINE_MOVING';
                 $liveStatus['connectivity_state'] = 'ONLINE_MOVING';
-                $liveStatus['is_moving'] = true;
+                $liveStatus['is_moving']          = true;
             }
         }
 
@@ -1057,7 +1150,7 @@ class DashboardCacheService
         if ($stoppedSinceMs && ($liveStatus['movement_state'] ?? null) === 'STOPPED') {
             $stoppedSinceSeconds = max(0, (int) floor(($nowMs - $stoppedSinceMs) / 1000));
             $liveStatus['stopped_since_seconds'] = $stoppedSinceSeconds;
-            $liveStatus['stopped_since_human'] = $this->durationHuman($stoppedSinceSeconds);
+            $liveStatus['stopped_since_human']   = $this->durationHuman($stoppedSinceSeconds);
         }
 
         $liveStatus['updated_at_ms'] = $nowMs;
@@ -1068,15 +1161,17 @@ class DashboardCacheService
     private function normalizeAlertType(?string $t): string
     {
         $t = strtolower(trim((string) $t));
-        if ($t === '') return 'unknown';
+        if ($t === '') {
+            return 'unknown';
+        }
 
         return match ($t) {
-            'overspeed', 'speeding', 'speed' => 'speed',
-            'safezone', 'safe-zone', 'safe_zone' => 'safe_zone',
+            'overspeed', 'speeding', 'speed'                                              => 'speed',
+            'safezone', 'safe-zone', 'safe_zone'                                          => 'safe_zone',
             'geo_fence', 'geofence', 'geofence_enter', 'geofence_exit', 'geofence_breach' => 'geofence',
-            'stolen', 'theft', 'stolen_vehicle' => 'stolen',
-            'timezone', 'time_zone', 'time-zone' => 'time_zone',
-            default => $t,
+            'stolen', 'theft', 'stolen_vehicle'                                           => 'stolen',
+            'timezone', 'time_zone', 'time-zone'                                          => 'time_zone',
+            default                                                                        => $t,
         };
     }
 
@@ -1085,8 +1180,8 @@ class DashboardCacheService
         return match ($type) {
             'geofence'  => 'GeoFence Breach',
             'safe_zone' => 'Safe Zone',
-            'speed'     => 'Speeding',
-            'stolen'    => 'Stolen Vehicle',
+            'speed'     => 'Survitesse',
+            'stolen'    => 'Véhicule Volé',
             'time_zone' => 'Time Zone',
             default     => ucfirst(str_replace('_', ' ', $type)),
         };

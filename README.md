@@ -1,66 +1,140 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+================================================================================
+NOTE DE MIGRATION FUTURE — Dashboard Partenaire
+Proxym / Fleetra — Architecture actuelle : users + partner_id (relation récursive)
+================================================================================
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Cette note identifie les points qui poseront problème lors d'une future migration
+vers une architecture multi-tenant propre avec un modèle Partner dédié.
+Aucun changement n'est demandé maintenant.
 
-## About Laravel
+--------------------------------------------------------------------------------
+1. POINTS DE RUPTURE FUTURS (à garder en tête)
+--------------------------------------------------------------------------------
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+A. La relation récursive users.partner_id
+   ─────────────────────────────────────
+   Actuellement :
+     - partenaire = User avec partner_id = NULL
+     - chauffeur  = User avec partner_id = id_partenaire
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+   Problème futur :
+     - Un User partenaire et un User chauffeur partagent le même modèle et la
+       même table. Il n'y a pas de contrainte forte pour distinguer les deux.
+     - La logique métier est dispersée dans le code (->where('partner_id', null)
+       ou ->where('partner_id', $id)).
+     - Si un futur "partenaire" a lui-même un partner_id (ex: sous-partenaire),
+       la logique casse.
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+   Préparation recommandée (sans casser l'existant) :
+     - Ajouter un scope User::scopePartners() et User::scopeDrivers($partnerId)
+       pour centraliser le filtre au niveau du modèle User.
+     - Cela permettra de faire la migration sans chercher tous les ->where('partner_id').
 
-## Learning Laravel
+   Exemple à ajouter dans User.php (inoffensif maintenant) :
+     public function scopePartners(Builder $query): Builder {
+         return $query->whereNull('partner_id');
+     }
+     public function scopeDriversOf(Builder $query, int $partnerId): Builder {
+         return $query->where('partner_id', $partnerId);
+     }
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+B. DashboardCacheService — clés Redis dash:p:{userId}:*
+   ─────────────────────────────────────────────────────
+   Actuellement : {userId} = auth()->id() du partenaire (un User)
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+   Problème futur :
+     - Si le modèle Partner est créé avec ses propres IDs, les clés Redis
+       devront changer de dash:p:{userId} vers dash:p:{partnerId}.
+     - Les caches existants deviendront orphelins.
 
-## Laravel Sponsors
+   Préparation recommandée :
+     - Ne pas changer maintenant.
+     - Lors de la migration : créer une commande artisan de flush sélectif
+       et migrer les clés en one-shot.
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
 
-### Premium Partners
+C. AssociationUserVoiture — user_id = id du partenaire (User)
+   ────────────────────────────────────────────────────────────
+   Actuellement : user_id référence users.id (le partenaire)
 
-- **[Vehikl](https://vehikl.com/)**
-- **[Tighten Co.](https://tighten.co)**
-- **[WebReinvent](https://webreinvent.com/)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel/)**
-- **[Cyber-Duck](https://cyber-duck.co.uk)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Jump24](https://jump24.co.uk)**
-- **[Redberry](https://redberry.international/laravel/)**
-- **[Active Logic](https://activelogic.com)**
-- **[byte5](https://byte5.de)**
-- **[OP.GG](https://op.gg)**
+   Problème futur :
+     - Si Partner devient un modèle séparé, cette clé devra devenir partner_id
+       et pointer vers partners.id.
 
-## Contributing
+   Préparation recommandée :
+     - Ajouter une colonne partner_id nullable à AssociationUserVoiture
+       (en parallèle de user_id, en double pendant la transition).
+     - Remplir partner_id lors de la création du modèle Partner via migration.
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
 
-## Code of Conduct
+D. TrackingWebhookController — partnerIdsFromVoitureIds / partnerIdsFromMacs
+   ──────────────────────────────────────────────────────────────────────────
+   Ces méthodes lisent AssociationUserVoiture.user_id et supposent que c'est
+   un partenaire. Si des chauffeurs ont aussi des entrées dans cette table,
+   cela cassera le routing.
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+   Préparation recommandée :
+     - Ajouter un WHERE sur users.partner_id IS NULL lors de la résolution
+       pour garantir qu'on remonte bien vers un partenaire.
+     - Cela peut être fait maintenant sans casser quoi que ce soit.
 
-## Security Vulnerabilities
+   Code à ajouter dans partnerIdsFromVoitureIds() (sûr maintenant) :
+     return AssociationUserVoiture::query()
+         ->whereIn('voiture_id', $voitureIds)
+         ->join('users', 'users.id', '=', 'association_user_voitures.user_id')
+         ->whereNull('users.partner_id')   // garantit que c'est bien un partenaire
+         ->pluck('association_user_voitures.user_id')
+         ->map(fn ($x) => (int) $x)
+         ->unique()
+         ->values()
+         ->all();
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
 
-## License
+--------------------------------------------------------------------------------
+2. AMÉLIORATIONS COMPATIBLES (peuvent être faites maintenant, sans casser)
+--------------------------------------------------------------------------------
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+A. Scopes User — centraliser les filtres partenaire/chauffeur
+   (voir section 1.A ci-dessus)
+
+B. WHERE users.partner_id IS NULL dans le Webhook
+   (voir section 1.D ci-dessus)
+   Évite qu'un chauffeur ayant malencontreusement une entrée dans
+   association_user_voitures déclenche une mise à jour de cache partenaire.
+
+C. TTL différencié par type de données
+   Actuellement ttlFleet = ttlVehicleIds = 600s. Considérer :
+     - ttlVehicleIds : 60s (données critiques pour le filtrage)
+     - ttlFleet hash : 600s (données de position, reconstruites souvent)
+     - ttlStats : 900s (données agrégées, moins critiques)
+
+D. Index MySQL manquant (à vérifier)
+   La requête MAX(id) GROUP BY mac_id_gps dans rebuildFleet() peut être lente
+   sur une grande table locations sans index sur mac_id_gps.
+   Vérifier : SHOW INDEX FROM locations;
+   Ajouter si manquant : ALTER TABLE locations ADD INDEX idx_mac_id_gps (mac_id_gps);
+   Et : ALTER TABLE locations ADD INDEX idx_mac_id_created (mac_id_gps, id);
+
+E. Logging structuré des accès partenaire
+   Ajouter un log dans dashboardStream() au démarrage :
+     logger()->info('[SSE] partner connected', ['partner_id' => $partnerId, 'ip' => request()->ip()]);
+   Utile pour le monitoring et le debugging en production.
+
+
+--------------------------------------------------------------------------------
+3. CHEMIN DE MIGRATION VERS MODÈLE PARTNER (futur, quand vous serez prêts)
+--------------------------------------------------------------------------------
+
+Étape 1 : Créer la table partners avec les colonnes nécessaires (name, slug, etc.)
+Étape 2 : Pour chaque User partenaire (partner_id IS NULL), créer un Partner
+          et stocker owner_user_id = user.id
+Étape 3 : Ajouter partner_id en double dans AssociationUserVoiture et AssociationChauffeurVoiturePartner
+Étape 4 : Faire pointer DashboardCacheService sur partner.id plutôt que user.id
+          (changer $partnerId = auth()->id() par $partnerId = auth()->user()->ownedPartner()->id)
+Étape 5 : Migrer les clés Redis en one-shot (flush + rebuild)
+Étape 6 : Supprimer les anciennes colonnes user_id dans les tables d'association
+
+Cette migration peut se faire progressivement sans downtime.
+
+================================================================================

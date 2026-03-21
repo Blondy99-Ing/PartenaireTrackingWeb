@@ -17,107 +17,78 @@ use App\Http\Controllers\Users\UserController;
 use App\Http\Controllers\Partner\AffectationChauffeurVoitureController;
 use App\Http\Controllers\Gps\ControlGpsController;
 
-
-
 Route::middleware(['auth:web'])->group(function () {
 
+    // ── Dashboard ──────────────────────────────────────────────────────
+    // Le middleware rebuild.dashboard garantit que Redis est rempli
+    // à chaque chargement / actualisation de la page
+    Route::get('/', [DashboardController::class, 'index'])
+        ->middleware('rebuild.dashboard')
+        ->name('dashboard');
 
-
-    Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/dashboard/vehicles/positions', [DashboardController::class, 'vehiclesPositions']);
     Route::get('/dashboard/stream', [DashboardController::class, 'dashboardStream'])->name('dashboard.stream');
     Route::post('/dashboard/rebuild', [DashboardController::class, 'rebuildCache'])->name('dashboard.rebuild');
 
+    // ── Tracking ───────────────────────────────────────────────────────
     Route::prefix('tracking')->name('tracking.')->group(function () {
         Route::get('vehicles', [VoitureController::class, 'index'])->name('vehicles');
     });
 
+    // ── Profile ────────────────────────────────────────────────────────
     Route::get('/profile/vehicles/positions', [ProfileController::class, 'vehiclePositions'])
         ->name('profile.vehicles.positions');
 
+    // ── Users ──────────────────────────────────────────────────────────
     Route::get('users', [UserController::class, 'index'])->name('users.index');
     Route::post('users', [UserController::class, 'store'])->name('users.store');
     Route::put('users/{id}', [UserController::class, 'update'])->name('users.update');
     Route::delete('users/{id}', [UserController::class, 'destroy'])->name('users.destroy');
     Route::get('/users/{id}/profile', [ProfileController::class, 'show'])->name('users.profile');
- 
-    // Partner Affectations
-    Route::get('partner/affectations/vehicles', [AffectationChauffeurVoitureController::class, 'vehicles'])
-        ->name('partner.affectations.vehicles');
-    Route::get('partner/affectations/drivers', [AffectationChauffeurVoitureController::class, 'drivers'])
-        ->name('partner.affectations.drivers');
-    Route::post('partner/affectations/assign', [AffectationChauffeurVoitureController::class, 'assign'])
-        ->name('partner.affectations.assign');
-    Route::post('partner/affectations/unassign', [AffectationChauffeurVoitureController::class, 'unassign'])
-        ->name('partner.affectations.unassign');
-    Route::get('partner/affectations/history', [AffectationChauffeurVoitureController::class, 'history'])
-        ->name('partner.affectations.history');
-    Route::get('partner/affectations', [AffectationChauffeurVoitureController::class, 'index'])
-        ->name('partner.affectations.index');
 
+    // ── Partner Affectations ───────────────────────────────────────────
+    Route::prefix('partner/affectations')->name('partner.affectations.')->group(function () {
+        Route::get('vehicles', [AffectationChauffeurVoitureController::class, 'vehicles'])->name('vehicles');
+        Route::get('drivers', [AffectationChauffeurVoitureController::class, 'drivers'])->name('drivers');
+        Route::post('assign', [AffectationChauffeurVoitureController::class, 'assign'])->name('assign');
+        Route::post('unassign', [AffectationChauffeurVoitureController::class, 'unassign'])->name('unassign');
+        Route::get('history', [AffectationChauffeurVoitureController::class, 'history'])->name('history');
+        Route::get('/', [AffectationChauffeurVoitureController::class, 'index'])->name('index');
+    });
 
-    // Engine
-// Engine
-Route::get('/engine/actions', [ControlGpsController::class, 'index'])->name('engine.action.index');
-Route::get('/engine/history', [ControlGpsController::class, 'history'])->name('engine.action.history');
+    // ── Engine / GPS ───────────────────────────────────────────────────
+    Route::get('/engine/actions', [ControlGpsController::class, 'index'])->name('engine.action.index');
+    Route::get('/engine/history', [ControlGpsController::class, 'history'])->name('engine.action.history');
 
-Route::get('/voitures/engine-status/batch', [ControlGpsController::class, 'engineStatusBatch'])
-    ->name('voitures.engineStatusBatch');
+    Route::get('/voitures/engine-status/batch', [ControlGpsController::class, 'engineStatusBatch'])
+        ->name('voitures.engineStatusBatch');
+    Route::get('/voitures/{voiture}/engine-status', [ControlGpsController::class, 'engineStatus'])
+        ->name('voitures.engineStatus');
+    Route::post('/voitures/{voiture}/toggle-engine', [ControlGpsController::class, 'toggleEngine'])
+        ->name('voitures.toggleEngine');
 
-Route::get('/voitures/{voiture}/engine-status', [ControlGpsController::class, 'engineStatus'])
-    ->name('voitures.engineStatus');
-
-Route::post('/voitures/{voiture}/toggle-engine', [ControlGpsController::class, 'toggleEngine'])
-    ->name('voitures.toggleEngine');
-
-
-// ✅ Alerts API GET only
-    Route::get('/alerts',     [AlertController::class, 'index'])->name('alerts.index');
+    // ── Alerts ─────────────────────────────────────────────────────────
+    Route::get('/alerts', [AlertController::class, 'index'])->name('alerts.index');
     Route::get('/alerts/day', [AlertController::class, 'day'])->name('alerts.day');
 
-    // ✅ Trips API GET only (liste + détail carte)
+    // Marquer une alerte comme lue / traitée (appelé depuis le front JS)
+    Route::patch('/alerts/{alert}/read', [AlertController::class, 'markRead'])->name('alerts.read');
+    Route::patch('/alerts/{alert}/process', [AlertController::class, 'markProcessed'])->name('alerts.process');
+
+    // ── Trajets ────────────────────────────────────────────────────────
     Route::get('/trajets', [TrajetController::class, 'index'])->name('trajets.index');
     Route::get('/trajets/{vehicle_id}/detail/{trajet_id}', [TrajetController::class, 'showTrajet'])
         ->name('trajets.detail.api');
-
-    // (Optionnel si tu as une page dédiée par voiture)
     Route::get('/voitures/{id}/trajets', [TrajetController::class, 'byVoiture'])->name('voitures.trajets');
-    Route::get('/trajets/show/{voiture_id}/{trajet_id}', [TrajetController::class, 'showTrajet'])->name('trajets.show');
+    Route::get('/trajets/show/{voiture_id}/{trajet_id}', [TrajetController::class, 'showTrajet'])
+        ->name('trajets.show');
 
-
-
-
-// 1. Route to show the page
-Route::get('/add-vehicle', function () {
-    return view('vehicles.create');
-})->name('vehicles.add');
-
-// 2. Route to save the vehicle (form POST)
-Route::post('/save-vehicle', [\App\Http\Controllers\VehicleController::class, 'store'])->name('vehicles.save');
-
-
-
-
-Route::get('/users/{id}/profile', [ProfileController::class, 'show'])
-    ->name('users.profile');
-
-
-
-
-
-
- 
-
-    // Vehicles create (custom)
-    Route::get('/add-vehicle', function () {
-        return view('vehicles.create');
-    })->name('vehicles.add');
-    Route::post('/save-vehicle', [\App\Http\Controllers\VehicleController::class, 'store'])
-        ->name('vehicles.save');
-
- 
+    // ── Vehicles ───────────────────────────────────────────────────────
+    Route::get('/add-vehicle', fn() => view('vehicles.create'))->name('vehicles.add');
+    Route::post('/save-vehicle', [\App\Http\Controllers\VehicleController::class, 'store'])->name('vehicles.save');
 });
 
+// ── Auth invité (reset password OTP) ──────────────────────────────────
 Route::middleware('guest')->prefix('partner')->group(function () {
     Route::post('forgot-password/send', [VerifyLoginController::class, 'sendForgotOtp'])
         ->name('partner.password.otp.send');
@@ -131,11 +102,11 @@ Route::middleware('guest')->prefix('partner')->group(function () {
         ->name('partner.otp.password.reset.perform');
 });
 
+// ── Profile auth ───────────────────────────────────────────────────────
 Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 });
-
 
 require __DIR__ . '/auth.php';
