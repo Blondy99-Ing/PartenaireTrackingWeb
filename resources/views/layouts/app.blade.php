@@ -1739,7 +1739,7 @@
                             </a>
                         </li>
                         <li role="none">
-                            <a href="{{ route('users.index') }}" role="menuitem"
+                            <a href="{{ route('partner.drivers.index') }}" role="menuitem"
                                 class="{{ request()->routeIs('users.*') ? 'active' : '' }}"
                                 aria-current="{{ request()->routeIs('users.*') ? 'page' : 'false' }}">
                                 <span class="nav-icon" aria-hidden="true"><i class="fas fa-users"></i></span>
@@ -1775,6 +1775,60 @@
                         <span class="nav-label">Moteur</span>
                     </a>
                 </li>
+
+                {{-- Suivi & Flotte (dropdown) --}}
+                <li>
+                    <button
+                        class="nav-dropdown-toggle {{ request()->is('tracking*') || request()->is('contrat*') || request()->is('lease*') ? 'active' : '' }}"
+                        id="nav-toggle-lease" data-target="nav-drop-lease" aria-haspopup="true" aria-expanded="false"
+                        aria-controls="nav-drop-flotte">
+                        <span class="nav-icon" aria-hidden="true"><i class="fa-solid fa-money-bill"></i></span>
+                        <span class="nav-label">Leases</span>
+                        <i class="fas fa-chevron-down nav-dropdown-arrow" aria-hidden="true"></i>
+                    </button>
+
+                    <ul class="nav-dropdown-menu" id="nav-drop-lease" role="menu">
+                        <li role="none">
+                            <a href="{{ route('lease.contrat') }}" role="menuitem"
+                                class="{{ request()->routeIs('lease.*') ? 'active' : '' }}"
+                                aria-current="{{ request()->routeIs('lease.*') ? 'page' : 'false' }}">
+                                <span class="nav-icon" aria-hidden="true"><i
+                                        class="fa-solid fa-file-contract"></i></span>
+                                Contrats Chauffeurs
+                            </a>
+                        </li>
+                        <li role="none">
+                            <a href="{{ route('lease.index') }}" role="menuitem"
+                                class="{{ request()->routeIs('lease.*') ? 'active' : '' }}"
+                                aria-current="{{ request()->routeIs('lease.*') ? 'page' : 'false' }}">
+                                <span class="nav-icon" aria-hidden="true"><i class="fa-solid fa-money-bill"></i></span>
+                                Paiements Leases
+                            </a>
+                        </li>
+                        <li role="none">
+                            <a href="{{ route('lease.cutoff-rules.index') }}" role="menuitem"
+                                class="{{ request()->routeIs('lease.*') ? 'active' : '' }}"
+                                aria-current="{{ request()->routeIs('lease.*') ? 'page' : 'false' }}">
+                                <span class="nav-icon" aria-hidden="true">
+                                    <i class="fa-solid fa-gear"></i>
+                                </span>
+                                Paramètre Coupure Auto
+                            </a>
+                            <li role="none">
+                            <a href="{{ route('lease.cutoff-history.index') }}" role="menuitem"
+                                class="{{ request()->routeIs('lease.*') ? 'active' : '' }}"
+                                aria-current="{{ request()->routeIs('lease.*') ? 'page' : 'false' }}">
+                                <span class="nav-icon" aria-hidden="true">
+                                    <i class="fa-solid fa-clock-rotate-left"></i>
+                                </span>
+                                Historique Coupure
+                            </a>
+                        </li>
+
+                </li>
+            </ul>
+            </li>
+
 
             </ul>
         </nav>
@@ -1867,7 +1921,7 @@
             <span class="nav-icon" aria-hidden="true"><i class="fas fa-car"></i></span>
             Véhicules
         </a>
-        <a href="{{ route('users.index') }}" class="{{ request()->routeIs('users.*') ? 'active' : '' }}">
+        <a href="{{ route('partner.drivers.index') }}" class="{{ request()->routeIs('users.*') ? 'active' : '' }}">
             <span class="nav-icon" aria-hidden="true"><i class="fas fa-users"></i></span>
             Chauffeurs
         </a>

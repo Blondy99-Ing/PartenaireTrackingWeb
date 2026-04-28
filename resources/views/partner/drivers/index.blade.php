@@ -6,19 +6,14 @@
 <style>
 /* ============================================================
    DATATABLES — OVERRIDE COMPLET
-   Notre design system prévaut sur les styles natifs de DataTables.
-   Stratégie : on réécrit TOUTES les classes .dataTables_* avec
-   nos variables CSS et notre typographie Orbitron/system-font.
    ============================================================ */
 
-/* ---- Wrapper global DataTables ---- */
 .dataTables_wrapper {
     font-family: var(--font-body, system-ui, sans-serif);
     font-size: 0.82rem;
     color: var(--color-text);
 }
 
-/* ---- Controls row (length + filter) ---- */
 .dataTables_wrapper .dataTables_length,
 .dataTables_wrapper .dataTables_filter {
     margin-bottom: 1rem;
@@ -31,14 +26,9 @@
 
 .dataTables_wrapper .dataTables_filter {
     justify-content: flex-end;
-}
-
-/* Masqué car on utilise notre propre input de recherche (#usersSearchInput) */
-.dataTables_wrapper .dataTables_filter {
     display: none !important;
 }
 
-/* Select "Afficher X éléments" */
 .dataTables_wrapper .dataTables_length select {
     background-color: var(--color-input-bg) !important;
     border: 1px solid var(--color-input-border) !important;
@@ -57,14 +47,12 @@
     box-shadow: 0 0 0 3px rgba(245, 130, 32, 0.2);
 }
 
-/* ---- Info bas de tableau ---- */
 .dataTables_wrapper .dataTables_info {
     color: var(--color-secondary-text);
     font-size: 0.75rem;
     padding-top: 0.5rem;
 }
 
-/* ---- Pagination ---- */
 .dataTables_wrapper .dataTables_paginate {
     display: flex;
     align-items: center;
@@ -89,7 +77,6 @@
     cursor: pointer;
     transition: background-color 0.15s, color 0.15s, border-color 0.15s;
     box-shadow: none !important;
-    /* Supprimer le fond gris natif de DataTables */
     background-image: none !important;
 }
 
@@ -114,7 +101,6 @@
     pointer-events: none;
 }
 
-/* Boutons Précédent / Suivant */
 .dataTables_wrapper .dataTables_paginate .paginate_button.previous,
 .dataTables_wrapper .dataTables_paginate .paginate_button.next {
     font-family: var(--font-display, 'Orbitron', sans-serif);
@@ -123,19 +109,8 @@
     padding: 0 0.75rem;
 }
 
-/* ---- Footer row (info + paginate côte à côte) ---- */
-.dataTables_wrapper .dataTables_wrapper div.row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-}
-
-/* ---- Tri des colonnes (flèches) ---- */
 table.dataTable thead th,
 table.dataTable thead td {
-    /* Écrase le background natif DataTables */
     background-color: var(--color-border-subtle) !important;
     color: var(--color-text) !important;
     border-bottom: 2px solid var(--color-primary) !important;
@@ -149,7 +124,6 @@ table.dataTable thead td {
     user-select: none;
 }
 
-/* Flèche de tri : on la colore avec notre orange */
 table.dataTable thead th.sorting::after,
 table.dataTable thead th.sorting_asc::after,
 table.dataTable thead th.sorting_desc::after {
@@ -163,14 +137,12 @@ table.dataTable thead th.sorting_desc::after {
     color: var(--color-primary) !important;
 }
 
-/* Supprimer les pseudo-éléments natifs DataTables (fond gris au clic) */
 table.dataTable thead tr th:active,
 table.dataTable thead tr td:active {
     outline: none;
     background-color: var(--color-border-subtle) !important;
 }
 
-/* ---- Lignes du corps ---- */
 table.dataTable tbody tr {
     background-color: var(--color-card) !important;
     border-bottom: 1px solid var(--color-border-subtle) !important;
@@ -181,7 +153,6 @@ table.dataTable tbody tr:hover {
     background-color: var(--color-sidebar-active-bg) !important;
 }
 
-/* Lignes paires (stripes DataTables) — on neutralise le gris natif */
 table.dataTable.stripe tbody tr.odd,
 table.dataTable.display tbody tr.odd {
     background-color: var(--color-card) !important;
@@ -199,7 +170,6 @@ table.dataTable tbody td {
     vertical-align: middle;
 }
 
-/* ---- Supprimer la bordure de table native DataTables ---- */
 table.dataTable {
     border-collapse: collapse !important;
     margin: 0 !important;
@@ -207,7 +177,6 @@ table.dataTable {
     border: none !important;
 }
 
-/* ---- Traitement (processing overlay) ---- */
 .dataTables_wrapper .dataTables_processing {
     background: var(--color-card);
     color: var(--color-primary);
@@ -222,7 +191,6 @@ table.dataTable {
    LAYOUT PAGE — USERS
    ============================================================ */
 
-/* Onglets de navigation */
 .nav-tabs {
     display: flex;
     align-items: center;
@@ -258,7 +226,6 @@ table.dataTable {
     border-color: var(--color-primary);
 }
 
-/* Badge de rôle */
 .role-badge {
     display: inline-flex;
     align-items: center;
@@ -275,7 +242,6 @@ table.dataTable {
     border: 1px solid rgba(245, 130, 32, 0.3);
 }
 
-/* Action buttons dans le tableau */
 .tbl-action {
     display: inline-flex;
     align-items: center;
@@ -294,6 +260,7 @@ table.dataTable {
     color: #d97706;
     border-color: rgba(217, 119, 6, 0.3);
 }
+
 .tbl-action.edit:hover {
     background-color: rgba(217, 119, 6, 0.1);
     border-color: #d97706;
@@ -303,6 +270,7 @@ table.dataTable {
     color: #3b82f6;
     border-color: rgba(59, 130, 246, 0.3);
 }
+
 .tbl-action.assign:hover {
     background-color: rgba(59, 130, 246, 0.1);
     border-color: #3b82f6;
@@ -312,12 +280,12 @@ table.dataTable {
     color: #ef4444;
     border-color: rgba(239, 68, 68, 0.3);
 }
+
 .tbl-action.delete:hover {
     background-color: rgba(239, 68, 68, 0.1);
     border-color: #ef4444;
 }
 
-/* Avatar dans le tableau */
 .user-avatar {
     width: 32px;
     height: 32px;
@@ -333,14 +301,12 @@ table.dataTable {
     border-color: var(--color-primary);
 }
 
-/* Cellule nom+avatar */
 .user-name-cell {
     display: flex;
     align-items: center;
     gap: 0.6rem;
 }
 
-/* Barre de recherche custom (au-dessus du tableau) */
 .table-toolbar {
     display: flex;
     align-items: center;
@@ -357,7 +323,6 @@ table.dataTable {
     flex-wrap: wrap;
 }
 
-/* Compteur total */
 .users-count-badge {
     display: inline-flex;
     align-items: center;
@@ -372,9 +337,49 @@ table.dataTable {
     font-weight: 700;
 }
 
+.sync-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.18rem 0.45rem;
+    border-radius: 9999px;
+    font-size: 0.58rem;
+    font-weight: 700;
+    font-family: var(--font-display, 'Orbitron', sans-serif);
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    border: 1px solid transparent;
+    white-space: nowrap;
+}
+
+.sync-badge.synced {
+    background: rgba(34,197,94,0.12);
+    color: #16a34a;
+    border-color: rgba(34,197,94,0.3);
+}
+
+.sync-badge.pending {
+    background: rgba(245,158,11,0.12);
+    color: #d97706;
+    border-color: rgba(245,158,11,0.3);
+}
+
+.sync-badge.failed {
+    background: rgba(239,68,68,0.12);
+    color: #ef4444;
+    border-color: rgba(239,68,68,0.3);
+}
+
+.sync-badge.not-required {
+    background: rgba(100,116,139,0.12);
+    color: #64748b;
+    border-color: rgba(100,116,139,0.3);
+}
+
 /* ============================================================
-   MODALES — override pour hériter du design system
+   MODALES
    ============================================================ */
+
 .modal-overlay {
     position: fixed;
     inset: 0;
@@ -452,14 +457,12 @@ table.dataTable {
     text-transform: uppercase;
 }
 
-/* Séparateur dans la modale */
 .modal-divider {
     border: none;
     border-top: 1px solid var(--color-border-subtle);
     margin: 1rem 0;
 }
 
-/* Photo upload zone */
 .photo-upload-zone {
     border: 2px dashed var(--color-border-subtle);
     border-radius: 0.75rem;
@@ -479,22 +482,20 @@ table.dataTable {
 @section('content')
 @php
     $disk = config('media.disk', 'public');
-    $storeUrl      = route('users.store');
-    $baseUrl       = url('users');
-    $assocIndexUrl = route('partner.affectations.index', [], false) ?? '#';
+
+    $storeUrl = route('partner.drivers.store');
+    $baseUrl  = url('partner/drivers');
+
+    $assocIndexUrl = route('partner.affectations.index');
 @endphp
 
 <div class="space-y-5">
 
-    {{-- ============================================================
-         HEADER : titre + onglets de navigation
-         ============================================================ --}}
     <div style="display:flex;flex-direction:column;gap:1rem;">
 
-        {{-- Onglets --}}
         <div style="border-bottom:1px solid var(--color-border-subtle);padding-bottom:0.75rem;">
             <nav class="nav-tabs">
-                <a href="{{ route('users.index') }}" class="nav-tab active">
+                <a href="{{ route('partner.drivers.index') }}" class="nav-tab active">
                     <i class="fas fa-users"></i> Chauffeurs
                 </a>
                 <a href="{{ route('partner.affectations.index') }}" class="nav-tab">
@@ -506,32 +507,28 @@ table.dataTable {
             </nav>
         </div>
 
-        {{-- Flash messages --}}
         @if(session('status'))
-        <div style="padding:0.75rem 1rem;border-radius:0.5rem;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);color:#16a34a;font-size:0.82rem;display:flex;align-items:center;gap:0.5rem;">
-            <i class="fas fa-check-circle"></i> {{ session('status') }}
-        </div>
+            <div style="padding:0.75rem 1rem;border-radius:0.5rem;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);color:#16a34a;font-size:0.82rem;display:flex;align-items:center;gap:0.5rem;">
+                <i class="fas fa-check-circle"></i> {{ session('status') }}
+            </div>
         @endif
 
         @if($errors->any())
-        <div style="padding:0.75rem 1rem;border-radius:0.5rem;background:rgba(239,68,68,0.10);border:1px solid rgba(239,68,68,0.3);color:#ef4444;font-size:0.82rem;">
-            <ul style="margin:0;padding-left:1.25rem;">
-                @foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach
-            </ul>
-        </div>
+            <div style="padding:0.75rem 1rem;border-radius:0.5rem;background:rgba(239,68,68,0.10);border:1px solid rgba(239,68,68,0.3);color:#ef4444;font-size:0.82rem;">
+                <ul style="margin:0;padding-left:1.25rem;">
+                    @foreach($errors->all() as $error)
+                        <li>{{ $error }}</li>
+                    @endforeach
+                </ul>
+            </div>
         @endif
 
     </div>
 
-    {{-- ============================================================
-         TABLEAU PRINCIPAL
-         ============================================================ --}}
     <div class="ui-card" style="padding:1.25rem;">
 
-        {{-- Toolbar --}}
         <div class="table-toolbar">
             <div class="table-toolbar-left">
-                
                 <span class="users-count-badge">
                     <i class="fas fa-users" style="font-size:0.6rem;"></i>
                     {{ count($users ?? []) }} enregistré(s)
@@ -539,7 +536,6 @@ table.dataTable {
             </div>
 
             <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
-                {{-- Recherche custom (pilote DataTables via JS) --}}
                 <div style="position:relative;">
                     <i class="fas fa-search" style="position:absolute;left:0.6rem;top:50%;transform:translateY(-50%);color:var(--color-secondary-text);font-size:0.75rem;pointer-events:none;"></i>
                     <input id="usersSearchInput"
@@ -555,7 +551,6 @@ table.dataTable {
             </div>
         </div>
 
-        {{-- Tableau --}}
         <div class="ui-table-container">
             <table id="usersTable" class="ui-table w-full">
                 <thead>
@@ -565,97 +560,139 @@ table.dataTable {
                         <th>Ville</th>
                         <th>Quartier</th>
                         <th>Email</th>
+                        <th>Synchronisation</th>
                         <th style="text-align:right;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach(($users ?? []) as $user)
-                    @php
-                        $photoUrl = $user->photo
-                            ? \Illuminate\Support\Facades\Storage::disk($disk)->url($user->photo)
-                            : null;
-                        $thumbUrl = $photoUrl ?: 'https://placehold.co/40x40/F58220/ffffff?text=' . strtoupper(substr($user->prenom ?? 'U', 0, 1));
-                        $fullUrl  = $photoUrl ?: 'https://placehold.co/600x600/F58220/ffffff?text=' . strtoupper(substr($user->prenom ?? 'U', 0, 1));
-                        $fullName = trim(($user->prenom ?? '') . ' ' . ($user->nom ?? ''));
-                        $editPayload = [
-                            'id'        => $user->id,
-                            'nom'       => $user->nom,
-                            'prenom'    => $user->prenom,
-                            'phone'     => $user->phone,
-                            'email'     => $user->email,
-                            'ville'     => $user->ville,
-                            'quartier'  => $user->quartier,
-                            'photo_url' => $photoUrl,
-                        ];
-                    @endphp
-                    <tr>
-                        
-                        <td>
-                            <div class="user-name-cell">
-                                <img src="{{ $thumbUrl }}"
-                                     alt="{{ $fullName }}"
-                                     class="user-avatar js-user-photo"
-                                     data-full-url="{{ $fullUrl }}"
-                                     data-title="{{ $fullName }}"
-                                     loading="lazy">
-                                <div>
-                                    <p style="font-weight:600;font-size:0.82rem;color:var(--color-text);margin:0;white-space:nowrap;">
-                                        {{ $user->prenom }} {{ $user->nom }}
-                                    </p>
+                        @php
+                            $photoUrl = $user->photo
+                                ? \Illuminate\Support\Facades\Storage::disk($disk)->url($user->photo)
+                                : null;
+
+                            $initial = strtoupper(substr($user->prenom ?? $user->nom ?? 'U', 0, 1));
+
+                            $thumbUrl = $photoUrl ?: 'https://placehold.co/40x40/F58220/ffffff?text=' . $initial;
+                            $fullUrl  = $photoUrl ?: 'https://placehold.co/600x600/F58220/ffffff?text=' . $initial;
+
+                            $fullName = trim(($user->prenom ?? '') . ' ' . ($user->nom ?? ''));
+
+                            $keycloakStatus = $user->keycloak_sync_status ?: ($user->keycloak_id ? 'SYNCED' : 'PENDING');
+                            $recouvrementStatus = $user->recouvrement_sync_status ?: 'NOT_REQUIRED';
+
+                            $statusClass = function ($status) {
+                                return match (strtoupper((string) $status)) {
+                                    'SYNCED' => 'synced',
+                                    'FAILED' => 'failed',
+                                    'PENDING' => 'pending',
+                                    'NOT_REQUIRED' => 'not-required',
+                                    default => 'pending',
+                                };
+                            };
+
+                            $editPayload = [
+                                'id'        => $user->id,
+                                'nom'       => $user->nom,
+                                'prenom'    => $user->prenom,
+                                'phone'     => $user->phone,
+                                'email'     => $user->email,
+                                'ville'     => $user->ville,
+                                'quartier'  => $user->quartier,
+                                'photo_url' => $photoUrl,
+                            ];
+                        @endphp
+
+                        <tr>
+                            <td>
+                                <div class="user-name-cell">
+                                    <img src="{{ $thumbUrl }}"
+                                         alt="{{ $fullName }}"
+                                         class="user-avatar js-user-photo"
+                                         data-full-url="{{ $fullUrl }}"
+                                         data-title="{{ $fullName }}"
+                                         loading="lazy">
+                                    <div>
+                                        <p style="font-weight:600;font-size:0.82rem;color:var(--color-text);margin:0;white-space:nowrap;">
+                                            {{ $user->prenom }} {{ $user->nom }}
+                                        </p>
+                                        @if($user->keycloak_id)
+                                            <p style="font-size:0.62rem;color:var(--color-secondary-text);margin:0.15rem 0 0;">
+                                                Keycloak lié
+                                            </p>
+                                        @endif
+                                    </div>
                                 </div>
-                            </div>
-                        </td>
-                        <td style="color:var(--color-secondary-text);white-space:nowrap;">
-                            <i class="fas fa-phone" style="font-size:0.65rem;margin-right:4px;color:var(--color-primary);"></i>
-                            {{ $user->phone }}
-                        </td>
-                        <td>{{ $user->ville ?? '—' }}</td>
-                        <td style="color:var(--color-secondary-text);">{{ $user->quartier ?? '—' }}</td>
-                        <td style="color:var(--color-secondary-text);font-size:0.78rem;">
-                            {{ $user->email ?? '—' }}
-                        </td>
-                        <td>
-                            <div style="display:flex;align-items:center;justify-content:flex-end;gap:0.3rem;">
-                                {{-- Modifier --}}
-                                <button type="button"
-                                        class="tbl-action edit btn-edit"
-                                        data-user-id="{{ $user->id }}"
-                                        title="Modifier {{ $fullName }}">
-                                    <i class="fas fa-pen"></i>
-                                </button>
+                            </td>
 
-                                {{-- Associer véhicule --}}
-                                <button type="button"
-                                        class="tbl-action assign js-open-affect-from-user"
-                                        data-user-id="{{ $user->id }}"
-                                        data-user-label="{{ $user->prenom }} {{ $user->nom }} ({{ $user->phone }})"
-                                        title="Associer un véhicule">
-                                    <i class="fas fa-car"></i>
-                                </button>
+                            <td style="color:var(--color-secondary-text);white-space:nowrap;">
+                                <i class="fas fa-phone" style="font-size:0.65rem;margin-right:4px;color:var(--color-primary);"></i>
+                                {{ $user->phone }}
+                            </td>
 
-                                {{-- Supprimer --}}
-                                <form action="{{ route('users.destroy', $user->id) }}" method="POST" class="inline">
-                                    @csrf
-                                    @method('DELETE')
-                                    <button type="submit"
-                                            class="tbl-action delete"
-                                            title="Supprimer {{ $fullName }}"
-                                            onclick="return confirm('Supprimer {{ addslashes($fullName) }} ?')">
-                                        <i class="fas fa-trash"></i>
+                            <td>{{ $user->ville ?? '—' }}</td>
+
+                            <td style="color:var(--color-secondary-text);">
+                                {{ $user->quartier ?? '—' }}
+                            </td>
+
+                            <td style="color:var(--color-secondary-text);font-size:0.78rem;">
+                                {{ $user->email ?? '—' }}
+                            </td>
+
+                            <td>
+                                <div style="display:flex;flex-direction:column;gap:0.25rem;">
+                                    <span class="sync-badge {{ $statusClass($keycloakStatus) }}"
+                                          title="{{ $user->sync_error }}">
+                                        <i class="fas fa-key"></i>
+                                        KC {{ $keycloakStatus }}
+                                    </span>
+
+                                    <span class="sync-badge {{ $statusClass($recouvrementStatus) }}"
+                                          title="{{ $user->sync_error }}">
+                                        <i class="fas fa-file-invoice-dollar"></i>
+                                        REC {{ $recouvrementStatus }}
+                                    </span>
+                                </div>
+                            </td>
+
+                            <td>
+                                <div style="display:flex;align-items:center;justify-content:flex-end;gap:0.3rem;">
+                                    <button type="button"
+                                            class="tbl-action edit btn-edit"
+                                            data-user-id="{{ $user->id }}"
+                                            title="Modifier {{ $fullName }}">
+                                        <i class="fas fa-pen"></i>
                                     </button>
-                                </form>
 
-                                {{-- JSON payload (caché) --}}
-                                <script type="application/json" id="user-json-{{ $user->id }}">@json($editPayload)</script>
-                            </div>
-                        </td>
-                    </tr>
+                                    <button type="button"
+                                            class="tbl-action assign js-open-affect-from-user"
+                                            data-user-id="{{ $user->id }}"
+                                            data-user-label="{{ $user->prenom }} {{ $user->nom }} ({{ $user->phone }})"
+                                            title="Associer un véhicule">
+                                        <i class="fas fa-car"></i>
+                                    </button>
+
+                                    <form action="{{ route('partner.drivers.destroy', $user->id) }}" method="POST" class="inline">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button type="submit"
+                                                class="tbl-action delete"
+                                                title="Supprimer {{ $fullName }}"
+                                                onclick="return confirm('Supprimer {{ addslashes($fullName) }} ?')">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </form>
+
+                                    <script type="application/json" id="user-json-{{ $user->id }}">@json($editPayload)</script>
+                                </div>
+                            </td>
+                        </tr>
                     @endforeach
                 </tbody>
             </table>
         </div>
 
-        {{-- Footer info --}}
         <div style="margin-top:0.75rem;font-size:0.7rem;color:var(--color-secondary-text);display:flex;align-items:center;gap:0.4rem;">
             <i class="fas fa-info-circle" style="color:var(--color-primary);font-size:0.65rem;"></i>
             Cliquez sur une photo pour l'agrandir. Utilisez la recherche pour filtrer les résultats.
@@ -664,9 +701,6 @@ table.dataTable {
 
 </div>
 
-{{-- ============================================================
-     MODALE AJOUT / MODIFICATION
-     ============================================================ --}}
 <div id="userModal" class="modal-overlay" style="display:none;" aria-modal="true" role="dialog">
     <div id="userModalPanel" class="modal-panel">
 
@@ -678,7 +712,6 @@ table.dataTable {
             @csrf
             <div id="methodSpoofContainer"></div>
 
-            {{-- Nom + Prénom --}}
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem;">
                 <div>
                     <label for="nom" class="form-label">Nom</label>
@@ -690,20 +723,20 @@ table.dataTable {
                 </div>
             </div>
 
-            {{-- Téléphone + Email --}}
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem;">
                 <div>
                     <label for="phone" class="form-label">Téléphone</label>
-                    <input type="tel" id="phone" name="phone" class="ui-input-style" required
-                           placeholder="696..., +237...">
+                    <input type="tel" id="phone" name="phone" class="ui-input-style" required placeholder="696..., +237...">
                 </div>
                 <div>
-                    <label for="email" class="form-label">Email <span style="font-weight:400;text-transform:none;font-family:var(--font-body);">(optionnel)</span></label>
+                    <label for="email" class="form-label">
+                        Email
+                        <span style="font-weight:400;text-transform:none;font-family:var(--font-body);">(optionnel)</span>
+                    </label>
                     <input type="email" id="email" name="email" class="ui-input-style" autocomplete="email">
                 </div>
             </div>
 
-            {{-- Ville + Quartier --}}
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem;">
                 <div>
                     <label for="ville" class="form-label">Ville</label>
@@ -717,7 +750,6 @@ table.dataTable {
 
             <hr class="modal-divider">
 
-            {{-- Photo --}}
             <div style="margin-bottom:0.75rem;">
                 <label class="form-label">Photo du chauffeur</label>
                 <div class="photo-upload-zone" onclick="document.getElementById('photo').click();">
@@ -725,10 +757,10 @@ table.dataTable {
                     <p style="font-size:0.75rem;color:var(--color-secondary-text);margin:0;">Cliquer pour choisir une photo</p>
                     <p id="file-name" style="font-size:0.7rem;color:var(--color-primary);margin-top:0.3rem;font-style:italic;">Aucun fichier sélectionné</p>
                 </div>
+
                 <input type="file" id="photo" name="photo" accept="image/*" style="display:none;">
 
-                {{-- Preview --}}
-                <div id="previewWrapper" style="display:none;margin-top:0.75rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+                <div id="previewWrapper" style="display:none;margin-top:0.75rem;align-items:center;gap:0.75rem;flex-wrap:wrap;">
                     <img id="preview" src="" alt="Aperçu"
                          style="width:72px;height:72px;object-fit:cover;border-radius:50%;border:3px solid var(--color-primary);">
                     <div>
@@ -743,7 +775,6 @@ table.dataTable {
 
             <hr class="modal-divider">
 
-            {{-- Mot de passe --}}
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:1rem;" id="passwordFields">
                 <div>
                     <label for="password" class="form-label">
@@ -765,9 +796,6 @@ table.dataTable {
     </div>
 </div>
 
-{{-- ============================================================
-     MODALE PHOTO (agrandissement)
-     ============================================================ --}}
 <div id="imageModal" class="modal-overlay" style="display:none;" aria-modal="true" role="dialog">
     <div style="position:relative;background:var(--color-card);border-radius:0.75rem;overflow:hidden;max-width:560px;width:100%;max-height:90vh;box-shadow:0 20px 60px rgba(0,0,0,0.4);">
         <button id="closeImageModalBtn" class="modal-close" aria-label="Fermer">&times;</button>
@@ -776,9 +804,6 @@ table.dataTable {
     </div>
 </div>
 
-{{-- ============================================================
-     MODALE ASSOCIATION (Affectation)
-     ============================================================ --}}
 <div id="affectModal" class="modal-overlay" style="display:none;" aria-modal="true" role="dialog">
     <div id="affectPanel" class="modal-panel" style="max-width:52rem;">
 
@@ -794,9 +819,20 @@ table.dataTable {
             <input id="affectSearch" type="text" class="ui-input-style" style="flex:1;min-width:160px;" placeholder="Recherche immatriculation, modèle...">
         </div>
 
+        <div style="margin-bottom:0.75rem;">
+            <label for="affectNote" class="form-label">Note d’affectation</label>
+            <textarea id="affectNote"
+                      class="ui-input-style"
+                      rows="2"
+                      placeholder="Note optionnelle..."
+                      style="resize:vertical;"></textarea>
+        </div>
+
         <div class="ui-table-container">
             <table class="ui-table w-full">
-                <thead><tr id="affectHeadRow"></tr></thead>
+                <thead>
+                    <tr id="affectHeadRow"></tr>
+                </thead>
                 <tbody id="affectBody"></tbody>
             </table>
         </div>
@@ -810,11 +846,8 @@ table.dataTable {
 @push('scripts')
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-
-    /* ============================================================
-       DATATABLES INIT — notre dom custom pour contrôle total
-       ============================================================ */
     let dt = null;
+
     if (window.jQuery && $.fn.DataTable) {
         dt = $('#usersTable').DataTable({
             pageLength: 10,
@@ -822,32 +855,30 @@ document.addEventListener('DOMContentLoaded', function () {
             ordering: true,
             searching: true,
             info: true,
-            /* On cache la barre de recherche native et on utilise #usersSearchInput
-               On positionne length + info + paginate proprement */
             dom: '<"flex items-center justify-between flex-wrap gap-2 mb-3"l>' +
                  't' +
                  '<"flex items-center justify-between flex-wrap gap-2 mt-3"ip>',
             language: {
-                processing:   "Chargement...",
-                search:       "Rechercher :",
-                lengthMenu:   "Afficher _MENU_ lignes",
-                info:         "_START_–_END_ sur _TOTAL_",
-                infoEmpty:    "0–0 sur 0",
+                processing: "Chargement...",
+                search: "Rechercher :",
+                lengthMenu: "Afficher _MENU_ lignes",
+                info: "_START_–_END_ sur _TOTAL_",
+                infoEmpty: "0–0 sur 0",
                 infoFiltered: "(filtré parmi _MAX_)",
                 loadingRecords: "Chargement...",
-                zeroRecords:  "Aucun chauffeur trouvé",
-                emptyTable:   "Aucun chauffeur enregistré",
+                zeroRecords: "Aucun chauffeur trouvé",
+                emptyTable: "Aucun chauffeur enregistré",
                 paginate: {
-                    first:    "«",
+                    first: "«",
                     previous: "‹",
-                    next:     "›",
-                    last:     "»"
+                    next: "›",
+                    last: "»"
                 }
             }
         });
 
-        /* Brancher notre champ de recherche custom sur DataTables */
         const searchInput = document.getElementById('usersSearchInput');
+
         if (searchInput) {
             searchInput.addEventListener('input', function () {
                 dt.search(this.value).draw();
@@ -855,9 +886,6 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    /* ============================================================
-       HELPERS MODALES
-       ============================================================ */
     function openOverlay(overlayEl, panelEl) {
         overlayEl.style.display = 'flex';
         document.body.style.overflow = 'hidden';
@@ -873,28 +901,25 @@ document.addEventListener('DOMContentLoaded', function () {
         }, 200);
     }
 
-    /* ============================================================
-       MODALE ADD / EDIT USER
-       ============================================================ */
-    const userModal   = document.getElementById('userModal');
-    const userPanel   = document.getElementById('userModalPanel');
-    const openAddBtn  = document.getElementById('openAddModalBtn');
-    const closeBtn    = document.getElementById('closeModalBtn');
-    const modalTitle  = document.getElementById('modalTitle');
-    const userForm    = document.getElementById('userForm');
-    const submitBtn   = document.getElementById('submitBtn');
+    const userModal = document.getElementById('userModal');
+    const userPanel = document.getElementById('userModalPanel');
+    const openAddBtn = document.getElementById('openAddModalBtn');
+    const closeBtn = document.getElementById('closeModalBtn');
+    const modalTitle = document.getElementById('modalTitle');
+    const userForm = document.getElementById('userForm');
+    const submitBtn = document.getElementById('submitBtn');
     const methodSpoofContainer = document.getElementById('methodSpoofContainer');
     const passwordInput = document.getElementById('password');
     const passwordConfirmInput = document.getElementById('password_confirmation');
-    const pwdHint     = document.getElementById('pwdHint');
-    const photoInput  = document.getElementById('photo');
+    const pwdHint = document.getElementById('pwdHint');
+    const photoInput = document.getElementById('photo');
     const fileNameDisplay = document.getElementById('file-name');
-    const previewWrapper  = document.getElementById('previewWrapper');
-    const preview         = document.getElementById('preview');
-    const removePhotoBtn  = document.getElementById('removePhotoBtn');
+    const previewWrapper = document.getElementById('previewWrapper');
+    const preview = document.getElementById('preview');
+    const removePhotoBtn = document.getElementById('removePhotoBtn');
 
     const STORE_URL = @json($storeUrl);
-    const BASE_URL  = @json($baseUrl);
+    const BASE_URL = @json($baseUrl);
 
     function resetToAdd() {
         userForm.reset();
@@ -903,9 +928,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
         passwordInput.required = true;
         passwordConfirmInput.required = true;
-        passwordInput.setAttribute('minlength', '8');
-        passwordConfirmInput.setAttribute('minlength', '8');
-        if (pwdHint) pwdHint.textContent = '';
+        passwordInput.setAttribute('minlength', '6');
+        passwordConfirmInput.setAttribute('minlength', '6');
+
+        if (pwdHint) {
+            pwdHint.textContent = '';
+        }
 
         preview.src = '';
         previewWrapper.style.display = 'none';
@@ -915,22 +943,40 @@ document.addEventListener('DOMContentLoaded', function () {
         submitBtn.innerHTML = '<i class="fas fa-user-plus"></i> Ajouter le chauffeur';
     }
 
-    function openUserModal()  { openOverlay(userModal, userPanel); }
-    function closeUserModal() { closeOverlay(userModal, userPanel, resetToAdd); }
+    function openUserModal() {
+        openOverlay(userModal, userPanel);
+    }
 
-    userModal.addEventListener('click', e => { if (e.target === userModal) closeUserModal(); });
+    function closeUserModal() {
+        closeOverlay(userModal, userPanel, resetToAdd);
+    }
+
+    userModal?.addEventListener('click', e => {
+        if (e.target === userModal) {
+            closeUserModal();
+        }
+    });
+
     closeBtn?.addEventListener('click', closeUserModal);
-    openAddBtn?.addEventListener('click', () => { resetToAdd(); openUserModal(); });
+
+    openAddBtn?.addEventListener('click', () => {
+        resetToAdd();
+        openUserModal();
+    });
 
     photoInput?.addEventListener('change', function () {
         const file = this.files?.[0];
+
         if (file) {
             fileNameDisplay.textContent = file.name;
+
             const reader = new FileReader();
+
             reader.onload = e => {
                 preview.src = e.target.result;
                 previewWrapper.style.display = 'flex';
             };
+
             reader.readAsDataURL(file);
         } else {
             fileNameDisplay.textContent = 'Aucun fichier sélectionné';
@@ -950,9 +996,18 @@ document.addEventListener('DOMContentLoaded', function () {
         btn.addEventListener('click', () => {
             const userId = btn.getAttribute('data-user-id');
             const jsonEl = document.getElementById('user-json-' + userId);
-            if (!jsonEl) return;
+
+            if (!jsonEl) {
+                return;
+            }
+
             let user;
-            try { user = JSON.parse(jsonEl.textContent); } catch { return; }
+
+            try {
+                user = JSON.parse(jsonEl.textContent);
+            } catch {
+                return;
+            }
 
             modalTitle.textContent = 'Modifier le chauffeur';
             submitBtn.innerHTML = '<i class="fas fa-save"></i> Enregistrer les modifications';
@@ -960,11 +1015,11 @@ document.addEventListener('DOMContentLoaded', function () {
             userForm.action = `${BASE_URL}/${user.id}`;
             methodSpoofContainer.innerHTML = '<input type="hidden" name="_method" value="PUT">';
 
-            document.getElementById('nom').value      = user.nom || '';
-            document.getElementById('prenom').value   = user.prenom || '';
-            document.getElementById('phone').value    = user.phone || '';
-            document.getElementById('email').value    = user.email || '';
-            document.getElementById('ville').value    = user.ville || '';
+            document.getElementById('nom').value = user.nom || '';
+            document.getElementById('prenom').value = user.prenom || '';
+            document.getElementById('phone').value = user.phone || '';
+            document.getElementById('email').value = user.email || '';
+            document.getElementById('ville').value = user.ville || '';
             document.getElementById('quartier').value = user.quartier || '';
 
             passwordInput.required = false;
@@ -973,7 +1028,10 @@ document.addEventListener('DOMContentLoaded', function () {
             passwordConfirmInput.removeAttribute('minlength');
             passwordInput.value = '';
             passwordConfirmInput.value = '';
-            if (pwdHint) pwdHint.textContent = ' – laisser vide pour conserver';
+
+            if (pwdHint) {
+                pwdHint.textContent = ' – laisser vide pour conserver';
+            }
 
             if (user.photo_url) {
                 preview.src = user.photo_url;
@@ -989,16 +1047,16 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 
-    /* ============================================================
-       MODALE PHOTO (agrandissement)
-       ============================================================ */
-    const imageModal   = document.getElementById('imageModal');
-    const modalImage   = document.getElementById('modalImage');
+    const imageModal = document.getElementById('imageModal');
+    const modalImage = document.getElementById('modalImage');
     const imageModalTitle = document.getElementById('imageModalTitle');
-    const closeImageBtn   = document.getElementById('closeImageModalBtn');
+    const closeImageBtn = document.getElementById('closeImageModalBtn');
 
     function openImageModal(url, title) {
-        if (!url) return;
+        if (!url) {
+            return;
+        }
+
         modalImage.src = url;
         imageModalTitle.textContent = title ? `Photo : ${title}` : 'Photo';
         imageModal.style.display = 'flex';
@@ -1012,42 +1070,63 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     closeImageBtn?.addEventListener('click', closeImageModal);
-    imageModal?.addEventListener('click', e => { if (e.target === imageModal) closeImageModal(); });
+
+    imageModal?.addEventListener('click', e => {
+        if (e.target === imageModal) {
+            closeImageModal();
+        }
+    });
 
     document.addEventListener('click', function (e) {
         const img = e.target.closest('.js-user-photo');
-        if (img) openImageModal(img.dataset.fullUrl, img.dataset.title);
-    });
 
+        if (img) {
+            openImageModal(img.dataset.fullUrl, img.dataset.title);
+        }
+    });
 });
 </script>
 
-{{-- Affectation Modal --}}
 <script>
 (function () {
-    const modal   = document.getElementById('affectModal');
-    const panel   = document.getElementById('affectPanel');
-    if (!modal || !panel) return;
+    const modal = document.getElementById('affectModal');
+    const panel = document.getElementById('affectPanel');
 
-    const closeBtn  = document.getElementById('affectClose');
+    if (!modal || !panel) {
+        return;
+    }
+
+    const closeBtn = document.getElementById('affectClose');
     const cancelBtn = document.getElementById('affectCancel');
-    const titleEl   = document.getElementById('affectTitle');
-    const ctxEl     = document.getElementById('affectContext');
-    const headRow   = document.getElementById('affectHeadRow');
-    const bodyEl    = document.getElementById('affectBody');
-    const searchEl  = document.getElementById('affectSearch');
-    const noteEl    = document.getElementById('affectNote');
+    const titleEl = document.getElementById('affectTitle');
+    const ctxEl = document.getElementById('affectContext');
+    const headRow = document.getElementById('affectHeadRow');
+    const bodyEl = document.getElementById('affectBody');
+    const searchEl = document.getElementById('affectSearch');
+    const noteEl = document.getElementById('affectNote');
 
     const CSRF = document.querySelector('meta[name="csrf-token"]')?.content;
     const URL_VEHICLES = @json(route('partner.affectations.vehicles'));
-    const URL_DRIVERS  = @json(route('partner.affectations.drivers'));
-    const URL_ASSIGN   = @json(route('partner.affectations.assign'));
+    const URL_DRIVERS = @json(route('partner.affectations.drivers'));
+    const URL_ASSIGN = @json(route('partner.affectations.assign'));
 
-    let state = { mode: null, chauffeurId: null, voitureId: null, timer: null };
+    let state = {
+        mode: null,
+        chauffeurId: null,
+        voitureId: null,
+        timer: null
+    };
 
     function esc(s) {
         return String(s ?? '').replace(/[&<>"']/g, m =>
-            ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;' }[m]));
+            ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            }[m])
+        );
     }
 
     function openModal() {
@@ -1059,18 +1138,29 @@ document.addEventListener('DOMContentLoaded', function () {
     function closeModal() {
         panel.classList.remove('open');
         document.body.style.overflow = '';
+
         setTimeout(() => {
             modal.style.display = 'none';
             bodyEl.innerHTML = '';
             headRow.innerHTML = '';
             searchEl.value = '';
-            noteEl.value = '';
-            state = { mode: null, chauffeurId: null, voitureId: null, timer: null };
+
+            if (noteEl) {
+                noteEl.value = '';
+            }
+
+            state = {
+                mode: null,
+                chauffeurId: null,
+                voitureId: null,
+                timer: null
+            };
         }, 200);
     }
 
     async function loadList() {
         const q = (searchEl.value || '').trim();
+
         const url = state.mode === 'from_user'
             ? `${URL_VEHICLES}?q=${encodeURIComponent(q)}`
             : `${URL_DRIVERS}?q=${encodeURIComponent(q)}`;
@@ -1079,8 +1169,14 @@ document.addEventListener('DOMContentLoaded', function () {
             <i class="fas fa-spinner fa-spin" style="color:var(--color-primary);margin-right:6px;"></i>Chargement...</td></tr>`;
 
         let json;
+
         try {
-            const res = await fetch(url, { headers: { Accept: 'application/json' } });
+            const res = await fetch(url, {
+                headers: {
+                    Accept: 'application/json'
+                }
+            });
+
             json = await res.json();
         } catch {
             bodyEl.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:2rem;color:#ef4444;font-size:0.8rem;">Erreur réseau</td></tr>`;
@@ -1104,8 +1200,9 @@ document.addEventListener('DOMContentLoaded', function () {
         if (state.mode === 'from_user') {
             bodyEl.innerHTML = items.map(v => {
                 const cur = v.current_driver
-                    ? `Déjà affecté : ${v.current_driver.prenom} ${v.current_driver.nom}`
+                    ? `Déjà affecté : ${esc(v.current_driver.prenom)} ${esc(v.current_driver.nom)}`
                     : '<span style="color:#22c55e;">Disponible</span>';
+
                 return `<tr>
                     <td><strong>${esc(v.immatriculation)}</strong></td>
                     <td>${esc((v.marque || '') + ' ' + (v.model || ''))}</td>
@@ -1127,8 +1224,9 @@ document.addEventListener('DOMContentLoaded', function () {
         } else {
             bodyEl.innerHTML = items.map(u => {
                 const cur = u.current_vehicle
-                    ? `Déjà affecté : ${u.current_vehicle.immatriculation}`
+                    ? `Déjà affecté : ${esc(u.current_vehicle.immatriculation)}`
                     : '<span style="color:#22c55e;">Disponible</span>';
+
                 return `<tr>
                     <td><strong>${esc((u.prenom || '') + ' ' + (u.nom || ''))}</strong></td>
                     <td style="color:var(--color-secondary-text);">${esc(u.phone || '')}</td>
@@ -1152,29 +1250,54 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     async function doAssign(force) {
-        if (!state.chauffeurId || !state.voitureId) return;
-        const payload = { chauffeur_id: state.chauffeurId, voiture_id: state.voitureId, note: noteEl.value || null, force: !!force };
+        if (!state.chauffeurId || !state.voitureId) {
+            return;
+        }
+
+        const payload = {
+            chauffeur_id: state.chauffeurId,
+            voiture_id: state.voitureId,
+            note: noteEl ? (noteEl.value || null) : null,
+            force: !!force
+        };
+
         const res = await fetch(URL_ASSIGN, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': CSRF },
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+                'X-CSRF-TOKEN': CSRF
+            },
             body: JSON.stringify(payload)
         });
 
         if (res.status === 409) {
             const j = await res.json();
-            if (confirm((j.message || 'Conflit') + '\n\nForcer la réaffectation ?')) doAssign(true);
+
+            if (confirm((j.message || 'Conflit') + '\n\nForcer la réaffectation ?')) {
+                doAssign(true);
+            }
+
             return;
         }
 
         const json = await res.json();
-        if (!json.ok) { alert(json.message || 'Erreur'); return; }
+
+        if (!json.ok) {
+            alert(json.message || 'Erreur');
+            return;
+        }
+
         alert(json.message || 'Affectation réussie !');
         window.location.reload();
     }
 
     document.addEventListener('click', function (e) {
         const btn = e.target.closest('.js-open-affect-from-user');
-        if (!btn) return;
+
+        if (!btn) {
+            return;
+        }
 
         state.mode = 'from_user';
         state.chauffeurId = parseInt(btn.dataset.userId, 10);
@@ -1183,8 +1306,9 @@ document.addEventListener('DOMContentLoaded', function () {
         titleEl.textContent = 'Associer un véhicule';
         ctxEl.innerHTML = `<i class="fas fa-user" style="color:var(--color-primary);"></i> ${esc(btn.dataset.userLabel || '')}`;
 
-        headRow.innerHTML = ['Immatriculation', 'Véhicule' , 'Statut', '']
-            .map(c => `<th>${c}</th>`).join('');
+        headRow.innerHTML = ['Immatriculation', 'Véhicule', 'Statut', '']
+            .map(c => `<th>${c}</th>`)
+            .join('');
 
         openModal();
         loadList();
@@ -1192,7 +1316,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
     closeBtn?.addEventListener('click', closeModal);
     cancelBtn?.addEventListener('click', closeModal);
-    modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+
+    modal.addEventListener('click', e => {
+        if (e.target === modal) {
+            closeModal();
+        }
+    });
+
     searchEl?.addEventListener('input', () => {
         clearTimeout(state.timer);
         state.timer = setTimeout(loadList, 280);

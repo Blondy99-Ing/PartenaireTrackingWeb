@@ -13,9 +13,15 @@ use App\Http\Controllers\Alert\AlertController;
 use App\Http\Controllers\Trajets\TrajetController;
 use App\Http\Controllers\Auth\PasswordOtpController;
 use App\Http\Controllers\Auth\VerifyLoginController;
-use App\Http\Controllers\Users\UserController;
+
 use App\Http\Controllers\Partner\AffectationChauffeurVoitureController;
 use App\Http\Controllers\Gps\ControlGpsController;
+use App\Http\Controllers\Leases\LeaseController;
+use App\Http\Controllers\Leases\ContratLeaseController;
+use App\Http\Controllers\Leases\LeaseCutoffRuleController;
+use App\Http\Controllers\Leases\LeaseCutoffHistoryController;
+use App\Http\Controllers\Partner\PartnerDriverController;
+
 
 Route::middleware(['auth:web'])->group(function () {
 
@@ -39,12 +45,8 @@ Route::middleware(['auth:web'])->group(function () {
     Route::get('/profile/vehicles/positions', [ProfileController::class, 'vehiclePositions'])
         ->name('profile.vehicles.positions');
 
-    // ── Users ──────────────────────────────────────────────────────────
-    Route::get('users', [UserController::class, 'index'])->name('users.index');
-    Route::post('users', [UserController::class, 'store'])->name('users.store');
-    Route::put('users/{id}', [UserController::class, 'update'])->name('users.update');
-    Route::delete('users/{id}', [UserController::class, 'destroy'])->name('users.destroy');
-    Route::get('/users/{id}/profile', [ProfileController::class, 'show'])->name('users.profile');
+   
+
 
     // ── Partner Affectations ───────────────────────────────────────────
     Route::prefix('partner/affectations')->name('partner.affectations.')->group(function () {
@@ -86,6 +88,65 @@ Route::middleware(['auth:web'])->group(function () {
     // ── Vehicles ───────────────────────────────────────────────────────
     Route::get('/add-vehicle', fn() => view('vehicles.create'))->name('vehicles.add');
     Route::post('/save-vehicle', [\App\Http\Controllers\VehicleController::class, 'store'])->name('vehicles.save');
+
+
+    //gestion des lease
+    Route::get('lease', [LeaseController::class, 'index'])->name('lease.index');
+    Route::post('/leases/payments/cash', [\App\Http\Controllers\Leases\LeaseController::class, 'payCash'])
+    ->name('leases.payments.cash');
+    //gestion contrat de lease
+    Route::get('contrats', [ContratLeaseController::class, 'index'])->name('lease.contrat');
+    Route::post('contrats', [ContratLeaseController::class, 'store'])
+    ->name('lease.contrat.store');
+
+// regle de coupure automatique de vehicule en leases 
+Route::get('lease/cutoff-rules', [LeaseCutoffRuleController::class, 'index'])
+    ->name('lease.cutoff-rules.index');
+
+// mise à jour de coupure globale
+Route::post('/leases/global-cutoff', [\App\Http\Controllers\Leases\LeaseController::class, 'updateGlobalCutoff'])
+    ->name('leases.global-cutoff.update');
+
+Route::post('lease/cutoff-rules', [LeaseCutoffRuleController::class, 'store'])
+    ->name('lease.cutoff-rules.store');
+
+    //pardonner un lease non payé  en rallumant le vehicuel
+    Route::post('/leases/{leaseId}/forgive', [\App\Http\Controllers\Leases\LeaseController::class, 'forgive'])
+    ->name('leases.forgive');
+
+// histirique de coupure automatique
+Route::get('lease/cutoff-history', [LeaseCutoffHistoryController::class, 'index'])
+    ->name('lease.cutoff-history.index');
+
+
+
+
+
+
+// ── Partner Drivers / Chauffeurs ───────────────────────────────────
+Route::prefix('partner')
+    ->name('partner.')
+    ->group(function () {
+        Route::get('drivers', [PartnerDriverController::class, 'index'])
+            ->name('drivers.index');
+
+        Route::post('drivers', [PartnerDriverController::class, 'store'])
+            ->name('drivers.store');
+
+        Route::get('drivers/{id}', [PartnerDriverController::class, 'show'])
+            ->name('drivers.show');
+
+        Route::put('drivers/{id}', [PartnerDriverController::class, 'update'])
+            ->name('drivers.update');
+
+        Route::patch('drivers/{id}', [PartnerDriverController::class, 'update'])
+            ->name('drivers.patch');
+
+        Route::delete('drivers/{id}', [PartnerDriverController::class, 'destroy'])
+            ->name('drivers.destroy');
+    });
+
+
 });
 
 // ── Auth invité (reset password OTP) ──────────────────────────────────

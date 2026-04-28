@@ -15,6 +15,10 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'rebuild.dashboard' => \App\Http\Middleware\RebuildDashboardCache::class,
         ]);
+
+        $middleware->web(append: [
+            \App\Http\Middleware\RefreshKeycloakToken::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

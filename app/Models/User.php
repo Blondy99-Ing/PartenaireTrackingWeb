@@ -13,25 +13,34 @@ use Illuminate\Database\Eloquent\Casts\Attribute;
 
 use App\Models\AssociationChauffeurVoiturePartner;
 use App\Models\HistoriqueAssociationChauffeurVoiturePartner;
+use Illuminate\Database\Eloquent\Builder;
 
 class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable;
 
-    protected $fillable = [
-        'user_unique_id',
-        'nom',
-        'prenom',
-        'phone',
-        'email',
-        'ville',
-        'quartier',
-        'photo',
-        'password',
-        'role_id',
-        'partner_id',
-        'created_by',
-    ];
+protected $fillable = [
+    'user_unique_id',
+    'nom',
+    'prenom',
+    'phone',
+    'email',
+    'ville',
+    'quartier',
+    'photo',
+    'password',
+    'role_id',
+    'partner_id',
+    'created_by',
+    'keycloak_id',
+    'keycloak_username',
+    'keycloak_sync_status',
+    'recouvrement_driver_id',
+    'recouvrement_sync_status',
+    'sync_error',
+    'last_synced_at',
+    'type_partner',
+];
 
     protected $hidden = [
         'password',
@@ -43,6 +52,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'last_synced_at' => 'datetime',
         ];
     }
 
