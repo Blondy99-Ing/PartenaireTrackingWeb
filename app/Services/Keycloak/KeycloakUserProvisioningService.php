@@ -6,32 +6,76 @@ use App\Models\User;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
-use Throwable;
 
 /**
- * Service central de provisioning Keycloak pour les anciens utilisateurs locaux.
+ * Service central de provisioning Keycloak.
  *
- * Objectif :
- * - Pré-créer un utilisateur Keycloak sans mot de passe depuis une commande.
- * - Ou créer/rattacher l'utilisateur Keycloak avec le mot de passe saisi au premier login.
+ * IMPORTANT :
+ * Ce service respecte la configuration actuelle du projet :
+ *
+ * KEYCLOAK_ADMIN_CLIENT_ID=admin-cli
+ * KEYCLOAK_ADMIN_USER=...
+ * KEYCLOAK_ADMIN_PASSWORD=...
+ * KEYCLOAK_ADMIN_TOKEN_URL=https://auth.proxymgroup.com/realms/master/protocol/openid-connect/token
+ * KEYCLOAK_ADMIN_TARGET_REALM=proxymgroup
+ * KEYCLOAK_ADMIN_TARGET_CLIENT_ID=tracking_app
+ *
+ * On n'utilise PAS client_credentials ici, parce que admin-cli est un client public.
+ * On utilise le password grant admin comme ton ancienne logique.
  *
  * Règles métier :
- * - Partenaire :
- *   users.partner_id = NULL
- *   compte_id = users.id
- *   rôle client tracking_app = gestionnaire_plateforme
  *
- * - Chauffeur / utilisateur secondaire :
- *   users.partner_id = id du partenaire
- *   compte_id = users.partner_id
- *   rôle client tracking_app = utilisateur_secondaire
+ * PARTENAIRE :
+ * - users.partner_id = NULL
+ * - compte_id = users.id
+ * - rôle client tracking_app = gestionnaire_plateforme
+ *
+ * CHAUFFEUR / UTILISATEUR SECONDAIRE :
+ * - users.partner_id = id du partenaire
+ * - compte_id = users.partner_id
+ * - rôle client tracking_app = utilisateur_secondaire
  */
 class KeycloakUserProvisioningService
 {
     private string $baseUrl;
+
+    /**
+     * Realm applicatif principal, généralement proxymgroup.
+     */
     private string $realm;
+
+    /**
+     * Realm dans lequel on crée/met à jour les utilisateurs.
+     * Chez toi : proxymgroup.
+     */
+    private string $targetRealm;
+
+    /**
+     * Client admin utilisé avec password grant.
+     * Chez toi : admin-cli.
+     */
     private string $adminClientId;
-    private ?string $adminClientSecret;
+
+    /**
+     * Login admin Keycloak.
+     */
+    private ?string $adminUsername;
+
+    /**
+     * Mot de passe admin Keycloak.
+     */
+    private ?string $adminPassword;
+
+    /**
+     * URL de token admin.
+     * Chez toi : realm master.
+     */
+    private string $adminTokenUrl;
+
+    /**
+     * Client cible où assigner les rôles.
+     * Chez toi : tracking_app.
+     */
     private string $targetClientId;
 
     private const ROLE_PARTNER = 'gestionnaire_plateforme';
@@ -40,22 +84,48 @@ class KeycloakUserProvisioningService
     public function __construct()
     {
         $this->baseUrl = rtrim((string) config('services.keycloak.base_url'), '/');
-        $this->realm = (string) config('services.keycloak.realm', 'master');
-        $this->adminClientId = (string) config('services.keycloak.admin_client_id', 'admin-cli');
-        $this->adminClientSecret = config('services.keycloak.admin_client_secret');
-        $this->targetClientId = (string) config('services.keycloak.target_client_id', 'tracking_app');
+
+        $this->realm = (string) config('services.keycloak.realm', 'proxymgroup');
+
+        $this->targetRealm = (string) config(
+            'services.keycloak.admin_target_realm',
+            $this->realm
+        );
+
+        $this->adminClientId = (string) config(
+            'services.keycloak.admin_client_id',
+            'admin-cli'
+        );
+
+        $this->adminUsername = config('services.keycloak.admin_user');
+        $this->adminPassword = config('services.keycloak.admin_password');
+
+        $this->adminTokenUrl = (string) config(
+            'services.keycloak.admin_token_url',
+            "{$this->baseUrl}/realms/master/protocol/openid-connect/token"
+        );
+
+        $this->targetClientId = (string) config(
+            'services.keycloak.admin_target_client_id',
+            config(
+                'services.keycloak.target_client_id',
+                config('services.keycloak.tracking_client_id', 'tracking_app')
+            )
+        );
 
         if ($this->targetClientId === '') {
-            $this->targetClientId = (string) config('services.keycloak.tracking_client_id', 'tracking_app');
+            $this->targetClientId = 'tracking_app';
         }
     }
 
     /**
-     * Pré-provisionne un user Keycloak SANS mot de passe.
+     * Pré-provisionne un utilisateur local dans Keycloak SANS mot de passe.
      *
-     * À utiliser dans la commande de migration.
-     * Le mot de passe sera défini plus tard à la première connexion,
-     * après vérification du hash local Laravel.
+     * Utilisé par :
+     * php artisan keycloak:migrate-users --include-existing
+     *
+     * Le mot de passe sera créé plus tard lors du premier login,
+     * après validation du hash local Laravel.
      */
     public function preProvisionUserWithoutPassword(User $user): array
     {
@@ -68,9 +138,9 @@ class KeycloakUserProvisioningService
     }
 
     /**
-     * Provisionne un user Keycloak AVEC le mot de passe saisi au login.
+     * Provisionne un utilisateur Keycloak AVEC le mot de passe saisi.
      *
-     * À utiliser uniquement après :
+     * Cette méthode doit être appelée uniquement après :
      * Hash::check($plainPassword, $user->password) === true
      */
     public function provisionUserWithPassword(User $user, string $plainPassword): array
@@ -88,16 +158,13 @@ class KeycloakUserProvisioningService
     }
 
     /**
-     * Compatibilité avec le nom utilisé dans nos échanges précédents.
+     * Compatibilité avec les anciens appels.
      */
     public function provisionUser(User $user, string $plainPassword): array
     {
         return $this->provisionUserWithPassword($user, $plainPassword);
     }
 
-    /**
-     * Méthode centrale de provisioning.
-     */
     private function provision(
         User $user,
         ?string $plainPassword,
@@ -119,6 +186,7 @@ class KeycloakUserProvisioningService
             'compte_id' => $compteId,
             'username' => $username,
             'email' => $user->email,
+            'target_realm' => $this->targetRealm,
             'target_client_id' => $this->targetClientId,
             'role' => $roleName,
             'with_password' => $plainPassword !== null,
@@ -167,10 +235,6 @@ class KeycloakUserProvisioningService
             ]);
         }
 
-        /**
-         * Si le compte existait déjà et que le mot de passe local vient d’être validé,
-         * on met Keycloak à jour avec ce vrai mot de passe saisi.
-         */
         if ($plainPassword !== null && $resetPasswordIfExists) {
             $this->resetUserPassword(
                 adminToken: $adminToken,
@@ -226,32 +290,43 @@ class KeycloakUserProvisioningService
         ];
     }
 
+    /**
+     * Récupération du token admin.
+     *
+     * Ici on respecte ta config actuelle :
+     * - admin-cli
+     * - admin username/password
+     * - token URL dans le realm master
+     *
+     * On ne fait pas client_credentials.
+     */
     private function getAdminAccessToken(): string
     {
-        $payload = [
-            'grant_type' => 'client_credentials',
-            'client_id' => $this->adminClientId,
-        ];
-
-        if (! empty($this->adminClientSecret)) {
-            $payload['client_secret'] = $this->adminClientSecret;
+        if (empty($this->adminUsername) || empty($this->adminPassword)) {
+            throw new RuntimeException(
+                'Configuration admin Keycloak invalide : KEYCLOAK_ADMIN_USER ou KEYCLOAK_ADMIN_PASSWORD absent.'
+            );
         }
 
-        Log::info('[KEYCLOAK_ADMIN_TOKEN_REQUEST]', [
-            'realm' => $this->realm,
-            'client_id' => $this->adminClientId,
-            'base_url' => $this->baseUrl,
-            'has_secret' => ! empty($this->adminClientSecret),
+        $payload = [
+            'grant_type' => 'password',
+            'client_id' => $this->adminClientId ?: 'admin-cli',
+            'username' => $this->adminUsername,
+            'password' => $this->adminPassword,
+        ];
+
+        Log::info('[KEYCLOAK_ADMIN_TOKEN_REQUEST_PASSWORD_GRANT]', [
+            'token_url' => $this->adminTokenUrl,
+            'client_id' => $payload['client_id'],
+            'username' => $this->adminUsername,
+            'target_realm' => $this->targetRealm,
         ]);
 
         $response = Http::asForm()
             ->timeout(20)
-            ->post(
-                "{$this->baseUrl}/realms/{$this->realm}/protocol/openid-connect/token",
-                $payload
-            );
+            ->post($this->adminTokenUrl, $payload);
 
-        Log::info('[KEYCLOAK_ADMIN_TOKEN_RESPONSE]', [
+        Log::info('[KEYCLOAK_ADMIN_TOKEN_RESPONSE_PASSWORD_GRANT]', [
             'status' => $response->status(),
             'successful' => $response->successful(),
             'body_preview' => mb_substr($response->body(), 0, 500),
@@ -259,14 +334,14 @@ class KeycloakUserProvisioningService
 
         if (! $response->successful()) {
             throw new RuntimeException(
-                "Impossible d'obtenir le token admin Keycloak. Réponse: {$response->body()}"
+                "Impossible d'obtenir le token admin Keycloak via password grant. Réponse: {$response->body()}"
             );
         }
 
         $json = $response->json();
 
         if (empty($json['access_token'])) {
-            throw new RuntimeException('Le token admin Keycloak est introuvable dans la réponse.');
+            throw new RuntimeException('Le token admin Keycloak est introuvable dans la réponse password grant.');
         }
 
         return $json['access_token'];
@@ -281,6 +356,7 @@ class KeycloakUserProvisioningService
         $payload = $this->buildUserPayload($user, $username, $plainPassword);
 
         Log::info('[KEYCLOAK_CREATE_USER_REQUEST]', [
+            'target_realm' => $this->targetRealm,
             'local_user_id' => $user->id,
             'username' => $username,
             'email' => $user->email,
@@ -291,9 +367,10 @@ class KeycloakUserProvisioningService
         $response = Http::withToken($adminToken)
             ->acceptJson()
             ->timeout(20)
-            ->post("{$this->baseUrl}/admin/realms/{$this->realm}/users", $payload);
+            ->post("{$this->baseUrl}/admin/realms/{$this->targetRealm}/users", $payload);
 
         Log::info('[KEYCLOAK_CREATE_USER_RESPONSE]', [
+            'target_realm' => $this->targetRealm,
             'local_user_id' => $user->id,
             'status' => $response->status(),
             'successful' => $response->successful(),
@@ -325,6 +402,7 @@ class KeycloakUserProvisioningService
         unset($payload['credentials']);
 
         Log::info('[KEYCLOAK_UPDATE_USER_REQUEST]', [
+            'target_realm' => $this->targetRealm,
             'local_user_id' => $user->id,
             'keycloak_id' => $userId,
             'username' => $username,
@@ -334,9 +412,10 @@ class KeycloakUserProvisioningService
         $response = Http::withToken($adminToken)
             ->acceptJson()
             ->timeout(20)
-            ->put("{$this->baseUrl}/admin/realms/{$this->realm}/users/{$userId}", $payload);
+            ->put("{$this->baseUrl}/admin/realms/{$this->targetRealm}/users/{$userId}", $payload);
 
         Log::info('[KEYCLOAK_UPDATE_USER_RESPONSE]', [
+            'target_realm' => $this->targetRealm,
             'local_user_id' => $user->id,
             'keycloak_id' => $userId,
             'status' => $response->status(),
@@ -359,20 +438,7 @@ class KeycloakUserProvisioningService
             'enabled' => true,
             'emailVerified' => ! empty($user->email),
             'attributes' => [
-                /**
-                 * Attribut principal demandé.
-                 *
-                 * Partenaire :
-                 * compte_id = user.id
-                 *
-                 * Chauffeur :
-                 * compte_id = user.partner_id
-                 */
                 'compte_id' => [(string) $this->resolveCompteId($user)],
-
-                /**
-                 * Attributs de debug/audit.
-                 */
                 'local_user_id' => [(string) $user->id],
                 'local_partner_id' => [(string) ($user->partner_id ?: '')],
                 'business_type' => [$this->resolveBusinessType($user)],
@@ -401,6 +467,7 @@ class KeycloakUserProvisioningService
         bool $temporary = false
     ): void {
         Log::info('[KEYCLOAK_RESET_PASSWORD_REQUEST]', [
+            'target_realm' => $this->targetRealm,
             'keycloak_id' => $userId,
             'temporary' => $temporary,
         ]);
@@ -409,7 +476,7 @@ class KeycloakUserProvisioningService
             ->acceptJson()
             ->timeout(20)
             ->put(
-                "{$this->baseUrl}/admin/realms/{$this->realm}/users/{$userId}/reset-password",
+                "{$this->baseUrl}/admin/realms/{$this->targetRealm}/users/{$userId}/reset-password",
                 [
                     'type' => 'password',
                     'value' => $plainPassword,
@@ -418,6 +485,7 @@ class KeycloakUserProvisioningService
             );
 
         Log::info('[KEYCLOAK_RESET_PASSWORD_RESPONSE]', [
+            'target_realm' => $this->targetRealm,
             'keycloak_id' => $userId,
             'status' => $response->status(),
             'successful' => $response->successful(),
@@ -464,7 +532,7 @@ class KeycloakUserProvisioningService
         $response = Http::withToken($adminToken)
             ->acceptJson()
             ->timeout(20)
-            ->get("{$this->baseUrl}/admin/realms/{$this->realm}/users", $query);
+            ->get("{$this->baseUrl}/admin/realms/{$this->targetRealm}/users", $query);
 
         if (! $response->successful()) {
             throw new RuntimeException("Recherche utilisateur Keycloak échouée: {$response->body()}");
@@ -484,7 +552,7 @@ class KeycloakUserProvisioningService
         $response = Http::withToken($adminToken)
             ->acceptJson()
             ->timeout(20)
-            ->get("{$this->baseUrl}/admin/realms/{$this->realm}/users/{$userId}");
+            ->get("{$this->baseUrl}/admin/realms/{$this->targetRealm}/users/{$userId}");
 
         if (! $response->successful()) {
             throw new RuntimeException("Impossible de récupérer l'utilisateur Keycloak: {$response->body()}");
@@ -498,7 +566,7 @@ class KeycloakUserProvisioningService
         $response = Http::withToken($adminToken)
             ->acceptJson()
             ->timeout(20)
-            ->get("{$this->baseUrl}/admin/realms/{$this->realm}/clients", [
+            ->get("{$this->baseUrl}/admin/realms/{$this->targetRealm}/clients", [
                 'clientId' => $clientId,
             ]);
 
@@ -520,7 +588,7 @@ class KeycloakUserProvisioningService
         $response = Http::withToken($adminToken)
             ->acceptJson()
             ->timeout(20)
-            ->get("{$this->baseUrl}/admin/realms/{$this->realm}/clients/{$clientUuid}/roles/{$roleName}");
+            ->get("{$this->baseUrl}/admin/realms/{$this->targetRealm}/clients/{$clientUuid}/roles/{$roleName}");
 
         if (! $response->successful()) {
             throw new RuntimeException("Impossible de récupérer le rôle Keycloak {$roleName}: {$response->body()}");
@@ -542,6 +610,7 @@ class KeycloakUserProvisioningService
         array $role
     ): void {
         Log::info('[KEYCLOAK_ASSIGN_ROLE_REQUEST]', [
+            'target_realm' => $this->targetRealm,
             'keycloak_id' => $userId,
             'client_uuid' => $clientUuid,
             'role' => $role['name'] ?? null,
@@ -551,7 +620,7 @@ class KeycloakUserProvisioningService
             ->acceptJson()
             ->timeout(20)
             ->post(
-                "{$this->baseUrl}/admin/realms/{$this->realm}/users/{$userId}/role-mappings/clients/{$clientUuid}",
+                "{$this->baseUrl}/admin/realms/{$this->targetRealm}/users/{$userId}/role-mappings/clients/{$clientUuid}",
                 [[
                     'id' => $role['id'],
                     'name' => $role['name'],
@@ -559,6 +628,7 @@ class KeycloakUserProvisioningService
             );
 
         Log::info('[KEYCLOAK_ASSIGN_ROLE_RESPONSE]', [
+            'target_realm' => $this->targetRealm,
             'keycloak_id' => $userId,
             'role' => $role['name'] ?? null,
             'status' => $response->status(),
