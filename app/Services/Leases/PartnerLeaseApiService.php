@@ -5,14 +5,14 @@ namespace App\Services\Leases;
 use App\Models\LeaseCutoffHistory;
 use App\Models\LeaseCutoffRule;
 use App\Models\Voiture;
+use App\Services\Keycloak\KeycloakSessionTokenManager;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
-use App\Services\Keycloak\KeycloakSessionTokenManager;
-use Illuminate\Auth\AuthenticationException;
 
 class PartnerLeaseApiService
 {
@@ -208,11 +208,27 @@ class PartnerLeaseApiService
     /**
      * Endpoint API recouvrement : GET /leases/
      *
-     * C’est la méthode principale pour afficher la page paiements/leases.
+     * Source principale de la page paiements.
      *
-     * IMPORTANT :
-     * Les leases doivent s'afficher même si le contrat lié n'est pas trouvé.
-     * Les contrats servent seulement à enrichir les données.
+     * Cette méthode enrichit chaque lease avec GET /paiements/.
+     *
+     * Mapping :
+     * - leases.id = paiements.lease
+     *
+     * /leases/ donne :
+     * - date_echeance
+     * - montant_attendu
+     * - montant_paye
+     * - reste_a_payer
+     * - statut PAYE / NON_PAYE
+     *
+     * /paiements/ donne :
+     * - methode
+     * - reference
+     * - transaction_id
+     * - statut paiement réel
+     * - date_paiement
+     * - enregistre_par
      */
     public function fetchLeases(?string $status = null, array $contracts = []): array
     {
@@ -243,6 +259,25 @@ class PartnerLeaseApiService
                 : [],
         ]);
 
+        /**
+         * Nouvelle source d'enrichissement.
+         *
+         * Si /paiements/ échoue, on ne bloque pas l'affichage des leases.
+         * On garde /leases/ comme source principale.
+         */
+        try {
+            $payments = $this->fetchPayments();
+        } catch (\Throwable $e) {
+            report($e);
+
+            Log::error('[LEASE_API_FETCH_PAYMENTS_FOR_LEASES_FAILED]', [
+                'error' => $e->getMessage(),
+            ]);
+
+            $payments = [];
+        }
+
+        $paymentMetaByLeaseId = $this->getPaymentMetaByLeaseId($payments);
         $contractsById = collect($contracts)->keyBy('source_contrat_id');
         $cutoffMetaByImmat = $this->getPartnerCutoffMetaByImmat();
         $forgivenessMetaByLeaseId = $this->getForgivenessMetaByLeaseId();
@@ -252,7 +287,8 @@ class PartnerLeaseApiService
             ->map(function (array $row) use (
                 $contractsById,
                 $cutoffMetaByImmat,
-                $forgivenessMetaByLeaseId
+                $forgivenessMetaByLeaseId,
+                $paymentMetaByLeaseId
             ) {
                 $contractId = (int) (
                     $row['contrat_id']
@@ -286,18 +322,81 @@ class PartnerLeaseApiService
                     ? ($forgivenessMetaByLeaseId[$leaseId] ?? null)
                     : null;
 
-                return $this->normalizeLease($row, $contract, $cutoffMeta, $forgivenessMeta);
+                $paymentMeta = $leaseId > 0
+                    ? ($paymentMetaByLeaseId[$leaseId] ?? null)
+                    : null;
+
+                return $this->normalizeLease(
+                    row: $row,
+                    contract: $contract,
+                    cutoffMeta: $cutoffMeta,
+                    forgivenessMeta: $forgivenessMeta,
+                    paymentMeta: $paymentMeta
+                );
             })
             ->values()
             ->all();
 
         Log::info('[LEASE_API_FETCH_LEASES_DONE]', [
             'leases_count' => count($leases),
+            'payments_count' => count($payments),
+            'payments_linked_count' => count($paymentMetaByLeaseId),
             'sample_ids' => collect($leases)->pluck('id')->take(5)->values()->all(),
             'sample_statuses' => collect($leases)->pluck('statut')->take(10)->values()->all(),
+            'sample_payment_methods' => collect($leases)->pluck('methode')->take(10)->values()->all(),
         ]);
 
         return $leases;
+    }
+
+    /**
+     * Endpoint API recouvrement : GET /paiements/
+     *
+     * Sert à enrichir les lignes de lease avec :
+     * - méthode de paiement
+     * - référence
+     * - transaction_id
+     * - statut paiement
+     * - date paiement
+     * - encaissé / enregistré par
+     *
+     * IMPORTANT :
+     * /leases/ reste la source principale pour :
+     * - échéance
+     * - montant attendu
+     * - montant payé
+     * - reste à payer
+     * - statut PAYE / NON_PAYE
+     */
+    public function fetchPayments(): array
+    {
+        Log::info('[LEASE_API_FETCH_PAYMENTS_START]');
+
+        $json = $this->get('/paiements/');
+        $rows = $this->unwrapApiRows($json);
+
+        Log::info('[LEASE_API_FETCH_PAYMENTS_ROWS]', [
+            'raw_type' => $this->describeArrayShape($json),
+            'rows_count' => count($rows),
+            'first_row_keys' => isset($rows[0]) && is_array($rows[0])
+                ? array_keys($rows[0])
+                : [],
+        ]);
+
+        $payments = collect($rows)
+            ->filter(fn ($row) => is_array($row))
+            ->map(fn (array $row) => $this->normalizePayment($row))
+            ->filter(fn (array $row) => ! empty($row['lease_id']))
+            ->values()
+            ->all();
+
+        Log::info('[LEASE_API_FETCH_PAYMENTS_DONE]', [
+            'payments_count' => count($payments),
+            'sample_ids' => collect($payments)->pluck('id')->take(5)->values()->all(),
+            'sample_lease_ids' => collect($payments)->pluck('lease_id')->take(5)->values()->all(),
+        ]);
+
+        return $payments;
     }
 
     /**
@@ -309,43 +408,42 @@ class PartnerLeaseApiService
      *   "montant": 2500
      * }
      */
-   public function registerCashPayment(array $payload): array
-{
-    /**
-     * Important :
-     * L’API recouvrement attend officiellement :
-     * {
-     *   "lease": 14,
-     *   "montant": 2500
-     * }
-     *
-     * On ne rajoute pas recorded_by dans le POST pour ne pas casser l’API.
-     * L’enregistreur doit être identifié côté recouvrement via le token Keycloak.
-     */
-    $apiPayload = [
-        'lease' => (int) $payload['lease_id'],
-        'montant' => (float) $payload['montant'],
-    ];
+    public function registerCashPayment(array $payload): array
+    {
+        /**
+         * Important :
+         * L’API recouvrement attend officiellement :
+         * {
+         *   "lease": 14,
+         *   "montant": 2500
+         * }
+         *
+         * On ne rajoute pas recorded_by dans le POST pour ne pas casser l’API.
+         * L’enregistreur doit être identifié côté recouvrement via le token Keycloak.
+         */
+        $apiPayload = [
+            'lease' => (int) $payload['lease_id'],
+            'montant' => (float) $payload['montant'],
+        ];
 
-    Log::info('[LEASE_API_REGISTER_CASH_PAYMENT_START]', [
-        'payload' => $apiPayload,
-        'recorded_by' => $payload['recorded_by'] ?? null,
-        'recorded_by_name' => $payload['recorded_by_name'] ?? null,
-    ]);
+        Log::info('[LEASE_API_REGISTER_CASH_PAYMENT_START]', [
+            'payload' => $apiPayload,
+            'recorded_by' => $payload['recorded_by'] ?? null,
+            'recorded_by_name' => $payload['recorded_by_name'] ?? null,
+        ]);
 
-    $response = $this->post('/paiements/', $apiPayload);
+        $response = $this->post('/paiements/', $apiPayload);
 
-    Log::info('[LEASE_API_REGISTER_CASH_PAYMENT_DONE]', [
-        'lease_id' => $apiPayload['lease'],
-        'montant' => $apiPayload['montant'],
-        'recorded_by' => $payload['recorded_by'] ?? null,
-        'recorded_by_name' => $payload['recorded_by_name'] ?? null,
-        'response_shape' => $this->describeArrayShape($response),
-    ]);
+        Log::info('[LEASE_API_REGISTER_CASH_PAYMENT_DONE]', [
+            'lease_id' => $apiPayload['lease'],
+            'montant' => $apiPayload['montant'],
+            'recorded_by' => $payload['recorded_by'] ?? null,
+            'recorded_by_name' => $payload['recorded_by_name'] ?? null,
+            'response_shape' => $this->describeArrayShape($response),
+        ]);
 
-    return $response;
-}
-
+        return $response;
+    }
 
     /**
      * Construit les indicateurs du bloc coupure automatique sur la page paiements.
@@ -525,6 +623,45 @@ class PartnerLeaseApiService
     }
 
     /**
+     * Récupère la dernière information locale de pardon pour chaque lease.
+     */
+    protected function getForgivenessMetaByLeaseId(): array
+    {
+        $partnerId = $this->resolvePartnerId();
+
+        $rows = LeaseCutoffHistory::query()
+            ->where('partner_id', $partnerId)
+            ->whereIn('status', [
+                'CANCELLED_FORGIVEN_BEFORE_CUT',
+                'REACTIVATION_REQUESTED_AFTER_FORGIVENESS',
+                'REACTIVATED_AFTER_FORGIVENESS',
+                'REACTIVATION_FAILED_AFTER_FORGIVENESS',
+            ])
+            ->whereNotNull('lease_id')
+            ->orderByDesc('id')
+            ->get(['lease_id', 'status', 'reason', 'updated_at'])
+            ->unique('lease_id')
+            ->mapWithKeys(function (LeaseCutoffHistory $row) {
+                return [
+                    (int) $row->lease_id => [
+                        'history_status' => $row->status,
+                        'reason' => $row->reason,
+                        'updated_at' => $row->updated_at?->toDateTimeString(),
+                    ],
+                ];
+            })
+            ->all();
+
+        Log::debug('[LEASE_FORGIVENESS_META_BY_LEASE_ID]', [
+            'partner_id' => $partnerId,
+            'count' => count($rows),
+            'lease_ids' => array_slice(array_keys($rows), 0, 10),
+        ]);
+
+        return $rows;
+    }
+
+    /**
      * Résout le partenaire courant.
      *
      * Si l'utilisateur connecté est un chauffeur/secondaire, on utilise partner_id.
@@ -544,146 +681,146 @@ class PartnerLeaseApiService
     /**
      * Appel GET générique vers recouvrement.
      */
- protected function get(string $endpoint, array $query = []): array
-{
-    $baseUrl = rtrim((string) config('services.partner_lease_api.base_url'), '/');
-    $timeout = (int) config('services.partner_lease_api.timeout', 20);
+    protected function get(string $endpoint, array $query = []): array
+    {
+        $baseUrl = rtrim((string) config('services.partner_lease_api.base_url'), '/');
+        $timeout = (int) config('services.partner_lease_api.timeout', 20);
 
-    if ($baseUrl === '') {
-        throw new RuntimeException("PARTNER_LEASE_API_BASE_URL est vide ou non chargé.");
-    }
+        if ($baseUrl === '') {
+            throw new RuntimeException("PARTNER_LEASE_API_BASE_URL est vide ou non chargé.");
+        }
 
-    $url = $baseUrl . $endpoint;
+        $url = $baseUrl . $endpoint;
 
-    $tokenManager = app(KeycloakSessionTokenManager::class);
-    $trackingToken = $tokenManager->getValidAccessToken(60);
+        $tokenManager = app(KeycloakSessionTokenManager::class);
+        $trackingToken = $tokenManager->getValidAccessToken(60);
 
-    Log::info('[LEASE_API_GET_REQUEST]', [
-        'url' => $url,
-        'query' => $query,
-        'has_token' => true,
-        'token_preview' => substr($trackingToken, 0, 16) . '...',
-    ]);
-
-    $response = Http::timeout($timeout)
-        ->acceptJson()
-        ->withToken($trackingToken)
-        ->get($url, $query);
-
-    /**
-     * Si le token a expiré côté API malgré notre calcul local,
-     * on force un refresh et on rejoue l’appel une seule fois.
-     */
-    if ($response->status() === 401) {
-        Log::warning('[LEASE_API_GET_401_REFRESH_RETRY]', [
+        Log::info('[LEASE_API_GET_REQUEST]', [
             'url' => $url,
-            'endpoint' => $endpoint,
+            'query' => $query,
+            'has_token' => true,
+            'token_preview' => substr($trackingToken, 0, 16) . '...',
         ]);
-
-        $trackingToken = $tokenManager->forceRefresh('api_lease_get_401');
 
         $response = Http::timeout($timeout)
             ->acceptJson()
             ->withToken($trackingToken)
             ->get($url, $query);
-    }
 
-    Log::info('[LEASE_API_GET_RESPONSE]', [
-        'url' => $url,
-        'status' => $response->status(),
-        'successful' => $response->successful(),
-        'body_preview' => mb_substr($response->body(), 0, 1200),
-    ]);
-
-    if (! $response->successful()) {
+        /**
+         * Si le token a expiré côté API malgré notre calcul local,
+         * on force un refresh et on rejoue l’appel une seule fois.
+         */
         if ($response->status() === 401) {
-            throw new AuthenticationException(
-                "Session Keycloak expirée pour GET {$endpoint}."
+            Log::warning('[LEASE_API_GET_401_REFRESH_RETRY]', [
+                'url' => $url,
+                'endpoint' => $endpoint,
+            ]);
+
+            $trackingToken = $tokenManager->forceRefresh('api_lease_get_401');
+
+            $response = Http::timeout($timeout)
+                ->acceptJson()
+                ->withToken($trackingToken)
+                ->get($url, $query);
+        }
+
+        Log::info('[LEASE_API_GET_RESPONSE]', [
+            'url' => $url,
+            'status' => $response->status(),
+            'successful' => $response->successful(),
+            'body_preview' => mb_substr($response->body(), 0, 1200),
+        ]);
+
+        if (! $response->successful()) {
+            if ($response->status() === 401) {
+                throw new AuthenticationException(
+                    "Session Keycloak expirée pour GET {$endpoint}."
+                );
+            }
+
+            throw new RuntimeException(
+                "Échec de l'appel API lease GET {$endpoint} [{$response->status()}] : " . $response->body()
             );
         }
 
-        throw new RuntimeException(
-            "Échec de l'appel API lease GET {$endpoint} [{$response->status()}] : " . $response->body()
-        );
+        $json = $response->json();
+
+        if (! is_array($json)) {
+            throw new RuntimeException("Réponse API lease invalide pour GET {$endpoint}.");
+        }
+
+        return $json;
     }
-
-    $json = $response->json();
-
-    if (! is_array($json)) {
-        throw new RuntimeException("Réponse API lease invalide pour GET {$endpoint}.");
-    }
-
-    return $json;
-}
 
     /**
      * Appel POST générique vers recouvrement.
      */
-   protected function post(string $endpoint, array $payload = []): array
-{
-    $baseUrl = rtrim((string) config('services.partner_lease_api.base_url'), '/');
-    $timeout = (int) config('services.partner_lease_api.timeout', 20);
+    protected function post(string $endpoint, array $payload = []): array
+    {
+        $baseUrl = rtrim((string) config('services.partner_lease_api.base_url'), '/');
+        $timeout = (int) config('services.partner_lease_api.timeout', 20);
 
-    if ($baseUrl === '') {
-        throw new RuntimeException("PARTNER_LEASE_API_BASE_URL est vide ou non chargé.");
-    }
+        if ($baseUrl === '') {
+            throw new RuntimeException("PARTNER_LEASE_API_BASE_URL est vide ou non chargé.");
+        }
 
-    $url = $baseUrl . $endpoint;
+        $url = $baseUrl . $endpoint;
 
-    $tokenManager = app(KeycloakSessionTokenManager::class);
-    $trackingToken = $tokenManager->getValidAccessToken(60);
+        $tokenManager = app(KeycloakSessionTokenManager::class);
+        $trackingToken = $tokenManager->getValidAccessToken(60);
 
-    Log::info('[LEASE_API_POST_REQUEST]', [
-        'url' => $url,
-        'payload' => $payload,
-        'has_token' => true,
-        'token_preview' => substr($trackingToken, 0, 16) . '...',
-    ]);
-
-    $response = Http::timeout($timeout)
-        ->acceptJson()
-        ->asJson()
-        ->withToken($trackingToken)
-        ->post($url, $payload);
-
-    if ($response->status() === 401) {
-        Log::warning('[LEASE_API_POST_401_REFRESH_RETRY]', [
+        Log::info('[LEASE_API_POST_REQUEST]', [
             'url' => $url,
-            'endpoint' => $endpoint,
+            'payload' => $payload,
+            'has_token' => true,
+            'token_preview' => substr($trackingToken, 0, 16) . '...',
         ]);
-
-        $trackingToken = $tokenManager->forceRefresh('api_lease_post_401');
 
         $response = Http::timeout($timeout)
             ->acceptJson()
             ->asJson()
             ->withToken($trackingToken)
             ->post($url, $payload);
-    }
 
-    Log::info('[LEASE_API_POST_RESPONSE]', [
-        'url' => $url,
-        'status' => $response->status(),
-        'successful' => $response->successful(),
-        'body_preview' => mb_substr($response->body(), 0, 1200),
-    ]);
-
-    if (! $response->successful()) {
         if ($response->status() === 401) {
-            throw new AuthenticationException(
-                "Session Keycloak expirée pour POST {$endpoint}."
+            Log::warning('[LEASE_API_POST_401_REFRESH_RETRY]', [
+                'url' => $url,
+                'endpoint' => $endpoint,
+            ]);
+
+            $trackingToken = $tokenManager->forceRefresh('api_lease_post_401');
+
+            $response = Http::timeout($timeout)
+                ->acceptJson()
+                ->asJson()
+                ->withToken($trackingToken)
+                ->post($url, $payload);
+        }
+
+        Log::info('[LEASE_API_POST_RESPONSE]', [
+            'url' => $url,
+            'status' => $response->status(),
+            'successful' => $response->successful(),
+            'body_preview' => mb_substr($response->body(), 0, 1200),
+        ]);
+
+        if (! $response->successful()) {
+            if ($response->status() === 401) {
+                throw new AuthenticationException(
+                    "Session Keycloak expirée pour POST {$endpoint}."
+                );
+            }
+
+            throw new RuntimeException(
+                "Échec POST API lease {$endpoint} [{$response->status()}] : " . $response->body()
             );
         }
 
-        throw new RuntimeException(
-            "Échec POST API lease {$endpoint} [{$response->status()}] : " . $response->body()
-        );
+        $json = $response->json();
+
+        return is_array($json) ? $json : [];
     }
-
-    $json = $response->json();
-
-    return is_array($json) ? $json : [];
-}
 
     /**
      * Supporte les formats API :
@@ -727,45 +864,6 @@ class PartnerLeaseApiService
             'forgiven', 'pardonne', 'pardonné' => 'PARDONNE',
             default => mb_strtoupper($status, 'UTF-8'),
         };
-    }
-
-    /**
-     * Récupère la dernière information locale de pardon pour chaque lease.
-     */
-    protected function getForgivenessMetaByLeaseId(): array
-    {
-        $partnerId = $this->resolvePartnerId();
-
-        $rows = LeaseCutoffHistory::query()
-            ->where('partner_id', $partnerId)
-            ->whereIn('status', [
-                'CANCELLED_FORGIVEN_BEFORE_CUT',
-                'REACTIVATION_REQUESTED_AFTER_FORGIVENESS',
-                'REACTIVATED_AFTER_FORGIVENESS',
-                'REACTIVATION_FAILED_AFTER_FORGIVENESS',
-            ])
-            ->whereNotNull('lease_id')
-            ->orderByDesc('id')
-            ->get(['lease_id', 'status', 'reason', 'updated_at'])
-            ->unique('lease_id')
-            ->mapWithKeys(function (LeaseCutoffHistory $row) {
-                return [
-                    (int) $row->lease_id => [
-                        'history_status' => $row->status,
-                        'reason' => $row->reason,
-                        'updated_at' => $row->updated_at?->toDateTimeString(),
-                    ],
-                ];
-            })
-            ->all();
-
-        Log::debug('[LEASE_FORGIVENESS_META_BY_LEASE_ID]', [
-            'partner_id' => $partnerId,
-            'count' => count($rows),
-            'lease_ids' => array_slice(array_keys($rows), 0, 10),
-        ]);
-
-        return $rows;
     }
 
     /**
@@ -856,13 +954,114 @@ class PartnerLeaseApiService
     }
 
     /**
+     * Normalise une ligne paiement API.
+     */
+    protected function normalizePayment(array $row): array
+    {
+        $status = mb_strtoupper((string) ($row['statut'] ?? $row['status'] ?? ''), 'UTF-8');
+
+        return [
+            'id' => (int) ($row['id'] ?? 0),
+            'lease_id' => (int) ($row['lease'] ?? $row['lease_id'] ?? 0),
+
+            'montant' => (float) ($row['montant'] ?? 0),
+            'methode' => (string) ($row['methode'] ?? $row['method'] ?? $row['mode_paiement'] ?? ''),
+            'reference' => (string) ($row['reference'] ?? ''),
+            'transaction_id' => (string) ($row['transaction_id'] ?? ''),
+            'statut' => $status,
+
+            'date_paiement' => $row['date_paiement'] ?? null,
+            'chauffeur_nom_complet' => (string) ($row['chauffeur_nom_complet'] ?? ''),
+            'enregistre_par' => (string) ($row['enregistre_par'] ?? ''),
+
+            'raw' => $row,
+        ];
+    }
+
+    /**
+     * Construit un index des paiements par lease_id.
+     *
+     * Pour chaque lease, on choisit le paiement le plus pertinent :
+     * 1. paiement réussi / validé si disponible ;
+     * 2. sinon paiement en attente ;
+     * 3. sinon dernière tentative échouée ;
+     * 4. sinon dernier paiement connu.
+     */
+    protected function getPaymentMetaByLeaseId(array $payments): array
+    {
+        $indexed = collect($payments)
+            ->filter(fn (array $payment) => ! empty($payment['lease_id']))
+            ->groupBy('lease_id')
+            ->map(function ($leasePayments) {
+                return collect($leasePayments)
+                    ->sortByDesc(function (array $payment) {
+                        $priority = $this->paymentStatusPriority((string) ($payment['statut'] ?? ''));
+                        $timestamp = $payment['date_paiement']
+                            ? (int) strtotime((string) $payment['date_paiement'])
+                            : 0;
+                        $id = (int) ($payment['id'] ?? 0);
+
+                        return ($priority * 1000000000000) + ($timestamp * 100000) + $id;
+                    })
+                    ->first();
+            })
+            ->filter()
+            ->mapWithKeys(function (array $payment, $leaseId) {
+                return [(int) $leaseId => $payment];
+            })
+            ->all();
+
+        Log::debug('[LEASE_PAYMENT_META_BY_LEASE_ID]', [
+            'count' => count($indexed),
+            'lease_ids' => array_slice(array_keys($indexed), 0, 20),
+        ]);
+
+        return $indexed;
+    }
+
+    /**
+     * Priorité de sélection d'un paiement pour l'affichage.
+     */
+    protected function paymentStatusPriority(string $status): int
+    {
+        $status = mb_strtoupper(trim($status), 'UTF-8');
+
+        return match ($status) {
+            'PAYE',
+            'PAYÉ',
+            'PAID',
+            'SUCCESS',
+            'SUCCES',
+            'SUCCÈS',
+            'REUSSI',
+            'RÉUSSI',
+            'VALIDE',
+            'VALIDÉ',
+            'CONFIRME',
+            'CONFIRMÉ' => 100,
+
+            'EN_ATTENTE',
+            'PENDING',
+            'PROCESSING' => 50,
+
+            'ECHEC',
+            'ÉCHEC',
+            'FAILED',
+            'FAIL' => 10,
+
+            default => 1,
+        };
+    }
+
+    /**
      * Normalise un lease API vers la structure attendue par la page paiements.
      */
     protected function normalizeLease(
         array $row,
         ?array $contract = null,
         ?array $cutoffMeta = null,
-        ?array $forgivenessMeta = null
+        ?array $forgivenessMeta = null,
+        ?array $paymentMeta = null
     ): array {
         $statusApi = strtoupper((string) (
             $row['statut']
@@ -955,12 +1154,47 @@ class PartnerLeaseApiService
             ? ($cutoffMeta['heure_coupure'] ?? null)
             : null;
 
+        /**
+         * Données venant prioritairement de /paiements/.
+         */
+        $paymentMethod = $paymentMeta['methode']
+            ?? $row['methode']
+            ?? $row['method']
+            ?? $row['mode_paiement']
+            ?? $row['payment_method']
+            ?? null;
+
+        $paymentRecordedBy = $paymentMeta['enregistre_par']
+            ?? $row['enregistre_par']
+            ?? $row['enregistre_par_nom_complet']
+            ?? null;
+
+        $paymentDate = $paymentMeta['date_paiement']
+            ?? $row['date_paiement']
+            ?? null;
+
+        $paymentStatus = $paymentMeta['statut']
+            ?? $row['paiement_statut']
+            ?? null;
+
+        $paymentReference = $paymentMeta['reference']
+            ?? $row['reference']
+            ?? null;
+
+        $paymentTransactionId = $paymentMeta['transaction_id']
+            ?? $row['transaction_id']
+            ?? null;
+
         return [
             'id' => $leaseId,
             'source_lease_id' => $leaseId,
             'source_contrat_id' => $contractId,
 
+            /**
+             * Date affichée dans le tableau = date d’échéance du lease.
+             */
             'date' => $dateEcheance,
+            'date_echeance' => $dateEcheance,
 
             'vehicule' => $immat,
             'chauffeur' => $chauffeur,
@@ -980,22 +1214,38 @@ class PartnerLeaseApiService
                 ?? Auth::user()?->nom
                 ?? 'Partenaire connecté',
 
+            /**
+             * Montants : source officielle = /leases/.
+             */
             'montant_requis' => $expected,
             'montant_paye' => $paid,
             'reste_a_payer' => $reste,
 
-            'paye_par' => $paid > 0 ? $chauffeur : null,
+            /**
+             * Encaissé / enregistré par :
+             * source prioritaire = /paiements/.enregistre_par.
+             */
+            'paye_par' => $paymentRecordedBy
+                ?: ($paid > 0 ? $chauffeur : null),
 
-            'methode' => $paid > 0
-                ? (string) (
-                    $row['methode']
-                    ?? $row['method']
-                    ?? $row['mode_paiement']
-                    ?? $row['payment_method']
-                    ?? '—'
-                )
-                : null,
+            /**
+             * Méthode :
+             * source prioritaire = /paiements/.methode.
+             */
+            'methode' => $paymentMethod ?: null,
 
+            /**
+             * Champs détaillés paiement.
+             */
+            'paiement_id' => $paymentMeta['id'] ?? null,
+            'paiement_statut' => $paymentStatus,
+            'paiement_reference' => $paymentReference,
+            'paiement_transaction_id' => $paymentTransactionId,
+            'date_paiement' => $paymentDate,
+
+            /**
+             * Pardon.
+             */
             'pardonne_par' => null,
 
             'forgiveness_history_status' => $forgivenessMeta['history_status'] ?? null,
@@ -1007,7 +1257,12 @@ class PartnerLeaseApiService
             'heure_coupure' => $heureCoupure,
             'coupe' => false,
 
-            'heure_enreg' => $this->parseDateTime($row['created_at'] ?? null)?->format('H:i:s'),
+            /**
+             * H. enreg. :
+             * si paiement trouvé, on utilise date_paiement ;
+             * sinon created_at du lease.
+             */
+            'heure_enreg' => $this->parseDateTime($paymentDate ?? $row['created_at'] ?? null)?->format('H:i:s'),
 
             'contrat_ref' => $contract['ref']
                 ?? ('CTR-' . str_pad((string) $contractId, 5, '0', STR_PAD_LEFT)),
@@ -1015,6 +1270,7 @@ class PartnerLeaseApiService
             'prochaine_echeance' => $dateEcheance,
 
             'raw' => $row,
+            'payment_raw' => $paymentMeta['raw'] ?? null,
         ];
     }
 
