@@ -2388,54 +2388,53 @@ input:checked + .fl-slider:before {
         window.openModal('modalForgive');
     };
 
-    window.confirmForgive = async function () {
-        const row = RAW_DATA.find(r => Number(r.id) === Number(pendingRowId));
+  window.confirmForgive = async function () {
+    const row = RAW_DATA.find(r => Number(r.id) === Number(pendingRowId));
 
-        if (!row) {
-            alert('Ligne de paiement introuvable.');
-            return;
+    if (!row) {
+        alert('Ligne de paiement introuvable.');
+        return;
+    }
+
+    const leaseId = row.source_lease_id || row.id;
+    const url = FORGIVE_URL_TEMPLATE.replace('__LEASE_ID__', String(leaseId));
+
+    const reason = document.getElementById('forgiveReason')?.value || '';
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': getCsrfToken(),
+            },
+            body: JSON.stringify({
+                reason: reason,
+            }),
+        });
+
+        const payload = await response.json();
+
+        if (!response.ok || !payload.ok) {
+            throw new Error(payload.message || "Impossible d'enregistrer le pardon.");
         }
 
-        const leaseId = row.source_lease_id || row.id;
-        const url = FORGIVE_URL_TEMPLATE.replace('__LEASE_ID__', String(leaseId));
-        const forgivenBy = document.getElementById('forgiveBy')?.value || '';
-        const reason = document.getElementById('forgiveReason')?.value || '';
+        window.closeModal('modalForgive');
 
-        try {
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                    'X-CSRF-TOKEN': getCsrfToken(),
-                },
-                body: JSON.stringify({
-                    forgiven_by: forgivenBy || CONNECTED_USER_NAME,
-                    reason: reason,
-                }),
-            });
-
-            const payload = await response.json();
-
-            if (!response.ok || !payload.ok) {
-                throw new Error(payload.message || "Impossible d'enregistrer le pardon.");
-            }
-
-            window.closeModal('modalForgive');
-
-            if (window.showToast) {
-                window.showToast(
-                    'Pardon enregistré',
-                    payload.message || 'Pardon traité.',
-                    'success'
-                );
-            }
-
-            window.location.reload();
-        } catch (e) {
-            alert(e.message || 'Erreur pendant le pardon.');
+        if (window.showToast) {
+            window.showToast(
+                'Pardon enregistré',
+                payload.message || 'Pardon traité.',
+                'success'
+            );
         }
-    };
+
+        window.location.reload();
+    } catch (e) {
+        alert(e.message || 'Erreur pendant le pardon.');
+    }
+};
 
     window.openCutModal = function (rowId) {
         const row = RAW_DATA.find(r => Number(r.id) === Number(rowId));

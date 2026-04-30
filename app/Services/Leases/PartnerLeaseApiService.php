@@ -622,44 +622,66 @@ class PartnerLeaseApiService
         return $rows;
     }
 
+ 
     /**
-     * Récupère la dernière information locale de pardon pour chaque lease.
-     */
-    protected function getForgivenessMetaByLeaseId(): array
-    {
-        $partnerId = $this->resolvePartnerId();
+ * Récupère la dernière information locale de pardon pour chaque lease.
+ *
+ * Sert à afficher dans la vue :
+ * - le statut de pardon ;
+ * - la raison ;
+ * - qui a pardonné ;
+ * - quand le pardon a été accordé.
+ */
+protected function getForgivenessMetaByLeaseId(): array
+{
+    $partnerId = $this->resolvePartnerId();
 
-        $rows = LeaseCutoffHistory::query()
-            ->where('partner_id', $partnerId)
-            ->whereIn('status', [
-                'CANCELLED_FORGIVEN_BEFORE_CUT',
-                'REACTIVATION_REQUESTED_AFTER_FORGIVENESS',
-                'REACTIVATED_AFTER_FORGIVENESS',
-                'REACTIVATION_FAILED_AFTER_FORGIVENESS',
-            ])
-            ->whereNotNull('lease_id')
-            ->orderByDesc('id')
-            ->get(['lease_id', 'status', 'reason', 'updated_at'])
-            ->unique('lease_id')
-            ->mapWithKeys(function (LeaseCutoffHistory $row) {
-                return [
-                    (int) $row->lease_id => [
-                        'history_status' => $row->status,
-                        'reason' => $row->reason,
-                        'updated_at' => $row->updated_at?->toDateTimeString(),
-                    ],
-                ];
-            })
-            ->all();
+    $rows = LeaseCutoffHistory::query()
+        ->where('partner_id', $partnerId)
+        ->whereIn('status', [
+            'CANCELLED_FORGIVEN_BEFORE_CUT',
+            'REACTIVATION_REQUESTED_AFTER_FORGIVENESS',
+            'REACTIVATED_AFTER_FORGIVENESS',
+            'REACTIVATION_FAILED_AFTER_FORGIVENESS',
+        ])
+        ->whereNotNull('lease_id')
+        ->orderByDesc('id')
+        ->get([
+            'lease_id',
+            'status',
+            'reason',
+            'forgiven_by_user_id',
+            'forgiven_by_name',
+            'forgiven_at',
+            'updated_at',
+        ])
+        ->unique('lease_id')
+        ->mapWithKeys(function (LeaseCutoffHistory $row) {
+            return [
+                (int) $row->lease_id => [
+                    'history_status' => $row->status,
+                    'reason' => $row->reason,
 
-        Log::debug('[LEASE_FORGIVENESS_META_BY_LEASE_ID]', [
-            'partner_id' => $partnerId,
-            'count' => count($rows),
-            'lease_ids' => array_slice(array_keys($rows), 0, 10),
-        ]);
+                    'forgiven_by_user_id' => $row->forgiven_by_user_id,
+                    'forgiven_by_name' => $row->forgiven_by_name,
+                    'forgiven_at' => $row->forgiven_at
+                        ? \Illuminate\Support\Carbon::parse($row->forgiven_at)->toDateTimeString()
+                        : null,
 
-        return $rows;
-    }
+                    'updated_at' => $row->updated_at?->toDateTimeString(),
+                ],
+            ];
+        })
+        ->all();
+
+    Log::debug('[LEASE_FORGIVENESS_META_BY_LEASE_ID]', [
+        'partner_id' => $partnerId,
+        'count' => count($rows),
+        'lease_ids' => array_slice(array_keys($rows), 0, 10),
+    ]);
+
+    return $rows;
+}
 
     /**
      * Résout le partenaire courant.
@@ -1243,10 +1265,13 @@ class PartnerLeaseApiService
             'paiement_transaction_id' => $paymentTransactionId,
             'date_paiement' => $paymentDate,
 
+          
             /**
              * Pardon.
              */
-            'pardonne_par' => null,
+            'pardonne_par' => $forgivenessMeta['forgiven_by_name'] ?? null,
+            'pardonne_par_user_id' => $forgivenessMeta['forgiven_by_user_id'] ?? null,
+            'pardonne_le' => $forgivenessMeta['forgiven_at'] ?? null,
 
             'forgiveness_history_status' => $forgivenessMeta['history_status'] ?? null,
             'forgiveness_reason' => $forgivenessMeta['reason'] ?? null,

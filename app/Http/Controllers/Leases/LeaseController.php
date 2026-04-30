@@ -232,29 +232,20 @@ class LeaseController extends Controller
      * - demande de rallumage
      * - échec de rallumage
      */
- public function forgive(
+public function forgive(
     int $leaseId,
     Request $request,
     LeaseForgivenessService $forgivenessService
 ): JsonResponse {
     $data = $request->validate([
         'reason' => ['nullable', 'string', 'max:255'],
-        'forgiven_by' => ['nullable', 'string', 'max:120'],
     ]);
 
     try {
-        $reason = trim((string) ($data['reason'] ?? ''));
-
-        $forgivenByName = $this->connectedUserLabel($request->user());
-
-        if ($reason === '') {
-            $reason = 'Pardon accordé par ' . $forgivenByName;
-        }
-
-       $result = $forgivenessService->forgive(
+        $result = $forgivenessService->forgive(
             $request->user(),
             (int) $leaseId,
-            $reason
+            trim((string) ($data['reason'] ?? '')) ?: null
         );
 
         return response()->json([
@@ -271,7 +262,6 @@ class LeaseController extends Controller
         ], 500);
     }
 }
-
 
 
 

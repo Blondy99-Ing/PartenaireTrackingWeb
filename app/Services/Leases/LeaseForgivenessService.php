@@ -24,30 +24,30 @@ class LeaseForgivenessService
     /**
      * Pardon intelligent d’un lease.
      *
-     * Cas pris en charge :
+     * Cas 1 : lease non payé, véhicule pas encore coupé.
+     * - annule la queue ;
+     * - écrit CANCELLED_FORGIVEN_BEFORE_CUT ;
+     * - aucune commande GPS.
      *
-     * 1. Lease NON_PAYE pardonné avant coupure :
-     *    - annule la queue si elle existe
-     *    - écrit l’historique CANCELLED_FORGIVEN_BEFORE_CUT
-     *    - empêche le planner de recréer une coupure pour le même lease
+     * Cas 2 : lease payé en retard ou non payé, véhicule déjà coupé.
+     * - envoie une commande GPS de rallumage ;
+     * - écrit REACTIVATED_AFTER_FORGIVENESS,
+     *   REACTIVATION_REQUESTED_AFTER_FORGIVENESS
+     *   ou REACTIVATION_FAILED_AFTER_FORGIVENESS.
      *
-     * 2. Lease déjà PAYE mais véhicule encore coupé :
-     *    - considéré comme paiement en retard
-     *    - envoie une commande de rallumage
-     *    - écrit REACTIVATED_AFTER_FORGIVENESS /
-     *      REACTIVATION_REQUESTED_AFTER_FORGIVENESS /
-     *      REACTIVATION_FAILED_AFTER_FORGIVENESS
-     *
-     * 3. Lease NON_PAYE déjà coupé :
-     *    - pardon après coupure
-     *    - envoie une commande de rallumage
+     * Dans tous les cas :
+     * - on trace qui a pardonné ;
+     * - on trace quand ;
+     * - on trace la raison métier.
      */
     public function forgive(User $actor, int $leaseId, ?string $reason = null): array
     {
         $partnerId = $this->resolvePartnerId($actor);
+        $forgivenByName = $this->actorLabel($actor);
 
         Log::info('[LEASE_FORGIVENESS] Début pardon', [
             'actor_id' => $actor->id,
+            'actor_name' => $forgivenByName,
             'partner_id' => $partnerId,
             'lease_id' => $leaseId,
             'reason' => $reason,
@@ -122,10 +122,14 @@ class LeaseForgivenessService
             'queue_status' => $queue?->status,
             'history_id' => $history?->id,
             'history_status' => $history?->status,
+            'forgiven_by_user_id' => $actor->id,
+            'forgiven_by_name' => $forgivenByName,
         ]);
 
         if ($wasAlreadyCut) {
             return $this->forgiveAfterCut(
+                actor: $actor,
+                forgivenByName: $forgivenByName,
                 partnerId: $partnerId,
                 vehicle: $vehicle,
                 contractId: $contractId,
@@ -139,6 +143,8 @@ class LeaseForgivenessService
         }
 
         return $this->forgiveBeforeCut(
+            actor: $actor,
+            forgivenByName: $forgivenByName,
             partnerId: $partnerId,
             vehicle: $vehicle,
             contractId: $contractId,
@@ -152,6 +158,8 @@ class LeaseForgivenessService
     }
 
     private function forgiveBeforeCut(
+        User $actor,
+        string $forgivenByName,
         int $partnerId,
         Voiture $vehicle,
         int $contractId,
@@ -168,6 +176,8 @@ class LeaseForgivenessService
         );
 
         return DB::transaction(function () use (
+            $actor,
+            $forgivenByName,
             $partnerId,
             $vehicle,
             $contractId,
@@ -189,11 +199,32 @@ class LeaseForgivenessService
                     'queue_id' => $queue->id,
                     'lease_id' => $leaseId,
                     'vehicle_id' => $vehicle->id,
+                    'forgiven_by_user_id' => $actor->id,
+                    'forgiven_by_name' => $forgivenByName,
                 ]);
             }
 
+            $historyPayload = [
+                'status' => 'CANCELLED_FORGIVEN_BEFORE_CUT',
+                'reason' => $businessReason,
+
+                'forgiven_by_user_id' => $actor->id,
+                'forgiven_by_name' => $forgivenByName,
+                'forgiven_at' => now(),
+
+                'ignition_state' => $engineState,
+                'payment_status_snapshot' => $this->buildPaymentSnapshot(
+                    lease: $lease,
+                    customStatus: 'PARDONNE_AVANT_COUPURE',
+                    reason: $businessReason,
+                    actor: $actor,
+                    forgivenByName: $forgivenByName
+                ),
+                'notes' => 'Pardon préventif : aucune commande de coupure ni de rallumage nécessaire. Le planner ne doit plus replanifier ce lease.',
+            ];
+
             if (! $history) {
-                $history = LeaseCutoffHistory::create([
+                $history = LeaseCutoffHistory::create(array_merge($historyPayload, [
                     'partner_id' => $partnerId,
                     'vehicle_id' => $vehicle->id,
                     'contract_id' => $contractId,
@@ -201,28 +232,9 @@ class LeaseForgivenessService
                     'rule_id' => $queue?->rule_id,
                     'scheduled_for' => $queue?->scheduled_for ?? now(),
                     'detected_at' => now(),
-                    'status' => 'CANCELLED_FORGIVEN_BEFORE_CUT',
-                    'reason' => $businessReason,
-                    'ignition_state' => $engineState,
-                    'payment_status_snapshot' => $this->buildPaymentSnapshot(
-                        lease: $lease,
-                        customStatus: 'PARDONNE_AVANT_COUPURE',
-                        reason: $businessReason
-                    ),
-                    'notes' => 'Pardon préventif : aucune commande de coupure ni de rallumage nécessaire. Le planner ne doit plus replanifier ce lease.',
-                ]);
+                ]));
             } else {
-                $history->update([
-                    'status' => 'CANCELLED_FORGIVEN_BEFORE_CUT',
-                    'reason' => $businessReason,
-                    'ignition_state' => $engineState,
-                    'payment_status_snapshot' => $this->buildPaymentSnapshot(
-                        lease: $lease,
-                        customStatus: 'PARDONNE_AVANT_COUPURE',
-                        reason: $businessReason
-                    ),
-                    'notes' => 'Événement clôturé : pardon avant coupure. Le véhicule n’a pas été coupé pour une raison métier documentée.',
-                ]);
+                $history->update($historyPayload);
             }
 
             Log::info('[LEASE_FORGIVENESS] Pardon avant coupure enregistré', [
@@ -231,6 +243,9 @@ class LeaseForgivenessService
                 'vehicle_id' => $vehicle->id,
                 'status' => 'CANCELLED_FORGIVEN_BEFORE_CUT',
                 'reason' => $businessReason,
+                'forgiven_by_user_id' => $actor->id,
+                'forgiven_by_name' => $forgivenByName,
+                'forgiven_at' => now()->toDateTimeString(),
             ]);
 
             return [
@@ -239,11 +254,16 @@ class LeaseForgivenessService
                 'message' => 'Pardon préventif enregistré. Le véhicule ne sera pas coupé pour ce lease.',
                 'was_cut_before_forgiveness' => false,
                 'reason' => $businessReason,
+                'forgiven_by_user_id' => $actor->id,
+                'forgiven_by_name' => $forgivenByName,
+                'forgiven_at' => now()->toDateTimeString(),
             ];
         });
     }
 
     private function forgiveAfterCut(
+        User $actor,
+        string $forgivenByName,
         int $partnerId,
         Voiture $vehicle,
         int $contractId,
@@ -271,6 +291,8 @@ class LeaseForgivenessService
             'immatriculation' => $vehicle->immatriculation,
             'mac_id_gps' => $macId,
             'reason' => $businessReason,
+            'forgiven_by_user_id' => $actor->id,
+            'forgiven_by_name' => $forgivenByName,
         ]);
 
         $command = $this->dispatcher->dispatchRestoreByMacId($macId);
@@ -289,6 +311,8 @@ class LeaseForgivenessService
         };
 
         DB::transaction(function () use (
+            $actor,
+            $forgivenByName,
             $partnerId,
             $vehicle,
             $contractId,
@@ -314,11 +338,18 @@ class LeaseForgivenessService
             $historyPayload = [
                 'status' => $finalHistoryStatus,
                 'reason' => $businessReason,
+
+                'forgiven_by_user_id' => $actor->id,
+                'forgiven_by_name' => $forgivenByName,
+                'forgiven_at' => now(),
+
                 'ignition_state' => $engineState,
                 'payment_status_snapshot' => $this->buildPaymentSnapshot(
                     lease: $lease,
                     customStatus: 'PARDONNE_APRES_COUPURE',
-                    reason: $businessReason
+                    reason: $businessReason,
+                    actor: $actor,
+                    forgivenByName: $forgivenByName
                 ),
                 'command_response' => $command,
                 'notes' => $finalHistoryStatus === 'REACTIVATION_FAILED_AFTER_FORGIVENESS'
@@ -345,6 +376,9 @@ class LeaseForgivenessService
                 'lease_id' => $leaseId,
                 'vehicle_id' => $vehicle->id,
                 'history_status' => $finalHistoryStatus,
+                'forgiven_by_user_id' => $actor->id,
+                'forgiven_by_name' => $forgivenByName,
+                'forgiven_at' => now()->toDateTimeString(),
             ]);
         });
 
@@ -358,6 +392,9 @@ class LeaseForgivenessService
             },
             'was_cut_before_forgiveness' => true,
             'reason' => $businessReason,
+            'forgiven_by_user_id' => $actor->id,
+            'forgiven_by_name' => $forgivenByName,
+            'forgiven_at' => now()->toDateTimeString(),
             'command' => $command,
         ];
     }
@@ -421,8 +458,13 @@ class LeaseForgivenessService
         return null;
     }
 
-    private function buildPaymentSnapshot(array $lease, string $customStatus, ?string $reason = null): array
-    {
+    private function buildPaymentSnapshot(
+        array $lease,
+        string $customStatus,
+        ?string $reason = null,
+        ?User $actor = null,
+        ?string $forgivenByName = null
+    ): array {
         return [
             'lease_id' => $lease['id'] ?? null,
             'contrat_id' => $lease['contrat_id'] ?? $lease['contrat'] ?? null,
@@ -434,6 +476,9 @@ class LeaseForgivenessService
             'statut_personnalise' => $customStatus,
             'chauffeur_nom_complet' => $lease['chauffeur_nom_complet'] ?? null,
             'reason' => $reason,
+
+            'forgiven_by_user_id' => $actor?->id,
+            'forgiven_by_name' => $forgivenByName,
             'forgiven_at' => now()->toDateTimeString(),
         ];
     }
@@ -448,5 +493,20 @@ class LeaseForgivenessService
     private function resolvePartnerId(User $user): int
     {
         return (int) ($user->partner_id ?: $user->id);
+    }
+
+    private function actorLabel(User $actor): string
+    {
+        $name = trim((string) (
+            $actor->nom_complet
+            ?? $actor->full_name
+            ?? trim(($actor->prenom ?? '') . ' ' . ($actor->nom ?? ''))
+        ));
+
+        if ($name !== '') {
+            return $name;
+        }
+
+        return (string) ($actor->email ?? $actor->phone ?? 'Utilisateur connecté');
     }
 }

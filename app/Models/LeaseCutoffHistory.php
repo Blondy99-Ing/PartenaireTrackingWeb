@@ -60,6 +60,9 @@ class LeaseCutoffHistory extends Model
 
         // Notes complémentaires
         'notes',
+        'forgiven_by_user_id',
+        'forgiven_by_name',
+        'forgiven_at',
     ];
 
     protected $casts = [
