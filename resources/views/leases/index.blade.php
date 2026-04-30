@@ -291,7 +291,7 @@ input:checked + .fl-slider:before {
     position: absolute;
     top: calc(100% + 6px);
     left: 0;
-    min-width: 200px;
+    min-width: 220px;
     background: var(--color-card);
     border: 1px solid var(--color-border-subtle);
     border-radius: var(--r-lg);
@@ -464,7 +464,7 @@ input:checked + .fl-slider:before {
     min-height: 400px;
 }
 #leaseTable {
-    min-width: 1400px;
+    min-width: 1450px;
 }
 #leaseTable thead {
     position: sticky;
@@ -478,6 +478,7 @@ input:checked + .fl-slider:before {
 .dark-mode #leaseTable thead th {
     background: #161b22 !important;
 }
+
 .status-badge {
     display: inline-flex;
     align-items: center;
@@ -505,24 +506,57 @@ input:checked + .fl-slider:before {
     color: var(--color-warning);
     border: 1px solid rgba(217,119,6,.2);
 }
+
 .cut-badge {
     display: inline-flex;
     align-items: center;
     gap: .25rem;
-    padding: .2rem .48rem;
+    padding: .22rem .55rem;
     border-radius: var(--r-pill);
     font-family: var(--font-display);
     font-size: .58rem;
-    font-weight: 700;
+    font-weight: 800;
+    white-space: nowrap;
+    border: 1px solid transparent;
 }
-.cut-yes {
-    background: rgba(220,38,38,.1);
-    color: #dc2626;
+.cut-danger {
+    background: var(--color-error-bg);
+    color: var(--color-error);
+    border-color: rgba(220,38,38,.24);
 }
-.cut-no {
-    background: rgba(22,163,74,.1);
-    color: #16a34a;
+.cut-error {
+    background: var(--color-error-bg);
+    color: var(--color-error);
+    border-color: rgba(220,38,38,.24);
 }
+.cut-warning {
+    background: var(--color-warning-bg);
+    color: var(--color-warning);
+    border-color: rgba(217,119,6,.24);
+}
+.cut-info {
+    background: var(--color-info-bg);
+    color: var(--color-info);
+    border-color: rgba(37,99,235,.22);
+}
+.cut-success {
+    background: var(--color-success-bg);
+    color: var(--color-success);
+    border-color: rgba(22,163,74,.22);
+}
+.cut-muted {
+    background: rgba(107,114,128,.1);
+    color: #6b7280;
+    border-color: rgba(107,114,128,.18);
+}
+.cut-detail {
+    margin-top: .18rem;
+    font-size: .65rem;
+    color: var(--color-secondary-text);
+    line-height: 1.25;
+    max-width: 180px;
+}
+
 .method-badge {
     display: inline-flex;
     align-items: center;
@@ -989,7 +1023,7 @@ input:checked + .fl-slider:before {
 
         <div class="lkpi">
             <div class="lkpi-left">
-                <p class="lkpi-label">Auto-cut actif</p>
+                <p class="lkpi-label">Coupés</p>
                 <p class="lkpi-value danger" id="kCut">—</p>
             </div>
             <div class="lkpi-icon red"><i class="fas fa-power-off"></i></div>
@@ -997,7 +1031,7 @@ input:checked + .fl-slider:before {
 
         <div class="lkpi">
             <div class="lkpi-left">
-                <p class="lkpi-label">Auto-cut inactif</p>
+                <p class="lkpi-label">Sans coupure</p>
                 <p class="lkpi-value success" id="kNotCut">—</p>
             </div>
             <div class="lkpi-icon green"><i class="fas fa-bolt"></i></div>
@@ -1122,20 +1156,47 @@ input:checked + .fl-slider:before {
                 <i class="fas fa-chevron-down fchev"></i>
             </button>
             <div class="filter-dropdown-menu" id="drop-coupure">
-                <div class="fdrop-label">Filtrer par coupure</div>
+                <div class="fdrop-label">Historique de coupure</div>
+
                 <div class="fdrop-item selected" data-filter="coupure" data-val="all" onclick="window.setFilter('coupure','all',this)">
                     <span class="fdot" style="background:var(--color-border)"></span>
                     Toutes
                     <i class="fas fa-check fcheck"></i>
                 </div>
-                <div class="fdrop-item" data-filter="coupure" data-val="cut" onclick="window.setFilter('coupure','cut',this)">
+
+                <div class="fdrop-item" data-filter="coupure" data-val="cut_off" onclick="window.setFilter('coupure','cut_off',this)">
                     <span class="fdot" style="background:var(--color-error)"></span>
-                    Coupure auto active
+                    Coupées
                     <i class="fas fa-check fcheck"></i>
                 </div>
-                <div class="fdrop-item" data-filter="coupure" data-val="notcut" onclick="window.setFilter('coupure','notcut',this)">
+
+                <div class="fdrop-item" data-filter="coupure" data-val="waiting" onclick="window.setFilter('coupure','waiting',this)">
+                    <span class="fdot" style="background:var(--color-info)"></span>
+                    En attente / commande
+                    <i class="fas fa-check fcheck"></i>
+                </div>
+
+                <div class="fdrop-item" data-filter="coupure" data-val="failed" onclick="window.setFilter('coupure','failed',this)">
+                    <span class="fdot" style="background:var(--color-error)"></span>
+                    Échecs
+                    <i class="fas fa-check fcheck"></i>
+                </div>
+
+                <div class="fdrop-item" data-filter="coupure" data-val="cancelled" onclick="window.setFilter('coupure','cancelled',this)">
                     <span class="fdot" style="background:var(--color-success)"></span>
-                    Coupure auto inactive
+                    Annulées
+                    <i class="fas fa-check fcheck"></i>
+                </div>
+
+                <div class="fdrop-item" data-filter="coupure" data-val="forgiven" onclick="window.setFilter('coupure','forgiven',this)">
+                    <span class="fdot" style="background:var(--color-warning)"></span>
+                    Pardon / rallumage
+                    <i class="fas fa-check fcheck"></i>
+                </div>
+
+                <div class="fdrop-item" data-filter="coupure" data-val="none" onclick="window.setFilter('coupure','none',this)">
+                    <span class="fdot" style="background:#6b7280"></span>
+                    Aucune trace
                     <i class="fas fa-check fcheck"></i>
                 </div>
             </div>
@@ -1149,31 +1210,37 @@ input:checked + .fl-slider:before {
             </button>
             <div class="filter-dropdown-menu" id="drop-date" style="min-width:240px;">
                 <div class="fdrop-label">Période rapide</div>
+
                 <div class="fdrop-item selected" data-filter="date" data-val="all" onclick="window.setFilter('date','all',this)">
                     <i class="fas fa-infinity" style="font-size:.65rem;width:12px;"></i>
                     Toutes dates
                     <i class="fas fa-check fcheck"></i>
                 </div>
+
                 <div class="fdrop-item" data-filter="date" data-val="today" onclick="window.setFilter('date','today',this)">
                     <i class="fas fa-sun" style="font-size:.65rem;width:12px;"></i>
                     Aujourd'hui
                     <i class="fas fa-check fcheck"></i>
                 </div>
+
                 <div class="fdrop-item" data-filter="date" data-val="yesterday" onclick="window.setFilter('date','yesterday',this)">
                     <i class="fas fa-moon" style="font-size:.65rem;width:12px;"></i>
                     Hier
                     <i class="fas fa-check fcheck"></i>
                 </div>
+
                 <div class="fdrop-item" data-filter="date" data-val="week" onclick="window.setFilter('date','week',this)">
                     <i class="fas fa-calendar-week" style="font-size:.65rem;width:12px;"></i>
                     Cette semaine
                     <i class="fas fa-check fcheck"></i>
                 </div>
+
                 <div class="fdrop-item" data-filter="date" data-val="month" onclick="window.setFilter('date','month',this)">
                     <i class="fas fa-calendar" style="font-size:.65rem;width:12px;"></i>
                     Ce mois
                     <i class="fas fa-check fcheck"></i>
                 </div>
+
                 <div class="fdrop-item" data-filter="date" data-val="year" onclick="window.setFilter('date','year',this)">
                     <i class="fas fa-calendar-check" style="font-size:.65rem;width:12px;"></i>
                     Cette année
@@ -1336,8 +1403,11 @@ input:checked + .fl-slider:before {
         <div class="fl-modal-body" style="text-align:center;padding-top:1.25rem;">
             <div class="fl-confirm-icon warn"><i class="fas fa-hand-holding-heart"></i></div>
             <p class="fl-confirm-title">Accorder un pardon ?</p>
-            <p class="fl-confirm-msg">Vous allez marquer ce paiement comme pardonné. Le chauffeur ne sera pas débité pour cette journée.</p>
+            <p class="fl-confirm-msg">
+                Vous allez accorder un pardon métier. Si le véhicule est déjà coupé, le système tentera le rallumage.
+            </p>
             <div class="fl-confirm-detail" id="forgiveDetail">—</div>
+
             <div style="margin-top:.75rem;">
                 <label class="fl-form-label" style="text-align:left;display:block;">Pardonné par</label>
                 <input type="text"
@@ -1427,6 +1497,30 @@ input:checked + .fl-slider:before {
         'forgiven_after_cut',
         'forgiven_reactivation_pending',
         'forgiven_reactivation_failed',
+    ];
+
+    const CUT_WAITING_STATUSES = [
+        'PENDING',
+        'WAITING_STOP',
+        'COMMAND_SENT',
+        'REACTIVATION_REQUESTED_AFTER_FORGIVENESS',
+    ];
+
+    const CUT_FAILED_STATUSES = [
+        'FAILED',
+        'REACTIVATION_FAILED_AFTER_FORGIVENESS',
+    ];
+
+    const CUT_CANCELLED_STATUSES = [
+        'CANCELLED_PAID',
+        'CANCELLED_FORGIVEN_BEFORE_CUT',
+    ];
+
+    const CUT_FORGIVEN_STATUSES = [
+        'CANCELLED_FORGIVEN_BEFORE_CUT',
+        'REACTIVATION_REQUESTED_AFTER_FORGIVENESS',
+        'REACTIVATED_AFTER_FORGIVENESS',
+        'REACTIVATION_FAILED_AFTER_FORGIVENESS',
     ];
 
     const fmt = n => Number(n || 0).toLocaleString('fr-FR') + ' XAF';
@@ -1585,6 +1679,67 @@ input:checked + .fl-slider:before {
         }
     }
 
+    function normalizeCutoffStatus(row) {
+        return String(row.coupure_status || '').toUpperCase();
+    }
+
+    function cutoffBadge(row) {
+        const status = normalizeCutoffStatus(row);
+        const label = row.coupure_label || (row.coupure_auto ? 'Planifiée' : 'Aucune coupure');
+        const type = row.coupure_ui_type || (row.coupure_auto ? 'info' : 'muted');
+
+        const className = {
+            danger: 'cut-danger',
+            error: 'cut-error',
+            warning: 'cut-warning',
+            info: 'cut-info',
+            success: 'cut-success',
+            muted: 'cut-muted',
+        }[type] || 'cut-muted';
+
+        const icon = {
+            CUT_OFF: 'fa-power-off',
+            COMMAND_SENT: 'fa-paper-plane',
+            WAITING_STOP: 'fa-hourglass-half',
+            PENDING: 'fa-clock',
+            FAILED: 'fa-triangle-exclamation',
+            CANCELLED_PAID: 'fa-circle-check',
+            CANCELLED_FORGIVEN_BEFORE_CUT: 'fa-shield-heart',
+            REACTIVATION_REQUESTED_AFTER_FORGIVENESS: 'fa-rotate',
+            REACTIVATED_AFTER_FORGIVENESS: 'fa-bolt',
+            REACTIVATION_FAILED_AFTER_FORGIVENESS: 'fa-triangle-exclamation',
+        }[status] || (row.coupure_auto ? 'fa-clock' : 'fa-minus-circle');
+
+        const detail = row.coupure_executed_at
+            || row.coupure_detected_at
+            || row.coupure_scheduled_for
+            || row.heure_coupure
+            || '';
+
+        const reason = row.coupure_reason || row.forgiveness_reason || '';
+
+        return `
+            <div>
+                <span class="cut-badge ${className}" title="${esc(reason || label)}">
+                    <i class="fas ${icon}"></i>
+                    ${esc(label)}
+                </span>
+                ${detail ? `<div class="cut-detail">${esc(detail)}</div>` : ''}
+                ${reason ? `<div class="cut-detail" title="${esc(reason)}">${esc(reason).slice(0, 42)}${String(reason).length > 42 ? '…' : ''}</div>` : ''}
+            </div>
+        `;
+    }
+
+    function cutoffTimeCell(row) {
+        const value = row.coupure_executed_at
+            || row.coupure_detected_at
+            || row.coupure_scheduled_for
+            || row.heure_coupure
+            || '';
+
+        return value || '—';
+    }
+
     window.saveGlobalCutoff = async function () {
         const enabled = !!document.getElementById('masterAutoCutToggle')?.checked;
         const cutoffTime = document.getElementById('globalCutoffTime')?.value || '';
@@ -1657,10 +1812,36 @@ input:checked + .fl-slider:before {
             }
         }
 
-        if (activeFilters.coupure === 'cut') {
-            data = data.filter(r => !!r.coupure_auto);
-        } else if (activeFilters.coupure === 'notcut') {
-            data = data.filter(r => !r.coupure_auto);
+        if (activeFilters.coupure !== 'all') {
+            data = data.filter(r => {
+                const status = normalizeCutoffStatus(r);
+
+                if (activeFilters.coupure === 'cut_off') {
+                    return status === 'CUT_OFF' || r.coupe === true;
+                }
+
+                if (activeFilters.coupure === 'waiting') {
+                    return CUT_WAITING_STATUSES.includes(status);
+                }
+
+                if (activeFilters.coupure === 'failed') {
+                    return CUT_FAILED_STATUSES.includes(status);
+                }
+
+                if (activeFilters.coupure === 'cancelled') {
+                    return CUT_CANCELLED_STATUSES.includes(status);
+                }
+
+                if (activeFilters.coupure === 'forgiven') {
+                    return CUT_FORGIVEN_STATUSES.includes(status);
+                }
+
+                if (activeFilters.coupure === 'none') {
+                    return !status;
+                }
+
+                return true;
+            });
         }
 
         const df = activeFilters.date;
@@ -1703,7 +1884,11 @@ input:checked + .fl-slider:before {
                 (r.agence || '').toLowerCase().includes(q) ||
                 (r.partenaire || '').toLowerCase().includes(q) ||
                 (r.phone || '').includes(q) ||
-                (r.paye_par || '').toLowerCase().includes(q)
+                (r.paye_par || '').toLowerCase().includes(q) ||
+                (r.pardonne_par || '').toLowerCase().includes(q) ||
+                (r.coupure_label || '').toLowerCase().includes(q) ||
+                (r.coupure_status || '').toLowerCase().includes(q) ||
+                (r.coupure_reason || '').toLowerCase().includes(q)
             );
         }
 
@@ -1820,14 +2005,6 @@ input:checked + .fl-slider:before {
             const isUnpaid = r.statut === 'unpaid';
             const isForgiven = FORGIVEN_STATUSES.includes(r.statut);
 
-            const cutBadge = isUnpaid
-                ? (
-                    r.coupure_auto
-                        ? `<span class="cut-badge cut-yes"><i class="fas fa-toggle-on"></i> Auto active</span>`
-                        : `<span class="cut-badge cut-no"><i class="fas fa-toggle-off"></i> Auto inactive</span>`
-                )
-                : `<span style="color:var(--color-secondary-text);font-size:.7rem;">—</span>`;
-
             const methodBadge = r.methode
                 ? `<span class="method-badge">${esc(r.methode)}</span>`
                 : `<span style="color:var(--color-secondary-text);font-size:.7rem;">—</span>`;
@@ -1850,6 +2027,9 @@ input:checked + .fl-slider:before {
                 : `<button class="tbl-action cut" disabled title="N/A"><i class="fas fa-power-off"></i></button>`;
 
             const amountPaidClass = isPaid ? 'paid-ok' : (isUnpaid ? 'paid-no' : '');
+            const forgivenDisplay = r.pardonne_par
+                ? `<div style="font-weight:700;">${esc(r.pardonne_par)}</div>${r.pardonne_le ? `<div style="font-size:.65rem;opacity:.75;">${esc(r.pardonne_le)}</div>` : ''}`
+                : '—';
 
             return `
                 <tr data-id="${esc(r.id)}">
@@ -1882,14 +2062,14 @@ input:checked + .fl-slider:before {
                     <td>${methodBadge}</td>
 
                     <td style="font-size:.75rem;color:var(--color-secondary-text);">
-                        ${esc(r.pardonne_par) || '—'}
+                        ${forgivenDisplay}
                     </td>
 
                     <td>${statusMap[r.statut] || '—'}</td>
 
-                    <td>${cutBadge}</td>
+                    <td>${cutoffBadge(r)}</td>
 
-                    <td><span class="time-cell">${esc(r.heure_coupure) || '—'}</span></td>
+                    <td><span class="time-cell">${esc(cutoffTimeCell(r))}</span></td>
 
                     <td><span class="time-cell">${esc(r.heure_enreg) || '—'}</span></td>
 
@@ -1911,8 +2091,9 @@ input:checked + .fl-slider:before {
         const paid = data.filter(r => r.statut === 'paid');
         const unpaid = data.filter(r => r.statut === 'unpaid');
         const forgiven = data.filter(r => FORGIVEN_STATUSES.includes(r.statut));
-        const cut = data.filter(r => !!r.coupure_auto && r.statut === 'unpaid');
-        const notCut = data.filter(r => !r.coupure_auto && r.statut === 'unpaid');
+
+        const cut = data.filter(r => normalizeCutoffStatus(r) === 'CUT_OFF' || r.coupe === true);
+        const notCut = data.filter(r => !normalizeCutoffStatus(r));
 
         const collected = paid.reduce((s, r) => s + Number(r.montant_paye || 0), 0);
         const expected = data.reduce((s, r) => s + Number(r.montant_requis || 0), 0);
@@ -2054,19 +2235,16 @@ input:checked + .fl-slider:before {
                 week: 'Cette semaine',
                 month: 'Ce mois',
                 year: 'Cette année',
-                specific: 'Date…',
-                range: 'Plage…',
+                specific: 'Date spécifique',
+                range: 'Plage de dates',
             };
 
-            const dlEl = document.getElementById('date-label');
+            const label = document.getElementById('date-label');
 
-            if (dlEl) {
-                dlEl.textContent = labelMap[val] || 'Période';
+            if (label) {
+                label.textContent = labelMap[val] || 'Période';
             }
         }
-
-        const btn = document.getElementById('btn-' + name);
-        btn?.classList.toggle('active', val !== 'all');
 
         applyFilters();
     };
@@ -2074,6 +2252,122 @@ input:checked + .fl-slider:before {
     window.applyDateFilter = function () {
         applyFilters();
     };
+
+    function renderActiveFiltersStrip() {
+        const strip = document.getElementById('activeFiltersStrip');
+
+        if (!strip) {
+            return;
+        }
+
+        const chips = [];
+
+        if (activeFilters.statut !== 'all') {
+            const labels = {
+                paid: 'Payés',
+                unpaid: 'Impayés',
+                forgiven: 'Pardonnés',
+            };
+
+            chips.push({
+                key: 'statut',
+                label: `Statut : ${labels[activeFilters.statut] || activeFilters.statut}`,
+            });
+        }
+
+        if (activeFilters.coupure !== 'all') {
+            const labels = {
+                cut_off: 'Coupées',
+                waiting: 'Attente / commande',
+                failed: 'Échecs',
+                cancelled: 'Annulées',
+                forgiven: 'Pardon / rallumage',
+                none: 'Aucune trace',
+            };
+
+            chips.push({
+                key: 'coupure',
+                label: `Coupure : ${labels[activeFilters.coupure] || activeFilters.coupure}`,
+            });
+        }
+
+        if (activeFilters.date !== 'all') {
+            const labels = {
+                today: "Aujourd'hui",
+                yesterday: 'Hier',
+                week: 'Cette semaine',
+                month: 'Ce mois',
+                year: 'Cette année',
+                specific: 'Date spécifique',
+                range: 'Plage de dates',
+            };
+
+            chips.push({
+                key: 'date',
+                label: `Date : ${labels[activeFilters.date] || activeFilters.date}`,
+            });
+        }
+
+        if (searchQuery.trim()) {
+            chips.push({
+                key: 'search',
+                label: `Recherche : ${searchQuery}`,
+            });
+        }
+
+        strip.innerHTML = chips.map(chip => `
+            <span class="active-filter-chip">
+                ${esc(chip.label)}
+                <button type="button" onclick="window.clearFilter('${chip.key}')">×</button>
+            </span>
+        `).join('');
+    }
+
+    window.clearFilter = function (key) {
+        if (key === 'search') {
+            searchQuery = '';
+            const input = document.getElementById('leaseSearch');
+
+            if (input) {
+                input.value = '';
+            }
+        } else if (activeFilters[key] !== undefined) {
+            activeFilters[key] = 'all';
+
+            const menu = document.getElementById('drop-' + key);
+            menu?.querySelectorAll('.fdrop-item').forEach(item => {
+                item.classList.toggle('selected', item.dataset.val === 'all');
+            });
+
+            if (key === 'date') {
+                const label = document.getElementById('date-label');
+                if (label) label.textContent = 'Période';
+
+                const specInput = document.getElementById('date-specific-input');
+                const rangeInput = document.getElementById('date-range-inputs');
+                if (specInput) specInput.style.display = 'none';
+                if (rangeInput) rangeInput.style.display = 'none';
+            }
+        }
+
+        applyFilters();
+    };
+
+    function updateResetBtn() {
+        const btn = document.getElementById('btnResetFilters');
+
+        if (!btn) {
+            return;
+        }
+
+        const hasFilters =
+            activeFilters.statut !== 'all' ||
+            activeFilters.coupure !== 'all' ||
+            activeFilters.date !== 'all' ||
+            searchQuery.trim() !== '';
+
+        btn.style.display = hasFilters ? 'inline-flex' : 'none';
+    }
 
     window.resetAllFilters = function () {
         activeFilters = {
@@ -2085,169 +2379,54 @@ input:checked + .fl-slider:before {
         searchQuery = '';
 
         const searchInput = document.getElementById('leaseSearch');
+        if (searchInput) searchInput.value = '';
 
-        if (searchInput) {
-            searchInput.value = '';
-        }
-
-        ['statut', 'coupure', 'date'].forEach(name => {
-            const menu = document.getElementById('drop-' + name);
-
-            menu?.querySelectorAll('.fdrop-item').forEach(item => {
+        document.querySelectorAll('.filter-dropdown-menu').forEach(menu => {
+            menu.querySelectorAll('.fdrop-item').forEach(item => {
                 item.classList.toggle('selected', item.dataset.val === 'all');
             });
-
-            document.getElementById('btn-' + name)?.classList.remove('active');
         });
 
-        const dlEl = document.getElementById('date-label');
+        const label = document.getElementById('date-label');
+        if (label) label.textContent = 'Période';
 
-        if (dlEl) {
-            dlEl.textContent = 'Période';
-        }
-
-        const spec = document.getElementById('date-specific-input');
-        const range = document.getElementById('date-range-inputs');
-
-        if (spec) {
-            spec.style.display = 'none';
-        }
-
-        if (range) {
-            range.style.display = 'none';
-        }
-
-        const specific = document.getElementById('filterDateSpecific');
-        const from = document.getElementById('filterDateFrom');
-        const to = document.getElementById('filterDateTo');
-
-        if (specific) specific.value = '';
-        if (from) from.value = '';
-        if (to) to.value = '';
+        const specInput = document.getElementById('date-specific-input');
+        const rangeInput = document.getElementById('date-range-inputs');
+        if (specInput) specInput.style.display = 'none';
+        if (rangeInput) rangeInput.style.display = 'none';
 
         applyFilters();
     };
-
-    function updateResetBtn() {
-        const hasActive = Object.values(activeFilters).some(v => v !== 'all') || searchQuery.trim() !== '';
-        const btn = document.getElementById('btnResetFilters');
-
-        if (btn) {
-            btn.style.display = hasActive ? 'inline-flex' : 'none';
-        }
-    }
-
-    function renderActiveFiltersStrip() {
-        const strip = document.getElementById('activeFiltersStrip');
-
-        if (!strip) {
-            return;
-        }
-
-        const chips = [];
-
-        const labelMap = {
-            statut: {
-                paid: 'Payés',
-                unpaid: 'Impayés',
-                forgiven: 'Pardonnés',
-            },
-            coupure: {
-                cut: 'Coupure auto active',
-                notcut: 'Coupure auto inactive',
-            },
-            date: {
-                today: "Aujourd'hui",
-                yesterday: 'Hier',
-                week: 'Cette semaine',
-                month: 'Ce mois',
-                year: 'Cette année',
-                specific: 'Date spécifique',
-                range: 'Plage de dates',
-            },
-        };
-
-        ['statut', 'coupure', 'date'].forEach(name => {
-            const v = activeFilters[name];
-
-            if (v && v !== 'all') {
-                const label = labelMap[name]?.[v] || v;
-
-                chips.push(`
-                    <div class="active-filter-chip">
-                        ${esc(label)}
-                        <button onclick="window.setFilter('${name}','all',null)" title="Retirer ce filtre">&times;</button>
-                    </div>
-                `);
-            }
-        });
-
-        if (searchQuery.trim()) {
-            chips.push(`
-                <div class="active-filter-chip">
-                    Rech : "${esc(searchQuery)}"
-                    <button onclick="window.clearSearch()" title="Effacer la recherche">&times;</button>
-                </div>
-            `);
-        }
-
-        strip.innerHTML = chips.join('');
-    }
-
-    window.clearSearch = function () {
-        searchQuery = '';
-
-        const searchInput = document.getElementById('leaseSearch');
-
-        if (searchInput) {
-            searchInput.value = '';
-        }
-
-        applyFilters();
-    };
-
-    document.getElementById('leaseSearch')?.addEventListener('input', function () {
-        searchQuery = this.value;
-        applyFilters();
-    });
 
     window.openModal = function (id) {
         const overlay = document.getElementById(id);
         const panel = overlay?.querySelector('.fl-modal-panel');
 
-        if (!overlay) {
+        if (!overlay || !panel) {
             return;
         }
 
         overlay.classList.add('open');
-        document.body.style.overflow = 'hidden';
 
-        requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-                panel?.classList.add('visible');
-            });
-        });
+        setTimeout(() => {
+            panel.classList.add('visible');
+        }, 20);
     };
 
     window.closeModal = function (id) {
         const overlay = document.getElementById(id);
         const panel = overlay?.querySelector('.fl-modal-panel');
 
-        panel?.classList.remove('visible');
-        document.body.style.overflow = '';
+        if (!overlay || !panel) {
+            return;
+        }
+
+        panel.classList.remove('visible');
 
         setTimeout(() => {
-            overlay?.classList.remove('open');
-        }, 220);
+            overlay.classList.remove('open');
+        }, 180);
     };
-
-    ['modalPayment', 'modalForgive', 'modalCut'].forEach(id => {
-        document.getElementById(id)?.addEventListener('click', function (e) {
-            if (e.target === this) {
-                window.closeModal(id);
-            }
-        });
-    });
 
     window.openPayModal = function (rowId) {
         const row = RAW_DATA.find(r => Number(r.id) === Number(rowId));
@@ -2259,35 +2438,20 @@ input:checked + .fl-slider:before {
         pendingRowId = rowId;
 
         const sub = document.getElementById('payModalSub');
-
-        if (sub) {
-            sub.textContent = `${row.vehicule || '—'} — ${row.chauffeur || '—'} — ${row.date || '—'}`;
-        }
-
-        const set = (id, value) => {
-            const el = document.getElementById(id);
-
-            if (el) {
-                el.textContent = value || '—';
-            }
-        };
-
-        set('pms-vehicule', row.vehicule);
-        set('pms-chauffeur', row.chauffeur);
-        set('pms-date', row.date);
-        set('pms-requis', fmt(row.montant_requis || row.reste_a_payer || 0));
-
-        const amountInput = document.getElementById('payAmount');
-
-        if (amountInput) {
-            amountInput.value = row.reste_a_payer || row.montant_requis || '';
-        }
-
+        const vehicule = document.getElementById('pms-vehicule');
+        const chauffeur = document.getElementById('pms-chauffeur');
+        const date = document.getElementById('pms-date');
+        const requis = document.getElementById('pms-requis');
+        const amount = document.getElementById('payAmount');
         const recordedBy = document.getElementById('paymentRecordedBy');
 
-        if (recordedBy) {
-            recordedBy.value = CONNECTED_USER_NAME;
-        }
+        if (sub) sub.textContent = `${row.vehicule} — ${row.chauffeur}`;
+        if (vehicule) vehicule.textContent = row.vehicule || '—';
+        if (chauffeur) chauffeur.textContent = row.chauffeur || '—';
+        if (date) date.textContent = row.date || '—';
+        if (requis) requis.textContent = fmt(row.montant_requis || 0);
+        if (amount) amount.value = row.reste_a_payer || row.montant_requis || '';
+        if (recordedBy) recordedBy.value = CONNECTED_USER_NAME;
 
         window.openModal('modalPayment');
     };
@@ -2313,7 +2477,7 @@ input:checked + .fl-slider:before {
         try {
             if (btn) {
                 btn.disabled = true;
-                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enregistrement...';
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enregistrement.';
             }
 
             const response = await fetch(CASH_PAYMENT_URL, {
@@ -2388,53 +2552,52 @@ input:checked + .fl-slider:before {
         window.openModal('modalForgive');
     };
 
-  window.confirmForgive = async function () {
-    const row = RAW_DATA.find(r => Number(r.id) === Number(pendingRowId));
+    window.confirmForgive = async function () {
+        const row = RAW_DATA.find(r => Number(r.id) === Number(pendingRowId));
 
-    if (!row) {
-        alert('Ligne de paiement introuvable.');
-        return;
-    }
-
-    const leaseId = row.source_lease_id || row.id;
-    const url = FORGIVE_URL_TEMPLATE.replace('__LEASE_ID__', String(leaseId));
-
-    const reason = document.getElementById('forgiveReason')?.value || '';
-
-    try {
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'X-CSRF-TOKEN': getCsrfToken(),
-            },
-            body: JSON.stringify({
-                reason: reason,
-            }),
-        });
-
-        const payload = await response.json();
-
-        if (!response.ok || !payload.ok) {
-            throw new Error(payload.message || "Impossible d'enregistrer le pardon.");
+        if (!row) {
+            alert('Ligne de paiement introuvable.');
+            return;
         }
 
-        window.closeModal('modalForgive');
+        const leaseId = row.source_lease_id || row.id;
+        const url = FORGIVE_URL_TEMPLATE.replace('__LEASE_ID__', String(leaseId));
+        const reason = document.getElementById('forgiveReason')?.value || '';
 
-        if (window.showToast) {
-            window.showToast(
-                'Pardon enregistré',
-                payload.message || 'Pardon traité.',
-                'success'
-            );
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': getCsrfToken(),
+                },
+                body: JSON.stringify({
+                    reason: reason,
+                }),
+            });
+
+            const payload = await response.json();
+
+            if (!response.ok || !payload.ok) {
+                throw new Error(payload.message || "Impossible d'enregistrer le pardon.");
+            }
+
+            window.closeModal('modalForgive');
+
+            if (window.showToast) {
+                window.showToast(
+                    'Pardon enregistré',
+                    payload.message || 'Pardon traité.',
+                    'success'
+                );
+            }
+
+            window.location.reload();
+        } catch (e) {
+            alert(e.message || 'Erreur pendant le pardon.');
         }
-
-        window.location.reload();
-    } catch (e) {
-        alert(e.message || 'Erreur pendant le pardon.');
-    }
-};
+    };
 
     window.openCutModal = function (rowId) {
         const row = RAW_DATA.find(r => Number(r.id) === Number(rowId));
@@ -2448,49 +2611,39 @@ input:checked + .fl-slider:before {
         const detail = document.getElementById('cutDetail');
 
         if (detail) {
-            detail.textContent = `${row.vehicule} — ${row.chauffeur}`;
+            detail.textContent = `${row.vehicule} — ${row.chauffeur} — ${row.date}`;
         }
 
         window.openModal('modalCut');
     };
 
     window.confirmCut = function () {
-        const row = RAW_DATA.find(r => Number(r.id) === Number(pendingRowId));
-
-        if (row) {
-            row.coupe = true;
-        }
-
+        alert('La coupure manuelle directe n’est pas encore reliée à une route dans cette vue. Utilise la coupure automatique planifiée.');
         window.closeModal('modalCut');
-
-        if (window.showToast) {
-            window.showToast(
-                'Coupure confirmée',
-                `Moteur coupé : ${row?.vehicule || ''}`,
-                'error'
-            );
-        }
-
-        applyFilters();
     };
 
-    document.addEventListener('DOMContentLoaded', function () {
-        const perPageSelect = document.getElementById('perPage');
+    const searchInput = document.getElementById('leaseSearch');
 
-        if (perPageSelect) {
-            perPage = parseInt(perPageSelect.value || '25', 10);
-        }
+    if (searchInput) {
+        searchInput.addEventListener('input', function () {
+            searchQuery = this.value || '';
+            applyFilters();
+        });
+    }
 
-        renderTable();
-        renderKPIs();
-        renderPagination();
-        renderActiveFiltersStrip();
-        renderUpcomingPreview();
-        updateResetBtn();
-        runHubCountdown();
-
-        setInterval(runHubCountdown, 1000);
+    document.querySelectorAll('.fl-modal-overlay').forEach(overlay => {
+        overlay.addEventListener('click', function (event) {
+            if (event.target === overlay) {
+                window.closeModal(overlay.id);
+            }
+        });
     });
+
+    renderUpcomingPreview();
+    runHubCountdown();
+    setInterval(runHubCountdown, 1000);
+
+    applyFilters();
 })();
 </script>
 @endpush

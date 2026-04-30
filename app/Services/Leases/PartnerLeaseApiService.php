@@ -277,18 +277,33 @@ class PartnerLeaseApiService
             $payments = [];
         }
 
-        $paymentMetaByLeaseId = $this->getPaymentMetaByLeaseId($payments);
+       $paymentMetaByLeaseId = $this->getPaymentMetaByLeaseId($payments);
         $contractsById = collect($contracts)->keyBy('source_contrat_id');
+
+        /**
+         * Configuration de coupure par véhicule :
+         * règle activée + heure prévue.
+         */
         $cutoffMetaByImmat = $this->getPartnerCutoffMetaByImmat();
+
+        /**
+         * Historique de pardon.
+         */
         $forgivenessMetaByLeaseId = $this->getForgivenessMetaByLeaseId();
+
+        /**
+         * Historique réel de coupure par lease.
+         */
+        $cutoffStatusMetaByLeaseId = $this->getCutoffStatusMetaByLeaseId();
 
         $leases = collect($rows)
             ->filter(fn ($row) => is_array($row))
-            ->map(function (array $row) use (
+           ->map(function (array $row) use (
                 $contractsById,
                 $cutoffMetaByImmat,
                 $forgivenessMetaByLeaseId,
-                $paymentMetaByLeaseId
+                $paymentMetaByLeaseId,
+                $cutoffStatusMetaByLeaseId
             ) {
                 $contractId = (int) (
                     $row['contrat_id']
@@ -326,12 +341,17 @@ class PartnerLeaseApiService
                     ? ($paymentMetaByLeaseId[$leaseId] ?? null)
                     : null;
 
-                return $this->normalizeLease(
+                $cutoffStatusMeta = $leaseId > 0
+                    ? ($cutoffStatusMetaByLeaseId[$leaseId] ?? null)
+                    : null;
+
+               return $this->normalizeLease(
                     row: $row,
                     contract: $contract,
                     cutoffMeta: $cutoffMeta,
                     forgivenessMeta: $forgivenessMeta,
-                    paymentMeta: $paymentMeta
+                    paymentMeta: $paymentMeta,
+                    cutoffStatusMeta: $cutoffStatusMeta
                 );
             })
             ->values()
@@ -682,6 +702,167 @@ protected function getForgivenessMetaByLeaseId(): array
 
     return $rows;
 }
+
+
+/**
+ * Récupère le dernier statut réel de coupure par lease.
+ *
+ * Cette donnée sert à afficher dans la colonne "Coupure" :
+ * - si le véhicule a été coupé ;
+ * - si la commande a été envoyée ;
+ * - si la coupure a échoué ;
+ * - si la coupure attend l’arrêt du véhicule ;
+ * - si elle a été annulée par paiement ;
+ * - si elle a été annulée par pardon ;
+ * - si un rallumage a été demandé ou effectué après pardon.
+ *
+ * Source locale :
+ * lease_cutoff_histories
+ */
+protected function getCutoffStatusMetaByLeaseId(): array
+{
+    $partnerId = $this->resolvePartnerId();
+
+    $terminalAndProgressStatuses = [
+        'PENDING',
+        'WAITING_STOP',
+        'COMMAND_SENT',
+        'CUT_OFF',
+        'CANCELLED_PAID',
+        'FAILED',
+
+        'CANCELLED_FORGIVEN_BEFORE_CUT',
+        'REACTIVATION_REQUESTED_AFTER_FORGIVENESS',
+        'REACTIVATED_AFTER_FORGIVENESS',
+        'REACTIVATION_FAILED_AFTER_FORGIVENESS',
+    ];
+
+    $rows = LeaseCutoffHistory::query()
+        ->where('partner_id', $partnerId)
+        ->whereNotNull('lease_id')
+        ->whereIn('status', $terminalAndProgressStatuses)
+        ->orderByDesc('id')
+        ->get([
+            'id',
+            'lease_id',
+            'vehicle_id',
+            'contract_id',
+            'status',
+            'reason',
+            'scheduled_for',
+            'detected_at',
+            'cutoff_executed_at',
+            'forgiven_by_user_id',
+            'forgiven_by_name',
+            'forgiven_at',
+            'updated_at',
+            'created_at',
+        ])
+        ->unique('lease_id')
+        ->mapWithKeys(function (LeaseCutoffHistory $row) {
+            $status = (string) $row->status;
+
+            return [
+                (int) $row->lease_id => [
+                    'history_id' => $row->id,
+                    'lease_id' => (int) $row->lease_id,
+                    'vehicle_id' => $row->vehicle_id,
+                    'contract_id' => $row->contract_id,
+
+                    'status' => $status,
+                    'label' => $this->cutoffStatusLabel($status),
+                    'ui_type' => $this->cutoffStatusUiType($status),
+
+                    'reason' => $row->reason,
+
+                    'scheduled_for' => $row->scheduled_for
+                        ? Carbon::parse($row->scheduled_for)->toDateTimeString()
+                        : null,
+
+                    'detected_at' => $row->detected_at
+                        ? Carbon::parse($row->detected_at)->toDateTimeString()
+                        : null,
+
+                    'cutoff_executed_at' => $row->cutoff_executed_at
+                        ? Carbon::parse($row->cutoff_executed_at)->toDateTimeString()
+                        : null,
+
+                    'forgiven_by_user_id' => $row->forgiven_by_user_id,
+                    'forgiven_by_name' => $row->forgiven_by_name,
+
+                    'forgiven_at' => $row->forgiven_at
+                        ? Carbon::parse($row->forgiven_at)->toDateTimeString()
+                        : null,
+
+                    'updated_at' => $row->updated_at?->toDateTimeString(),
+                    'created_at' => $row->created_at?->toDateTimeString(),
+                ],
+            ];
+        })
+        ->all();
+
+    Log::debug('[LEASE_CUTOFF_STATUS_META_BY_LEASE_ID]', [
+        'partner_id' => $partnerId,
+        'count' => count($rows),
+        'lease_ids' => array_slice(array_keys($rows), 0, 20),
+    ]);
+
+    return $rows;
+}
+
+
+
+/**
+ * Label humain pour la colonne Coupure.
+ */
+protected function cutoffStatusLabel(?string $status): string
+{
+    $status = strtoupper((string) $status);
+
+    return match ($status) {
+        'PENDING' => 'Planifiée',
+        'WAITING_STOP' => 'En attente arrêt',
+        'COMMAND_SENT' => 'Commande envoyée',
+        'CUT_OFF' => 'Coupé',
+        'CANCELLED_PAID' => 'Annulé paiement',
+        'FAILED' => 'Échec coupure',
+
+        'CANCELLED_FORGIVEN_BEFORE_CUT' => 'Pardon avant coupure',
+        'REACTIVATION_REQUESTED_AFTER_FORGIVENESS' => 'Rallumage demandé',
+        'REACTIVATED_AFTER_FORGIVENESS' => 'Rallumé après pardon',
+        'REACTIVATION_FAILED_AFTER_FORGIVENESS' => 'Échec rallumage',
+
+        default => 'Aucune coupure',
+    };
+}
+
+/**
+ * Type UI pour colorer le badge côté Blade/JS.
+ */
+protected function cutoffStatusUiType(?string $status): string
+{
+    $status = strtoupper((string) $status);
+
+    return match ($status) {
+        'CUT_OFF' => 'danger',
+        'FAILED',
+        'REACTIVATION_FAILED_AFTER_FORGIVENESS' => 'error',
+
+        'COMMAND_SENT',
+        'REACTIVATION_REQUESTED_AFTER_FORGIVENESS' => 'warning',
+
+        'WAITING_STOP',
+        'PENDING' => 'info',
+
+        'CANCELLED_PAID',
+        'CANCELLED_FORGIVEN_BEFORE_CUT',
+        'REACTIVATED_AFTER_FORGIVENESS' => 'success',
+
+        default => 'muted',
+    };
+}
+
+
 
     /**
      * Résout le partenaire courant.
@@ -1078,13 +1259,14 @@ protected function getForgivenessMetaByLeaseId(): array
     /**
      * Normalise un lease API vers la structure attendue par la page paiements.
      */
-    protected function normalizeLease(
-        array $row,
-        ?array $contract = null,
-        ?array $cutoffMeta = null,
-        ?array $forgivenessMeta = null,
-        ?array $paymentMeta = null
-    ): array {
+        protected function normalizeLease(
+            array $row,
+            ?array $contract = null,
+            ?array $cutoffMeta = null,
+            ?array $forgivenessMeta = null,
+            ?array $paymentMeta = null,
+            ?array $cutoffStatusMeta = null
+        ): array {
         $statusApi = strtoupper((string) (
             $row['statut']
             ?? $row['status']
@@ -1278,11 +1460,37 @@ protected function getForgivenessMetaByLeaseId(): array
 
             'statut' => $status,
 
+                        /**
+             * Coupure automatique :
+             * - coupure_auto / heure_coupure = configuration de la règle locale ;
+             * - coupure_status_* = résultat réel issu de lease_cutoff_histories.
+             */
             'coupure_auto' => $coupureAuto,
             'heure_coupure' => $heureCoupure,
-            'coupe' => false,
+
+            'coupure_status' => $cutoffStatusMeta['status'] ?? null,
+            'coupure_label' => $cutoffStatusMeta['label'] ?? (
+                $coupureAuto
+                    ? 'Planifiée'
+                    : 'Aucune coupure'
+            ),
+            'coupure_ui_type' => $cutoffStatusMeta['ui_type'] ?? (
+                $coupureAuto
+                    ? 'info'
+                    : 'muted'
+            ),
+            'coupure_reason' => $cutoffStatusMeta['reason'] ?? null,
+            'coupure_history_id' => $cutoffStatusMeta['history_id'] ?? null,
+            'coupure_scheduled_for' => $cutoffStatusMeta['scheduled_for'] ?? null,
+            'coupure_detected_at' => $cutoffStatusMeta['detected_at'] ?? null,
+            'coupure_executed_at' => $cutoffStatusMeta['cutoff_executed_at'] ?? null,
 
             /**
+             * Compatibilité ancienne vue :
+             * coupe = true uniquement si historique CUT_OFF.
+             */
+            'coupe' => ($cutoffStatusMeta['status'] ?? null) === 'CUT_OFF',
+                        /**
              * H. enreg. :
              * si paiement trouvé, on utilise date_paiement ;
              * sinon created_at du lease.
