@@ -5,6 +5,7 @@ namespace App\Services\Partner;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\Keycloak\KeycloakAdminService;
+use App\Services\Keycloak\KeycloakUserProvisioningService;
 use App\Services\Recouvrement\RecouvrementDriverApiService;
 use App\Support\Phone;
 use Illuminate\Database\QueryException;
@@ -49,6 +50,7 @@ class PartnerDriverService
 
     public function __construct(
         private KeycloakAdminService $keycloakAdminService,
+        private KeycloakUserProvisioningService $keycloakUserProvisioningService,
         private RecouvrementDriverApiService $recouvrementDriverApiService
     ) {}
 
@@ -99,41 +101,26 @@ class PartnerDriverService
             );
 
             /**
-             * 2. Création ou récupération du user Keycloak.
-             * Username Keycloak = téléphone E.164.
+             * 2. Création ou récupération du user Keycloak via le service central.
+             *
+             * Règle métier :
+             * - le chauffeur local vient d'être créé avec users.partner_id = $partner->id ;
+             * - donc Keycloak reçoit compte_id = $driver->partner_id ;
+             * - donc compte_id = id du partenaire connecté.
              */
-            $keycloakResult = $this->keycloakAdminService->createOrFindUserWithPassword(
-                $driver,
-                $data['password'],
-                false
+            $keycloakResult = $this->keycloakUserProvisioningService->provisionDriverCreatedByPartner(
+                user: $driver,
+                plainPassword: $data['password']
             );
 
-            if (empty($keycloakResult['id'])) {
+            if (empty($keycloakResult['keycloak_user_id'])) {
                 throw new RuntimeException('Keycloak a répondu sans keycloak_id.');
             }
 
-            $createdKeycloakUserId = $keycloakResult['id'];
+            $createdKeycloakUserId = $keycloakResult['keycloak_user_id'];
             $createdKeycloakUserWasNew = (bool) ($keycloakResult['created'] ?? false);
 
-            $driver->forceFill([
-                'keycloak_id' => $keycloakResult['id'],
-                'keycloak_username' => $keycloakResult['username'] ?? $data['phone'],
-                'keycloak_sync_status' => 'SYNCED',
-                'last_synced_at' => now(),
-                'sync_error' => null,
-            ])->save();
-
-            /**
-             * 3. Attribution du rôle côté client tracking_app.
-             *
-             * Local Tracking DB      : utilisateur_secondaire
-             * Keycloak tracking_app  : utilisateur_secondaire
-             */
-            $this->keycloakAdminService->assignClientRoleToUser(
-                keycloakUserId: $driver->keycloak_id,
-                clientId: config('services.keycloak.tracking_client_id', 'tracking_app'),
-                roleName: self::TRACKING_KEYCLOAK_ROLE
-            );
+            $driver->refresh();
 
             /**
              * 4. Si partenaire LEASE_PARTNER :
@@ -229,7 +216,9 @@ class PartnerDriverService
         $this->assertPhoneAvailable($data['phone'], $driver->id);
         $this->assertEmailAvailable($data['email'] ?? null, $driver->id);
 
-        return DB::transaction(function () use ($driver, $data) {
+        DB::beginTransaction();
+
+        try {
             if (! empty($data['photo']) && $data['photo'] instanceof UploadedFile) {
                 $disk = config('media.disk', 'public');
 
@@ -247,16 +236,17 @@ class PartnerDriverService
             $driver->ville = $data['ville'] ?? null;
             $driver->quartier = $data['quartier'] ?? null;
 
-            if (! empty($data['password'])) {
-                $driver->password = Hash::make($data['password']);
+            /**
+             * Dans ton projet, le username Keycloak du chauffeur est le téléphone.
+             * Si le téléphone change, on garde keycloak_username synchronisé.
+             */
+            $driver->keycloak_username = $data['phone'];
 
-                if ($driver->keycloak_id) {
-                    $this->keycloakAdminService->resetUserPassword(
-                        $driver->keycloak_id,
-                        $data['password'],
-                        false
-                    );
-                }
+            $plainPassword = null;
+
+            if (! empty($data['password'])) {
+                $plainPassword = $data['password'];
+                $driver->password = Hash::make($plainPassword);
             }
 
             try {
@@ -269,8 +259,103 @@ class PartnerDriverService
                 throw $e;
             }
 
+            /**
+             * 1. Synchronisation Keycloak.
+             *
+             * On met à jour :
+             * - username ;
+             * - email ;
+             * - firstName ;
+             * - lastName ;
+             * - attributes ;
+             * - compte_id ;
+             * - local_partner_id ;
+             * - business_type ;
+             * - local_role.
+             */
+            if ($driver->keycloak_id) {
+                $this->keycloakAdminService->updateUserFromLocalUser($driver);
+
+                if ($plainPassword) {
+                    $this->keycloakAdminService->resetUserPassword(
+                        $driver->keycloak_id,
+                        $plainPassword,
+                        false
+                    );
+                }
+
+                $driver->forceFill([
+                    'keycloak_sync_status' => 'SYNCED',
+                    'last_synced_at' => now(),
+                    'sync_error' => null,
+                ])->save();
+            } else {
+                $driver->forceFill([
+                    'keycloak_sync_status' => 'PENDING',
+                    'sync_error' => 'Modification locale faite, mais keycloak_id absent.',
+                ])->save();
+
+                Log::warning('[PARTNER_DRIVER_UPDATE_KEYCLOAK_SKIPPED_NO_ID]', [
+                    'partner_id' => $partner->id,
+                    'driver_id' => $driver->id,
+                ]);
+            }
+
+            /**
+             * 2. Synchronisation recouvrement uniquement pour les partenaires LEASE_PARTNER.
+             *
+             * Règle :
+             * - SIMPLE_PARTNER : pas de synchronisation recouvrement ;
+             * - LEASE_PARTNER : on met à jour le chauffeur dans recouvrement.
+             */
+            if ($this->isLeasePartner($partner)) {
+                if ($driver->recouvrement_driver_id) {
+                    $this->recouvrementDriverApiService->updateDriver(
+                        partner: $partner,
+                        driver: $driver,
+                        plainPassword: $plainPassword
+                    );
+
+                    $driver->forceFill([
+                        'recouvrement_sync_status' => 'SYNCED',
+                        'last_synced_at' => now(),
+                        'sync_error' => null,
+                    ])->save();
+                } else {
+                    $driver->forceFill([
+                        'recouvrement_sync_status' => 'PENDING',
+                        'sync_error' => 'Modification locale faite, mais recouvrement_driver_id absent.',
+                    ])->save();
+
+                    Log::warning('[PARTNER_DRIVER_UPDATE_RECOUVREMENT_SKIPPED_NO_ID]', [
+                        'partner_id' => $partner->id,
+                        'driver_id' => $driver->id,
+                        'keycloak_id' => $driver->keycloak_id,
+                    ]);
+                }
+            } else {
+                $driver->forceFill([
+                    'recouvrement_sync_status' => 'NOT_REQUIRED',
+                ])->save();
+            }
+
+            DB::commit();
+
             return $driver->fresh('role');
-        });
+        } catch (Throwable $e) {
+            DB::rollBack();
+
+            Log::error('[PARTNER_DRIVER_UPDATE_SYNC_FAILED]', [
+                'partner_id' => $partner->id,
+                'driver_id' => $driverId,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw new RuntimeException(
+                'Modification chauffeur annulée. Cause : ' . $e->getMessage(),
+                previous: $e
+            );
+        }
     }
 
     public function deleteDriver(User $partner, int $driverId): void

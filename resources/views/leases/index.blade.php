@@ -959,14 +959,24 @@ input:checked + .fl-slider:before {
     </div>
 @endif
 
+@if(!empty($pageWarnings))
+    @foreach($pageWarnings as $warning)
+        <div class="alert alert-warning" style="margin-bottom:.75rem;">
+            {{ $warning }}
+        </div>
+    @endforeach
+@endif
+
 @php
     $lease_data = $lease_data ?? [];
+    $contractTypes = collect($contractTypes ?? []);
     $cutoffHub = $cutoffHub ?? [
         'global_enabled' => false,
         'global_time' => null,
         'next_cutoff_time' => null,
         'upcoming_cutoff_times' => [],
         'active_rules_count' => 0,
+        'active_type_rules_count' => 0,
         'eligible_unpaid_count' => 0,
     ];
 @endphp
@@ -1275,6 +1285,19 @@ input:checked + .fl-slider:before {
             </div>
         </div>
 
+        <select class="filter-pill-btn" id="contractTypeFilter" onchange="window.setQuickSelectFilter('type_contrat', this.value)" title="Filtrer par type de contrat">
+            <option value="all">Tous les types</option>
+            @foreach($contractTypes as $type)
+                <option value="{{ $type['id'] ?? '' }}">{{ $type['label'] ?? $type['libelle'] ?? ('Type #' . ($type['id'] ?? '')) }}</option>
+            @endforeach
+        </select>
+
+        <select class="filter-pill-btn" id="paymentMethodFilter" onchange="window.setQuickSelectFilter('methode', this.value)" title="Filtrer par méthode de paiement">
+            <option value="all">Toutes méthodes</option>
+            <option value="CASH">Cash</option>
+            <option value="MOBILE_MONEY">Mobile Money</option>
+        </select>
+
         <button class="filter-pill-btn" id="btnResetFilters" onclick="window.resetAllFilters()" title="Réinitialiser les filtres" style="display:none;">
             <i class="fas fa-rotate-left" style="font-size:.6rem;"></i>
             Réinitialiser
@@ -1292,6 +1315,7 @@ input:checked + .fl-slider:before {
                             Date <i class="fas fa-sort" style="font-size:.55rem;opacity:.4;"></i>
                         </th>
                         <th>Véhicule</th>
+                        <th>Contrat</th>
                         <th style="cursor:pointer;" onclick="window.sortBy('chauffeur')">
                             Chauffeur <i class="fas fa-sort" style="font-size:.55rem;opacity:.4;"></i>
                         </th>
@@ -1474,6 +1498,7 @@ input:checked + .fl-slider:before {
 
     const GLOBAL_CUTOFF_UPDATE_URL = @json(route('leases.global-cutoff.update'));
     const CASH_PAYMENT_URL = @json(route('leases.payments.cash'));
+    const MOBILE_PAYMENT_URL = @json(route('leases.payments.mobile'));
     const FORGIVE_URL_TEMPLATE = @json(route('leases.forgive', ['leaseId' => '__LEASE_ID__']));
 
     let filteredData = [...RAW_DATA];
@@ -1485,7 +1510,9 @@ input:checked + .fl-slider:before {
     let activeFilters = {
         statut: 'all',
         coupure: 'all',
-        date: 'all'
+        date: 'all',
+        type_contrat: 'all',
+        methode: 'all'
     };
 
     let searchQuery = '';
@@ -1725,6 +1752,7 @@ input:checked + .fl-slider:before {
                     ${esc(label)}
                 </span>
                 ${detail ? `<div class="cut-detail">${esc(detail)}</div>` : ''}
+                ${row.coupure_trigger_label ? `<div class="cut-detail" title="${esc(row.coupure_trigger_label)}">${esc(row.coupure_trigger_label).slice(0, 42)}${String(row.coupure_trigger_label).length > 42 ? '…' : ''}</div>` : ''}
                 ${reason ? `<div class="cut-detail" title="${esc(reason)}">${esc(reason).slice(0, 42)}${String(reason).length > 42 ? '…' : ''}</div>` : ''}
             </div>
         `;
@@ -1875,12 +1903,24 @@ input:checked + .fl-slider:before {
             }
         }
 
+        if (activeFilters.type_contrat !== 'all') {
+            data = data.filter(r => String(r.type_contrat_id || '') === String(activeFilters.type_contrat));
+        }
+
+        if (activeFilters.methode !== 'all') {
+            const wanted = String(activeFilters.methode || '').toUpperCase();
+            data = data.filter(r => String(r.methode || '').toUpperCase() === wanted);
+        }
+
         if (searchQuery.trim()) {
             const q = searchQuery.toLowerCase();
 
             data = data.filter(r =>
                 (r.vehicule || '').toLowerCase().includes(q) ||
                 (r.chauffeur || '').toLowerCase().includes(q) ||
+                (r.type_contrat_label || '').toLowerCase().includes(q) ||
+                (r.contrat_type || '').toLowerCase().includes(q) ||
+                (r.contrat_ref || '').toLowerCase().includes(q) ||
                 (r.agence || '').toLowerCase().includes(q) ||
                 (r.partenaire || '').toLowerCase().includes(q) ||
                 (r.phone || '').includes(q) ||
@@ -1938,7 +1978,7 @@ input:checked + .fl-slider:before {
         if (!page.length) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="14">
+                    <td colspan="15">
                         <div class="lease-empty">
                             <i class="fas fa-filter"></i>
                             Aucune ligne ne correspond aux filtres actifs.
@@ -2006,7 +2046,7 @@ input:checked + .fl-slider:before {
             const isForgiven = FORGIVEN_STATUSES.includes(r.statut);
 
             const methodBadge = r.methode
-                ? `<span class="method-badge">${esc(r.methode)}</span>`
+                ? `<span class="method-badge" title="${esc(r.methode_raw || r.methode)}">${esc(r.methode_label || r.methode)}</span>`
                 : `<span style="color:var(--color-secondary-text);font-size:.7rem;">—</span>`;
 
             const btnPay = !isPaid && !isForgiven
@@ -2036,6 +2076,13 @@ input:checked + .fl-slider:before {
                     <td><span class="time-cell">${esc(r.date)}</span></td>
 
                     <td><span class="immat-badge">${esc(r.vehicule)}</span></td>
+
+                    <td style="white-space:nowrap;">
+                        <div style="font-weight:800;font-size:.75rem;">${esc(r.type_contrat_label || r.contrat_type || '—')}</div>
+                        <div style="font-size:.62rem;color:var(--color-secondary-text);">${r.contract_kind === 'SUB' ? 'Sous-contrat' : 'Contrat principal'}</div>
+                        <div style="font-size:.6rem;color:var(--color-secondary-text);">${esc(r.contrat_ref || '')}</div>
+                        ${r.parent_contract_id ? `<div style="font-size:.58rem;color:var(--color-secondary-text);">Parent #${esc(r.parent_contract_id)}</div>` : ''}
+                    </td>
 
                     <td style="white-space:nowrap;">
                         <span style="font-weight:600;font-size:.8rem;">${esc(r.chauffeur)}</span>
@@ -2291,6 +2338,23 @@ input:checked + .fl-slider:before {
             });
         }
 
+        if (activeFilters.type_contrat !== 'all') {
+            const select = document.getElementById('contractTypeFilter');
+            const label = select?.selectedOptions?.[0]?.textContent || activeFilters.type_contrat;
+
+            chips.push({
+                key: 'type_contrat',
+                label: `Type : ${label}`,
+            });
+        }
+
+        if (activeFilters.methode !== 'all') {
+            chips.push({
+                key: 'methode',
+                label: `Méthode : ${activeFilters.methode === 'MOBILE_MONEY' ? 'Mobile Money' : activeFilters.methode}`,
+            });
+        }
+
         if (activeFilters.date !== 'all') {
             const labels = {
                 today: "Aujourd'hui",
@@ -2339,7 +2403,19 @@ input:checked + .fl-slider:before {
                 item.classList.toggle('selected', item.dataset.val === 'all');
             });
 
-            if (key === 'date') {
+            if (key === 'type_contrat') {
+            activeFilters.type_contrat = 'all';
+            const typeSelect = document.getElementById('contractTypeFilter');
+            if (typeSelect) typeSelect.value = 'all';
+        }
+
+        if (key === 'methode') {
+            activeFilters.methode = 'all';
+            const methodSelect = document.getElementById('paymentMethodFilter');
+            if (methodSelect) methodSelect.value = 'all';
+        }
+
+        if (key === 'date') {
                 const label = document.getElementById('date-label');
                 if (label) label.textContent = 'Période';
 
@@ -2364,6 +2440,8 @@ input:checked + .fl-slider:before {
             activeFilters.statut !== 'all' ||
             activeFilters.coupure !== 'all' ||
             activeFilters.date !== 'all' ||
+            activeFilters.type_contrat !== 'all' ||
+            activeFilters.methode !== 'all' ||
             searchQuery.trim() !== '';
 
         btn.style.display = hasFilters ? 'inline-flex' : 'none';
@@ -2374,6 +2452,8 @@ input:checked + .fl-slider:before {
             statut: 'all',
             coupure: 'all',
             date: 'all',
+            type_contrat: 'all',
+            methode: 'all',
         };
 
         searchQuery = '';
@@ -2394,6 +2474,12 @@ input:checked + .fl-slider:before {
         const rangeInput = document.getElementById('date-range-inputs');
         if (specInput) specInput.style.display = 'none';
         if (rangeInput) rangeInput.style.display = 'none';
+
+        const typeSelect = document.getElementById('contractTypeFilter');
+        if (typeSelect) typeSelect.value = 'all';
+
+        const methodSelect = document.getElementById('paymentMethodFilter');
+        if (methodSelect) methodSelect.value = 'all';
 
         applyFilters();
     };

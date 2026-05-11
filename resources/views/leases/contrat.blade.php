@@ -1,1438 +1,2480 @@
+{{-- resources/views/leases/contrat.blade.php --}}
+
 @extends('layouts.app')
 
-@section('title', 'Contrats Lease')
+@section('title', 'Contrats & sous-contrats')
+
+@php
+    /*
+    |--------------------------------------------------------------------------
+    | Vue dynamique contrats / sous-contrats / coupure
+    |--------------------------------------------------------------------------
+    |
+    | Données attendues du contrôleur :
+    | - $contracts              : contrats venant de recouvrement
+    | - $chauffeurs_list        : chauffeurs venant de recouvrement
+    | - $vehicules_list         : véhicules venant de Tracking
+    | - $contractTypesFromApi   : types de contrats venant de recouvrement
+    |
+    | Règle importante :
+    | On ne fait plus de DELETE direct depuis l’interface.
+    | Si un contrat est déjà lié à une échéance ou à un sous-contrat,
+    | recouvrement bloque la suppression définitive.
+    |
+    | Donc la vue propose une action métier :
+    | - Clôturer => PUT contrat avec statut = SOLDE.
+    */
+
+    $rawContractTypes = collect($contractTypesFromApi ?? []);
+
+    $contractTypes = $rawContractTypes
+        ->map(function ($type) {
+            $id = (int) (
+                $type['id']
+                ?? $type['type_contrat']
+                ?? $type['type_contrat_id']
+                ?? 0
+            );
+
+            $label = $type['nom']
+                ?? $type['label']
+                ?? $type['libelle']
+                ?? $type['name']
+                ?? $type['titre']
+                ?? null;
+
+            $code = strtoupper((string) ($type['code'] ?? $type['slug'] ?? ''));
+
+            $description = $type['description']
+                ?? $type['details']
+                ?? '';
+
+            $isMain = (bool) (
+                $type['is_main']
+                ?? $type['est_principal']
+                ?? $type['principal']
+                ?? false
+            );
+
+            if (! $isMain && $code !== '') {
+                $isMain = in_array($code, ['VEHICULE', 'VEHICLE', 'MOTO', 'VOITURE', 'MT'], true);
+            }
+
+            if (! $isMain && $label) {
+                $lowerLabel = mb_strtolower($label, 'UTF-8');
+
+                $isMain = str_contains($lowerLabel, 'véhicule')
+                    || str_contains($lowerLabel, 'vehicule')
+                    || str_contains($lowerLabel, 'vehicle')
+                    || str_contains($lowerLabel, 'moto')
+                    || str_contains($lowerLabel, 'voiture');
+            }
+
+            return [
+                'id' => $id,
+                'label' => $label ?: ('Type #' . $id),
+                'description' => $description,
+                'code' => $code,
+                'is_main' => $isMain,
+            ];
+        })
+        ->filter(fn ($type) => ! empty($type['id']))
+        ->values();
+
+    $mainType = $contractTypes->firstWhere('is_main', true) ?? $contractTypes->first();
+    $mainTypeId = $mainType['id'] ?? null;
+
+    $subContractTypes = $contractTypes
+        ->filter(fn ($type) => (int) $type['id'] !== (int) $mainTypeId)
+        ->values();
+
+    $typeLabels = $contractTypes->keyBy('id');
+
+    $vehiclesByImmat = collect($vehicules_list ?? [])
+        ->filter(fn ($vehicle) => ! empty($vehicle['immatriculation']))
+        ->keyBy(function ($vehicle) {
+            return mb_strtoupper(
+                preg_replace('/\s+/', '', trim((string) $vehicle['immatriculation'])),
+                'UTF-8'
+            );
+        });
+
+    $normalizeStatus = function ($status) {
+        return mb_strtolower((string) ($status ?: 'ACTIF'), 'UTF-8');
+    };
+
+    $extractSubContracts = function (array $contract) {
+        $raw = $contract['raw'] ?? $contract;
+
+        return $raw['sous_contrats']
+            ?? $raw['sousContrats']
+            ?? $raw['sub_contracts']
+            ?? $contract['sous_contrats']
+            ?? $contract['sousContrats']
+            ?? [];
+    };
+
+    $contractsPayload = collect($contracts ?? [])
+        ->filter(fn ($contract) => is_array($contract))
+        ->map(function ($contract) use ($typeLabels, $normalizeStatus, $extractSubContracts, $contractTypes, $vehiclesByImmat) {
+            $raw = $contract['raw'] ?? $contract;
+
+            $contractId = (int) (
+                $contract['source_contrat_id']
+                ?? $contract['source_contract_id']
+                ?? $contract['id']
+                ?? $raw['id']
+                ?? 0
+            );
+
+            $typeId = (int) (
+                $raw['type_contrat']
+                ?? $contract['type_contrat']
+                ?? $contract['type_contrat_id']
+                ?? 0
+            );
+
+            $type = $typeLabels->get($typeId);
+
+            $total = (float) ($contract['montant_total'] ?? $raw['montant_total'] ?? 0);
+            $paid = (float) (
+                $contract['total_paye']
+                ?? $contract['montant_paye']
+                ?? $raw['montant_paye']
+                ?? $raw['montant_verse']
+                ?? 0
+            );
+
+            $remaining = (float) (
+                $contract['montant_restant']
+                ?? $raw['montant_restant']
+                ?? max(0, $total - $paid)
+            );
+
+            $progress = $total > 0 ? round(($paid / $total) * 100) : 0;
+
+            $immatriculation = $contract['vehicule']
+                ?? $contract['immatriculation']
+                ?? $raw['immatriculation']
+                ?? null;
+
+            $vehicleKey = mb_strtoupper(
+                preg_replace('/\s+/', '', trim((string) $immatriculation)),
+                'UTF-8'
+            );
+
+            $trackingVehicle = $vehiclesByImmat->get($vehicleKey);
+
+            $vehicleId = $contract['vehicle_id']
+                ?? $contract['vehicule_id']
+                ?? ($trackingVehicle['id'] ?? null)
+                ?? ($trackingVehicle['vehicle_id'] ?? null)
+                ?? null;
+
+            $vin = $raw['vin']
+                ?? $contract['vin']
+                ?? ($trackingVehicle['vin'] ?? '')
+                ?? '';
+
+            $subContracts = collect($extractSubContracts($contract))
+                ->filter(fn ($row) => is_array($row))
+                ->map(function ($sub) use ($typeLabels, $normalizeStatus, $contractId, $immatriculation, $vin, $vehicleId, $contract) {
+                    $subTypeId = (int) ($sub['type_contrat'] ?? $sub['type_contrat_id'] ?? 0);
+                    $subType = $typeLabels->get($subTypeId);
+
+                    $subTotal = (float) ($sub['montant_total'] ?? 0);
+                    $subPaid = (float) ($sub['montant_paye'] ?? $sub['total_paye'] ?? $sub['montant_verse'] ?? 0);
+                    $subRemaining = (float) ($sub['montant_restant'] ?? max(0, $subTotal - $subPaid));
+
+                    return [
+                        'id' => (int) ($sub['id'] ?? $sub['source_contract_id'] ?? 0),
+                        'parent' => $sub['parent'] ?? $sub['parent_id'] ?? $sub['source_parent_contract_id'] ?? $contractId,
+                        'chauffeur_id' => $sub['chauffeur'] ?? $contract['chauffeur_id'] ?? $contract['chauffeur'] ?? null,
+                        'vehicle_id' => $vehicleId,
+                        'vehicule' => $sub['immatriculation'] ?? $immatriculation,
+                        'vin' => $sub['vin'] ?? $vin,
+                        'type_contrat' => $subTypeId,
+                        'type_label' => $subType['label'] ?? ($sub['type_contrat_label'] ?? 'Sous-contrat'),
+                        'montant_total' => $subTotal,
+                        'montant_restant' => $subRemaining,
+                        'montant_par_paiement' => (float) ($sub['montant_par_paiement'] ?? 0),
+                        'frequence' => $sub['frequence'] ?? '',
+                        'date_debut' => $sub['date_debut'] ?? null,
+                        'date_fin' => $sub['date_fin'] ?? null,
+                        'prochaine_echeance' => $sub['prochaine_echeance'] ?? null,
+                        'statut' => $normalizeStatus($sub['statut'] ?? $sub['status'] ?? 'ACTIF'),
+                        'specificites' => $sub['specificites'] ?? null,
+                    ];
+                })
+                ->values()
+                ->all();
+
+            $chauffeurId = $contract['chauffeur_id']
+                ?? $contract['chauffeur']
+                ?? $raw['chauffeur']
+                ?? null;
+
+            $cutoff = $contract['cutoff'] ?? $raw['cutoff'] ?? [];
+
+            $contractTypeRules = collect($cutoff['contract_types'] ?? [])
+                ->map(function ($rule) {
+                    return [
+                        'type_contrat' => (int) ($rule['type_contrat'] ?? $rule['type_contrat_id'] ?? 0),
+                        'label' => $rule['label'] ?? $rule['type_contrat_label'] ?? '',
+                        'enabled' => (bool) ($rule['enabled'] ?? $rule['is_enabled'] ?? false),
+                        'grace_days' => (int) ($rule['grace_days'] ?? 0),
+                    ];
+                })
+                ->filter(fn ($rule) => ! empty($rule['type_contrat']))
+                ->values();
+
+            if ($contractTypeRules->isEmpty()) {
+                $contractTypeRules = $contractTypes->map(fn ($type) => [
+                    'type_contrat' => (int) $type['id'],
+                    'label' => $type['label'],
+                    'enabled' => false,
+                    'grace_days' => 0,
+                ]);
+            }
+
+            return [
+                'id' => $contractId,
+                'ref' => $contract['ref']
+                    ?? $contract['reference']
+                    ?? $raw['reference']
+                    ?? ($contractId ? 'CTR-' . str_pad((string) $contractId, 5, '0', STR_PAD_LEFT) : 'Contrat'),
+
+                'chauffeur' => $contract['chauffeur_nom']
+                    ?? $contract['chauffeur_label']
+                    ?? $contract['chauffeur_nom_complet']
+                    ?? $contract['nom_complet']
+                    ?? $contract['chauffeur']
+                    ?? $contract['nom_chauffeur']
+                    ?? $raw['chauffeur_nom']
+                    ?? $raw['chauffeur_nom_complet']
+                    ?? $raw['nom_complet']
+                    ?? '—',
+
+                'chauffeur_id' => $chauffeurId,
+                'phone_ch' => $contract['phone_ch'] ?? $contract['telephone'] ?? '',
+                'vehicule' => $immatriculation ?: '—',
+                'vehicle_id' => $vehicleId,
+                'vin' => $vin,
+
+                'type_contrat' => $typeId,
+                'type_label' => $type['label'] ?? 'Contrat',
+
+                'montant_total' => $total,
+                'montant_restant' => $remaining,
+                'total_paye' => $paid,
+                'versement' => (float) (
+                    $contract['versement']
+                    ?? $contract['montant_par_paiement']
+                    ?? $raw['montant_par_paiement']
+                    ?? 0
+                ),
+
+                'frequence' => $contract['frequence'] ?? $raw['frequence'] ?? '',
+                'date_debut' => $contract['date_debut'] ?? $raw['date_debut'] ?? null,
+                'date_fin' => $contract['date_fin_prevue'] ?? $contract['date_fin'] ?? $raw['date_fin'] ?? null,
+                'prochaine_echeance' => $contract['prochaine_echeance'] ?? $raw['prochaine_echeance'] ?? null,
+
+                'statut' => $normalizeStatus($contract['statut'] ?? $contract['status'] ?? $raw['statut'] ?? 'ACTIF'),
+                'progress' => min(100, max(0, $progress)),
+                'specificites' => $raw['specificites'] ?? $contract['specificites'] ?? null,
+                'sub_contracts' => $subContracts,
+
+                'cutoff' => [
+                    'enabled' => (bool) ($cutoff['enabled'] ?? $cutoff['is_enabled'] ?? false),
+                    'grace_days' => (int) ($cutoff['grace_days'] ?? 0),
+                    'cutoff_time' => $cutoff['cutoff_time'] ?? '12:00',
+                    'only_when_stopped' => (bool) ($cutoff['only_when_stopped'] ?? true),
+                    'notify_before_cutoff' => (bool) ($cutoff['notify_before_cutoff'] ?? false),
+                    'contract_types' => $contractTypeRules->values()->all(),
+                ],
+            ];
+        })
+        ->values()
+        ->all();
+
+    $stats = [
+        'total' => count($contractsPayload),
+        'active' => collect($contractsPayload)->where('statut', 'actif')->count(),
+        'late' => collect($contractsPayload)->where('statut', 'retard')->count()
+            + collect($contractsPayload)->filter(fn ($c) => collect($c['sub_contracts'])->contains(fn ($s) => $s['statut'] === 'retard'))->count(),
+        'subs' => collect($contractsPayload)->sum(fn ($c) => count($c['sub_contracts'])),
+    ];
+@endphp
 
 @push('styles')
 <style>
-/* ============================================================
-   LEASE CONTRACTS — Fleetra
-   Héritage total du design system app.blade.php
-   Cohérence : dashboard / users / lease
-   ============================================================ */
+    .lease-console { display:flex; flex-direction:column; gap:1rem; }
 
-/* ── KPI sticky (même pattern que lease.blade) ── */
-.lc-kpi-bar {
-    position: sticky;
-    top: var(--navbar-h, 64px);
-    z-index: var(--z-kpi, 9);
-    background: var(--color-bg);
-    padding: .45rem 0 .4rem;
-    box-shadow: 0 4px 18px rgba(0,0,0,.07);
-}
-.dark-mode .lc-kpi-bar { box-shadow: 0 6px 24px rgba(0,0,0,.4); }
+    .lc-hero {
+        background:linear-gradient(135deg, rgba(245,130,32,.12), rgba(37,99,235,.08));
+        border:1px solid var(--color-border-subtle,#e5e7eb);
+        border-radius:18px;
+        padding:1rem 1.15rem;
+        display:flex;
+        justify-content:space-between;
+        gap:1rem;
+        align-items:flex-start;
+        box-shadow:var(--shadow-sm,0 8px 24px rgba(15,23,42,.06));
+    }
 
-.lc-kpi-grid {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: .45rem;
-}
-@media (max-width: 1280px) { .lc-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@media (max-width: 767px)  { .lc-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media(max-width:800px){ .lc-hero{flex-direction:column;} }
 
-.lckpi {
-    background: var(--color-card);
-    border: 1px solid var(--color-border-subtle);
-    border-radius: var(--r-lg);
-    padding: .42rem .62rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: .4rem;
-    transition: transform .15s, box-shadow .15s, border-color .15s;
-    overflow: hidden;
-}
-.lckpi:hover {
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-md);
-    border-color: var(--color-primary-border);
-}
-.lckpi-left { min-width: 0; flex: 1; }
-.lckpi-label {
-    font-family: var(--font-display);
-    font-size: .59rem;
-    font-weight: 700;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    color: var(--color-secondary-text);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    margin: 0;
-}
-.lckpi-value {
-    font-family: var(--font-display);
-    font-weight: 800;
-    font-size: 1.12rem;
-    line-height: 1.1;
-    color: var(--color-primary);
-    margin: .07rem 0 0;
-    white-space: nowrap;
-}
-.lckpi-value.neutral { color: var(--color-text); }
-.lckpi-value.success { color: var(--color-success); }
-.lckpi-value.danger  { color: var(--color-error); }
-.lckpi-value.warning { color: var(--color-warning); }
-.lckpi-value.info    { color: var(--color-info); }
+    .lc-hero h1 {
+        margin:0;
+        font-size:1.15rem;
+        font-weight:900;
+        color:var(--color-text,#111827);
+        display:flex;
+        gap:.55rem;
+        align-items:center;
+    }
 
-.lckpi-icon {
-    width: 34px; height: 34px;
-    border-radius: var(--r-md);
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0; font-size: .78rem;
-}
-.ico-orange { background: var(--color-primary-light);  color: var(--color-primary); }
-.ico-green  { background: var(--color-success-bg);     color: var(--color-success); }
-.ico-red    { background: var(--color-error-bg);       color: var(--color-error); }
-.ico-blue   { background: var(--color-info-bg);        color: var(--color-info); }
-.ico-amber  { background: var(--color-warning-bg);     color: var(--color-warning); }
-.ico-grey   { background: rgba(107,114,128,.1);        color: #6b7280; }
+    .lc-hero h1 i { color:var(--color-primary,#f58220); }
 
-/* ── Progress bar dans le tableau ── */
-.contract-progress-wrap {
-    display: flex;
-    align-items: center;
-    gap: .45rem;
-    min-width: 110px;
-}
-.contract-progress-bar {
-    flex: 1;
-    height: 5px;
-    background: var(--color-border-subtle);
-    border-radius: 999px;
-    overflow: hidden;
-}
-.contract-progress-fill {
-    height: 100%;
-    border-radius: 999px;
-    transition: width .4s ease;
-}
-.contract-progress-pct {
-    font-family: var(--font-display);
-    font-weight: 700;
-    font-size: .62rem;
-    white-space: nowrap;
-    flex-shrink: 0;
-}
+    .lc-hero p {
+        margin:.3rem 0 0;
+        color:var(--color-secondary-text,#6b7280);
+        font-size:.78rem;
+        line-height:1.45;
+        max-width:850px;
+    }
 
-/* ── Badges statut contrat ── */
-.contract-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: .28rem;
-    padding: .22rem .55rem;
-    border-radius: var(--r-pill);
-    font-family: var(--font-display);
-    font-size: .58rem;
-    font-weight: 700;
-    letter-spacing: .03em;
-    white-space: nowrap;
-}
-.cb-actif    { background: var(--color-success-bg); color: var(--color-success); border: 1px solid rgba(22,163,74,.22); }
-.cb-retard   { background: var(--color-error-bg);   color: var(--color-error);   border: 1px solid rgba(220,38,38,.22); }
-.cb-termine  { background: var(--color-info-bg);    color: var(--color-info);    border: 1px solid rgba(37,99,235,.22); }
-.cb-suspendu { background: var(--color-warning-bg); color: var(--color-warning); border: 1px solid rgba(217,119,6,.22); }
+    .lc-actions { display:flex; flex-wrap:wrap; gap:.5rem; justify-content:flex-end; }
 
-/* ── Freq badge ── */
-.freq-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: .25rem;
-    padding: .2rem .5rem;
-    border-radius: var(--r-sm);
-    font-family: var(--font-display);
-    font-size: .58rem;
-    font-weight: 700;
-    background: var(--color-primary-light);
-    color: var(--color-primary);
-    border: 1px solid var(--color-primary-border);
-}
+    .lc-btn {
+        border:1px solid var(--color-border-subtle,#e5e7eb);
+        background:var(--color-card,#fff);
+        color:var(--color-text,#111827);
+        border-radius:12px;
+        padding:.62rem .82rem;
+        font-size:.72rem;
+        font-weight:900;
+        cursor:pointer;
+        display:inline-flex;
+        align-items:center;
+        gap:.42rem;
+        transition:.16s ease;
+        text-decoration:none;
+    }
 
-/* ── Ref badge ── */
-.ref-code {
-    font-family: var(--font-mono, monospace);
-    font-size: .72rem;
-    font-weight: 700;
-    color: var(--color-text);
-    background: var(--color-bg-subtle);
-    border: 1px solid var(--color-border-subtle);
-    border-radius: var(--r-sm);
-    padding: .18rem .5rem;
-    white-space: nowrap;
-    display: inline-block;
-}
+    .lc-btn:hover {
+        border-color:var(--color-primary,#f58220);
+        color:var(--color-primary,#f58220);
+        transform:translateY(-1px);
+    }
 
-/* ── Table scroll ── */
-.lc-table-card {
-    background: var(--color-card);
-    border: 1px solid var(--color-border-subtle);
-    border-radius: var(--r-lg);
-    overflow: hidden;
-    box-shadow: var(--shadow-sm);
-}
-.lc-table-scroll {
-    overflow-x: auto;
-    overflow-y: auto;
-    max-height: calc(100vh - var(--navbar-h, 64px) - var(--lc-kpi-h, 90px) - 210px);
-    min-height: 360px;
-}
-.lc-table-scroll::-webkit-scrollbar { width: 5px; height: 5px; }
-.lc-table-scroll::-webkit-scrollbar-thumb { background: var(--color-border-subtle); border-radius: 999px; }
-#contractsTable { min-width: 1100px; }
-#contractsTable thead { position: sticky; top: 0; z-index: 2; }
-#contractsTable thead th { background: var(--color-bg-subtle) !important; white-space: nowrap; }
-.dark-mode #contractsTable thead th { background: #161b22 !important; }
+    .lc-btn.primary {
+        background:var(--color-primary,#f58220);
+        border-color:var(--color-primary,#f58220);
+        color:white;
+    }
 
-/* ── Actions tableau ── */
-.tbl-action {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 28px; height: 28px;
-    border-radius: var(--r-sm);
-    border: 1px solid var(--color-border-subtle);
-    background: transparent; cursor: pointer; font-size: .72rem;
-    transition: background .12s, color .12s, border-color .12s;
-    flex-shrink: 0;
-}
-.tbl-action.edit    { color: var(--color-warning);  border-color: rgba(217,119,6,.3); }
-.tbl-action.edit:hover    { background: var(--color-warning-bg); border-color: var(--color-warning); }
-.tbl-action.view    { color: var(--color-info);     border-color: rgba(37,99,235,.25); }
-.tbl-action.view:hover    { background: var(--color-info-bg);    border-color: var(--color-info); }
-.tbl-action.suspend { color: var(--color-warning);  border-color: rgba(217,119,6,.3); }
-.tbl-action.suspend:hover { background: var(--color-warning-bg); border-color: var(--color-warning); }
-.tbl-action.delete  { color: var(--color-error);    border-color: rgba(220,38,38,.3); }
-.tbl-action.delete:hover  { background: var(--color-error-bg);   border-color: var(--color-error); }
+    .lc-btn.soft {
+        background:rgba(245,130,32,.1);
+        border-color:rgba(245,130,32,.25);
+        color:var(--color-primary,#f58220);
+    }
 
-/* ── Footer tableau ── */
-.lc-table-footer {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: .75rem; padding: .62rem 1rem;
-    border-top: 1px solid var(--color-border-subtle); flex-wrap: wrap;
-}
-.lc-table-info { font-family: var(--font-display); font-size: .67rem; color: var(--color-secondary-text); display: flex; align-items: center; gap: .4rem; }
+    .lc-btn.danger {
+        color:#dc2626;
+        border-color:rgba(220,38,38,.25);
+    }
 
-.lc-pagination { display: flex; align-items: center; gap: .2rem; }
-.pg-btn {
-    display: inline-flex; align-items: center; justify-content: center;
-    min-width: 28px; height: 28px; padding: 0 .4rem;
-    border-radius: var(--r-sm);
-    border: 1px solid var(--color-border-subtle);
-    background: var(--color-card); color: var(--color-text);
-    font-family: var(--font-body); font-size: .72rem; cursor: pointer;
-    transition: background .12s, border-color .12s, color .12s;
-}
-.pg-btn:hover { background: var(--color-primary-light); border-color: var(--color-primary); color: var(--color-primary); }
-.pg-btn.active { background: var(--color-primary); border-color: var(--color-primary); color: #fff; font-weight: 700; }
-.pg-btn.disabled { opacity: .3; pointer-events: none; }
+    .lc-grid-stats {
+        display:grid;
+        grid-template-columns:repeat(4,minmax(0,1fr));
+        gap:.8rem;
+    }
 
-.perpage-select { display: inline-flex; align-items: center; gap: .35rem; font-family: var(--font-display); font-size: .65rem; color: var(--color-secondary-text); }
-.perpage-select select { border: 1px solid var(--color-input-border); background: var(--color-input-bg); color: var(--color-text); border-radius: var(--r-sm); padding: .2rem .4rem; font-size: .68rem; font-family: var(--font-display); outline: none; cursor: pointer; width: auto; appearance: auto; }
+    @media(max-width:900px){
+        .lc-grid-stats{grid-template-columns:repeat(2,minmax(0,1fr));}
+    }
 
-/* ── Toolbar recherche ── */
-.lc-toolbar { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: .65rem; }
-.lc-search-wrap { position: relative; flex: 1; min-width: 180px; max-width: 280px; }
-.lc-search-wrap i { position: absolute; left: .6rem; top: 50%; transform: translateY(-50%); font-size: .7rem; color: var(--color-secondary-text); pointer-events: none; }
-.lc-search-wrap input { width: 100%; border: 1px solid var(--color-input-border); background: var(--color-input-bg); color: var(--color-text); border-radius: var(--r-pill); padding: .32rem .6rem .32rem 2rem; font-size: .78rem; font-family: var(--font-body); outline: none; transition: border-color .15s; }
-.lc-search-wrap input:focus { border-color: var(--color-primary); }
+    .lc-stat {
+        background:var(--color-card,#fff);
+        border:1px solid var(--color-border-subtle,#e5e7eb);
+        border-radius:16px;
+        padding:.85rem;
+        box-shadow:var(--shadow-sm,0 6px 18px rgba(15,23,42,.05));
+    }
 
-/* Filtre statut pill */
-.filter-pill-wrap { position: relative; }
-.filter-pill-btn {
-    display: inline-flex; align-items: center; gap: .3rem;
-    padding: .32rem .65rem;
-    border-radius: var(--r-pill);
-    border: 1px solid var(--color-border-subtle);
-    background: var(--color-card); color: var(--color-text);
-    font-family: var(--font-display); font-size: .65rem; font-weight: 700; letter-spacing: .02em;
-    cursor: pointer; transition: border-color .15s, background .15s, color .15s;
-    white-space: nowrap;
-}
-.filter-pill-btn:hover, .filter-pill-btn.active { border-color: var(--color-primary); background: var(--color-primary-light); color: var(--color-primary); }
-.filter-pill-btn .fchev { font-size: .5rem; color: var(--color-secondary-text); transition: transform .2s; }
-.filter-pill-btn.open .fchev { transform: rotate(180deg); }
+    .lc-stat span {
+        display:block;
+        font-size:.62rem;
+        text-transform:uppercase;
+        letter-spacing:.07em;
+        color:var(--color-secondary-text,#6b7280);
+        font-weight:900;
+    }
 
-.filter-dropdown-menu {
-    position: absolute; top: calc(100% + 6px); left: 0; min-width: 180px;
-    background: var(--color-card); border: 1px solid var(--color-border-subtle);
-    border-radius: var(--r-lg); box-shadow: var(--shadow-lg);
-    z-index: var(--z-dropdown);
-    opacity: 0; visibility: hidden; transform: translateY(-4px);
-    transition: opacity .16s, transform .16s, visibility 0s .16s;
-    padding: .35rem 0;
-}
-.filter-dropdown-menu.open { opacity: 1; visibility: visible; transform: translateY(0); transition: opacity .16s, transform .16s, visibility 0s; }
-.fdrop-item {
-    display: flex; align-items: center; gap: .5rem;
-    padding: .42rem .85rem;
-    font-family: var(--font-display); font-weight: 600; font-size: .72rem;
-    color: var(--color-text); cursor: pointer; transition: background .1s, color .1s; white-space: nowrap;
-}
-.fdrop-item:hover { background: var(--color-sidebar-active); color: var(--color-primary); }
-.fdrop-item.selected { background: var(--color-primary-light); color: var(--color-primary); }
-.fdrop-item .fdot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.fdrop-item .fcheck { margin-left: auto; font-size: .6rem; color: var(--color-primary); opacity: 0; }
-.fdrop-item.selected .fcheck { opacity: 1; }
-.fdrop-label { padding: .3rem .85rem .1rem; font-family: var(--font-display); font-size: .55rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--color-secondary-text); opacity: .7; }
+    .lc-stat strong {
+        display:block;
+        margin-top:.15rem;
+        font-size:1.35rem;
+        font-weight:900;
+        color:var(--color-primary,#f58220);
+    }
 
-.toolbar-sep { width: 1px; height: 20px; background: var(--color-border-subtle); flex-shrink: 0; }
+    .lc-layout {
+        display:grid;
+        grid-template-columns:minmax(420px,.9fr) minmax(0,1.2fr);
+        gap:1rem;
+        align-items:start;
+    }
 
-/* ── MODAL — Grande modale contrat ── */
-.fl-modal-overlay {
-    position: fixed; inset: 0;
-    background: rgba(0,0,0,.6);
-    z-index: var(--z-modal);
-    display: none; align-items: center; justify-content: center;
-    padding: 1rem;
-    backdrop-filter: blur(3px);
-}
-.fl-modal-overlay.open { display: flex; }
+    @media(max-width:1100px){
+        .lc-layout{grid-template-columns:1fr;}
+    }
 
-.fl-modal-panel {
-    background: var(--color-card);
-    border: 1px solid var(--color-border-subtle);
-    border-radius: var(--r-xl);
-    width: 100%; max-width: 680px;
-    max-height: 92vh; overflow-y: auto;
-    position: relative;
-    box-shadow: var(--shadow-xl);
-    transform: translateY(14px) scale(.98);
-    opacity: 0;
-    transition: transform .22s ease, opacity .22s ease;
-}
-.fl-modal-panel.visible { transform: translateY(0) scale(1); opacity: 1; }
-.fl-modal-panel.sm { max-width: 420px; }
+    .lc-panel {
+        background:var(--color-card,#fff);
+        border:1px solid var(--color-border-subtle,#e5e7eb);
+        border-radius:18px;
+        overflow:hidden;
+        box-shadow:var(--shadow-sm,0 8px 24px rgba(15,23,42,.06));
+    }
 
-.fl-modal-header {
-    display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem;
-    padding: 1.2rem 1.25rem .85rem;
-    border-bottom: 1px solid var(--color-border-subtle);
-    position: sticky; top: 0; background: var(--color-card); z-index: 2;
-}
-.fl-modal-title { font-family: var(--font-display); font-size: .92rem; font-weight: 800; color: var(--color-text); margin: 0; letter-spacing: -.005em; }
-.fl-modal-subtitle { font-family: var(--font-body); font-size: .72rem; color: var(--color-secondary-text); margin: .2rem 0 0; }
-.fl-modal-close {
-    width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
-    border-radius: 50%; border: 1px solid var(--color-border-subtle);
-    background: transparent; color: var(--color-secondary-text); font-size: 1rem;
-    cursor: pointer; flex-shrink: 0; transition: background .12s, color .12s; line-height: 1;
-}
-.fl-modal-close:hover { background: var(--color-error-bg); color: var(--color-error); border-color: rgba(220,38,38,.3); }
+    .lc-panel-head {
+        padding:.9rem 1rem;
+        border-bottom:1px solid var(--color-border-subtle,#e5e7eb);
+        display:flex;
+        justify-content:space-between;
+        align-items:center;
+        gap:.75rem;
+    }
 
-.fl-modal-body { padding: 1rem 1.25rem; }
-.fl-modal-footer {
-    padding: .75rem 1.25rem 1.25rem;
-    display: flex; gap: .5rem; justify-content: flex-end;
-    border-top: 1px solid var(--color-border-subtle);
-    position: sticky; bottom: 0; background: var(--color-card); z-index: 2;
-}
+    .lc-panel-head h2 {
+        margin:0;
+        font-size:.92rem;
+        font-weight:900;
+        color:var(--color-text,#111827);
+        display:flex;
+        align-items:center;
+        gap:.45rem;
+    }
 
-/* Sections modale */
-.modal-section {
-    margin-bottom: 1rem;
-    border: 1px solid var(--color-border-subtle);
-    border-radius: var(--r-lg);
-    overflow: hidden;
-}
-.modal-section-header {
-    display: flex; align-items: center; gap: .5rem;
-    padding: .55rem .85rem;
-    background: var(--color-bg-subtle);
-    border-bottom: 1px solid var(--color-border-subtle);
-    font-family: var(--font-display); font-size: .65rem; font-weight: 700;
-    letter-spacing: .06em; text-transform: uppercase; color: var(--color-secondary-text);
-}
-.modal-section-header i { color: var(--color-primary); font-size: .68rem; }
-.modal-section-body { padding: .75rem .85rem; }
+    .lc-toolbar-advanced {
+        padding:.75rem 1rem;
+        border-bottom:1px solid var(--color-border-subtle,#e5e7eb);
+        display:grid;
+        grid-template-columns:minmax(220px,1.2fr) 150px 190px 170px;
+        gap:.55rem;
+    }
 
-/* Grid form */
-.form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
-.form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: .6rem; }
-@media (max-width: 560px) { .form-grid-2, .form-grid-3 { grid-template-columns: 1fr; } }
+    @media(max-width:980px){
+        .lc-toolbar-advanced{grid-template-columns:1fr 1fr;}
+    }
 
-.fl-form-group { margin-bottom: 0; }
-.fl-form-label {
-    display: block; font-family: var(--font-display); font-size: .61rem; font-weight: 700;
-    letter-spacing: .05em; text-transform: uppercase; color: var(--color-secondary-text);
-    margin-bottom: .3rem;
-}
-.fl-form-label span.opt { text-transform: none; font-weight: 400; font-family: var(--font-body); font-size: .62rem; }
+    @media(max-width:640px){
+        .lc-toolbar-advanced{grid-template-columns:1fr;}
+    }
 
-/* Read-only recap */
-.recap-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: .45rem; }
-.recap-item {
-    background: var(--color-bg);
-    border: 1px solid var(--color-border-subtle);
-    border-radius: var(--r-md);
-    padding: .45rem .6rem;
-}
-.dark-mode .recap-item { background: rgba(255,255,255,.03); }
-.recap-item .rk { font-family: var(--font-display); font-size: .57rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--color-secondary-text); margin: 0; }
-.recap-item .rv { font-family: var(--font-display); font-weight: 800; font-size: .88rem; color: var(--color-text); margin: .06rem 0 0; }
-.recap-item .rv.primary { color: var(--color-primary); }
-.recap-item .rv.success { color: var(--color-success); }
-.recap-item .rv.error   { color: var(--color-error); }
+    .lc-input,.lc-select,.lc-textarea {
+        width:100%;
+        border:1px solid var(--color-border-subtle,#e5e7eb);
+        border-radius:12px;
+        padding:.62rem .75rem;
+        background:var(--color-card,#fff);
+        color:var(--color-text,#111827);
+        font-size:.76rem;
+        outline:none;
+    }
 
-/* Toggle switch option */
-.option-row {
-    display: flex; align-items: center; justify-content: space-between; gap: .75rem;
-    padding: .5rem 0;
-    border-bottom: 1px solid var(--color-border-subtle);
-}
-.option-row:last-child { border-bottom: none; padding-bottom: 0; }
-.option-label { font-family: var(--font-body); font-size: .8rem; color: var(--color-text); }
-.option-label small { display: block; font-size: .68rem; color: var(--color-secondary-text); margin-top: 1px; }
-.opt-toggle {
-    position: relative; width: 38px; height: 20px;
-    border-radius: 10px; background: var(--color-input-border);
-    cursor: pointer; flex-shrink: 0; transition: background .25s;
-}
-.opt-toggle::after {
-    content: ''; position: absolute; top: 2px; left: 2px;
-    width: 16px; height: 16px; border-radius: 50%;
-    background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3);
-    transition: transform .25s;
-}
-.opt-toggle.on { background: var(--color-primary); }
-.opt-toggle.on::after { transform: translateX(18px); }
+    .lc-input:focus,.lc-select:focus,.lc-textarea:focus {
+        border-color:var(--color-primary,#f58220);
+        box-shadow:0 0 0 3px rgba(245,130,32,.12);
+    }
 
-/* Confirmation modale */
-.fl-confirm-icon { width: 50px; height: 50px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto .7rem; font-size: 1.2rem; }
-.fl-confirm-icon.danger  { background: var(--color-error-bg);   color: var(--color-error); }
-.fl-confirm-icon.warning { background: var(--color-warning-bg); color: var(--color-warning); }
-.fl-confirm-title { font-family: var(--font-display); font-size: .88rem; font-weight: 800; text-align: center; color: var(--color-text); margin: 0 0 .4rem; }
-.fl-confirm-msg   { font-family: var(--font-body); font-size: .77rem; text-align: center; color: var(--color-secondary-text); line-height: 1.55; margin: 0; }
-.fl-confirm-detail { background: var(--color-bg-subtle); border: 1px solid var(--color-border-subtle); border-radius: var(--r-md); padding: .5rem .75rem; margin-top: .65rem; font-family: var(--font-display); font-size: .7rem; font-weight: 700; text-align: center; color: var(--color-text); }
+    .lc-textarea { resize:vertical; min-height:90px; }
 
-/* Buttons */
-.btn-danger {
-    display: inline-flex; align-items: center; gap: var(--sp-xs);
-    background: var(--color-error); color: #fff; padding: .45rem 1rem;
-    border-radius: var(--r-md); font-family: var(--font-display); font-weight: 700; font-size: .82rem;
-    border: none; cursor: pointer; min-height: 36px; white-space: nowrap;
-    transition: background .15s, transform .1s;
-}
-.btn-danger:hover { background: #b91c1c; transform: translateY(-1px); }
+    .lc-selection-bar {
+        padding:.7rem 1rem;
+        border-bottom:1px solid var(--color-border-subtle,#e5e7eb);
+        background:rgba(245,130,32,.07);
+        display:none;
+        justify-content:space-between;
+        align-items:center;
+        gap:.75rem;
+        flex-wrap:wrap;
+    }
 
-/* Amount cells */
-.amount-cell { font-family: var(--font-display); font-weight: 700; font-size: .78rem; white-space: nowrap; }
-.amount-cell.muted { color: var(--color-secondary-text); }
-.amount-cell.good  { color: var(--color-success); }
-.amount-cell.bad   { color: var(--color-error); }
+    .lc-selection-bar.open { display:flex; }
 
-/* Échéance dépassée */
-.echeance-late { color: var(--color-error); font-weight: 700; }
-.echeance-ok   { color: var(--color-text); }
-.echeance-soon { color: var(--color-warning); font-weight: 600; }
+    .lc-selection-count {
+        font-size:.72rem;
+        font-weight:900;
+        color:var(--color-primary,#f58220);
+        display:inline-flex;
+        align-items:center;
+        gap:.4rem;
+    }
 
-/* Vide */
-.lc-empty { text-align: center; padding: 3rem 1rem; color: var(--color-secondary-text); font-family: var(--font-display); font-size: .82rem; }
-.lc-empty i { font-size: 2rem; color: var(--color-border); display: block; margin-bottom: .6rem; }
+    .lc-list { max-height:calc(100vh - 390px); overflow:auto; }
 
-/* Chip compteur */
-.count-chip {
-    display: inline-flex; align-items: center; gap: .3rem;
-    padding: .25rem .65rem; border-radius: var(--r-pill);
-    background: var(--color-sidebar-active); border: 1px solid rgba(245,130,32,.25);
-    color: var(--color-primary); font-family: var(--font-display); font-size: .63rem; font-weight: 700;
-}
+    .lc-contract-item {
+        padding:.85rem 1rem;
+        border-bottom:1px solid var(--color-border-subtle,#e5e7eb);
+        cursor:pointer;
+        transition:.15s ease;
+        display:grid;
+        grid-template-columns:28px minmax(0,1fr);
+        gap:.7rem;
+        align-items:start;
+    }
+
+    .lc-contract-item:hover,.lc-contract-item.active {
+        background:rgba(245,130,32,.07);
+    }
+
+    .lc-select-contract {
+        width:18px;
+        height:18px;
+        accent-color:var(--color-primary,#f58220);
+        cursor:pointer;
+        margin-top:.2rem;
+    }
+
+    .lc-contract-content { min-width:0; }
+
+    .lc-contract-top {
+        display:flex;
+        justify-content:space-between;
+        gap:.8rem;
+        align-items:flex-start;
+    }
+
+    .lc-contract-ref {
+        font-size:.78rem;
+        font-weight:900;
+        color:var(--color-text,#111827);
+        margin:0;
+    }
+
+    .lc-contract-meta {
+        margin:.15rem 0 0;
+        color:var(--color-secondary-text,#6b7280);
+        font-size:.68rem;
+        line-height:1.4;
+    }
+
+    .lc-status {
+        display:inline-flex;
+        align-items:center;
+        gap:.28rem;
+        padding:.25rem .55rem;
+        border-radius:999px;
+        font-size:.58rem;
+        font-weight:900;
+        white-space:nowrap;
+        border:1px solid transparent;
+    }
+
+    .lc-status.actif { background:rgba(22,163,74,.1); color:#15803d; border-color:rgba(22,163,74,.22); }
+    .lc-status.retard { background:rgba(220,38,38,.1); color:#b91c1c; border-color:rgba(220,38,38,.22); }
+    .lc-status.termine { background:rgba(37,99,235,.1); color:#2563eb; border-color:rgba(37,99,235,.22); }
+    .lc-status.suspendu { background:rgba(107,114,128,.1); color:#4b5563; border-color:rgba(107,114,128,.22); }
+    .lc-status.solde { background:rgba(37,99,235,.1); color:#1d4ed8; border-color:rgba(37,99,235,.22); }
+    .lc-status.contentieux { background:rgba(124,45,18,.1); color:#9a3412; border-color:rgba(124,45,18,.22); }
+
+    .lc-sub-badges {
+        margin-top:.55rem;
+        display:flex;
+        flex-wrap:wrap;
+        gap:.35rem;
+    }
+
+    .lc-type-badge {
+        display:inline-flex;
+        align-items:center;
+        gap:.3rem;
+        padding:.2rem .45rem;
+        border-radius:999px;
+        font-size:.58rem;
+        font-weight:900;
+        background:rgba(37,99,235,.08);
+        color:#2563eb;
+        border:1px solid rgba(37,99,235,.16);
+    }
+
+    .lc-type-badge.late {
+        background:rgba(220,38,38,.08);
+        color:#b91c1c;
+        border-color:rgba(220,38,38,.18);
+    }
+
+    .lc-money-row {
+        margin-top:.65rem;
+        display:flex;
+        align-items:center;
+        gap:.55rem;
+    }
+
+    .lc-progress {
+        flex:1;
+        height:7px;
+        border-radius:999px;
+        background:var(--color-border-subtle,#e5e7eb);
+        overflow:hidden;
+    }
+
+    .lc-progress > span {
+        display:block;
+        height:100%;
+        border-radius:999px;
+        background:var(--color-primary,#f58220);
+    }
+
+    .lc-progress-text {
+        font-size:.65rem;
+        font-weight:900;
+        color:var(--color-secondary-text,#6b7280);
+        white-space:nowrap;
+    }
+
+    .lc-empty {
+        padding:2rem;
+        text-align:center;
+        color:var(--color-secondary-text,#6b7280);
+        font-weight:800;
+        font-size:.82rem;
+    }
+
+    .lc-detail { min-height:600px; }
+
+    .lc-detail-body {
+        padding:1rem;
+        display:flex;
+        flex-direction:column;
+        gap:1rem;
+    }
+
+    .lc-detail-title {
+        display:flex;
+        justify-content:space-between;
+        gap:1rem;
+        align-items:flex-start;
+    }
+
+    @media(max-width:720px){
+        .lc-detail-title{flex-direction:column;}
+    }
+
+    .lc-detail-title h3 {
+        margin:0;
+        font-size:1.05rem;
+        font-weight:900;
+        color:var(--color-text,#111827);
+    }
+
+    .lc-detail-title p {
+        margin:.25rem 0 0;
+        font-size:.72rem;
+        color:var(--color-secondary-text,#6b7280);
+    }
+
+    .lc-detail-actions {
+        display:flex;
+        flex-wrap:wrap;
+        gap:.45rem;
+        align-items:center;
+        justify-content:flex-end;
+    }
+
+    .lc-info-grid {
+        display:grid;
+        grid-template-columns:repeat(4,minmax(0,1fr));
+        gap:.65rem;
+    }
+
+    @media(max-width:900px){
+        .lc-info-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
+    }
+
+    .lc-info {
+        background:rgba(148,163,184,.06);
+        border:1px solid var(--color-border-subtle,#e5e7eb);
+        border-radius:14px;
+        padding:.75rem;
+    }
+
+    .lc-info span {
+        font-size:.58rem;
+        text-transform:uppercase;
+        letter-spacing:.06em;
+        color:var(--color-secondary-text,#6b7280);
+        font-weight:900;
+    }
+
+    .lc-info strong {
+        display:block;
+        margin-top:.18rem;
+        color:var(--color-text,#111827);
+        font-size:.8rem;
+        font-weight:900;
+        overflow:hidden;
+        text-overflow:ellipsis;
+    }
+
+    .lc-section-title {
+        display:flex;
+        justify-content:space-between;
+        gap:.7rem;
+        align-items:center;
+        margin-bottom:.65rem;
+    }
+
+    .lc-section-title h4 {
+        margin:0;
+        font-size:.85rem;
+        font-weight:900;
+        color:var(--color-text,#111827);
+        display:flex;
+        align-items:center;
+        gap:.4rem;
+    }
+
+    .lc-sub-list {
+        display:grid;
+        grid-template-columns:repeat(2,minmax(0,1fr));
+        gap:.7rem;
+    }
+
+    @media(max-width:850px){
+        .lc-sub-list{grid-template-columns:1fr;}
+    }
+
+    .lc-sub-card {
+        border:1px solid var(--color-border-subtle,#e5e7eb);
+        border-radius:15px;
+        padding:.85rem;
+        background:var(--color-card,#fff);
+        display:flex;
+        flex-direction:column;
+        gap:.65rem;
+        position:relative;
+    }
+
+    .lc-sub-head {
+        display:flex;
+        justify-content:space-between;
+        gap:.7rem;
+        align-items:flex-start;
+    }
+
+    .lc-sub-title {
+        margin:0;
+        font-size:.82rem;
+        font-weight:900;
+        color:var(--color-text,#111827);
+        display:flex;
+        gap:.42rem;
+        align-items:center;
+    }
+
+    .lc-sub-title i { color:var(--color-primary,#f58220); }
+
+    .lc-sub-meta {
+        margin:.18rem 0 0;
+        font-size:.66rem;
+        color:var(--color-secondary-text,#6b7280);
+    }
+
+    .lc-sub-actions {
+        display:flex;
+        flex-wrap:wrap;
+        gap:.35rem;
+        margin-top:.2rem;
+    }
+
+    .lc-sub-action {
+        border:1px solid var(--color-border-subtle,#e5e7eb);
+        background:transparent;
+        color:var(--color-secondary-text,#6b7280);
+        border-radius:9px;
+        padding:.35rem .5rem;
+        font-size:.62rem;
+        font-weight:900;
+        cursor:pointer;
+    }
+
+    .lc-sub-action:hover {
+        color:var(--color-primary,#f58220);
+        border-color:var(--color-primary,#f58220);
+    }
+
+    .lc-policy-box {
+        border:1px solid var(--color-border-subtle,#e5e7eb);
+        border-radius:15px;
+        background:rgba(245,130,32,.04);
+        padding:.85rem;
+    }
+
+    .lc-policy-row,.lc-type-row {
+        display:grid;
+        grid-template-columns:minmax(0,1.2fr) 110px 110px;
+        gap:.55rem;
+        align-items:center;
+        padding:.55rem 0;
+        border-bottom:1px dashed var(--color-border-subtle,#e5e7eb);
+    }
+
+    .lc-policy-row:last-child,.lc-type-row:last-child {
+        border-bottom:none;
+    }
+
+    @media(max-width:760px){
+        .lc-policy-row,.lc-type-row{grid-template-columns:1fr;}
+    }
+
+    .lc-policy-name {
+        font-size:.76rem;
+        font-weight:900;
+        color:var(--color-text,#111827);
+    }
+
+    .lc-policy-help {
+        display:block;
+        margin-top:.12rem;
+        color:var(--color-secondary-text,#6b7280);
+        font-size:.63rem;
+        font-weight:600;
+    }
+
+    .lc-switch {
+        position:relative;
+        width:44px;
+        height:24px;
+        display:inline-block;
+    }
+
+    .lc-switch input {
+        opacity:0;
+        width:0;
+        height:0;
+    }
+
+    .lc-slider {
+        position:absolute;
+        inset:0;
+        border-radius:999px;
+        background:#cbd5e1;
+        transition:.16s;
+        cursor:pointer;
+    }
+
+    .lc-slider:before {
+        content:"";
+        position:absolute;
+        width:16px;
+        height:16px;
+        top:4px;
+        left:4px;
+        border-radius:999px;
+        background:white;
+        transition:.16s;
+        box-shadow:0 2px 6px rgba(0,0,0,.2);
+    }
+
+    .lc-switch input:checked + .lc-slider {
+        background:#16a34a;
+    }
+
+    .lc-switch input:checked + .lc-slider:before {
+        transform:translateX(20px);
+    }
+
+    .lc-inline-edit {
+        border:1px solid var(--color-border-subtle,#e5e7eb);
+        border-radius:14px;
+        padding:.85rem;
+        background:rgba(148,163,184,.05);
+    }
+
+    .lc-form-help {
+        font-size:.64rem;
+        color:var(--color-secondary-text,#6b7280);
+        line-height:1.4;
+        margin-top:.35rem;
+    }
+
+    .lc-danger-zone {
+        border:1px solid rgba(220,38,38,.22);
+        background:rgba(220,38,38,.06);
+        color:#991b1b;
+        padding:.8rem;
+        border-radius:14px;
+        font-size:.72rem;
+        font-weight:800;
+    }
+
+    .lc-modal-backdrop {
+        position:fixed;
+        inset:0;
+        background:rgba(15,23,42,.55);
+        z-index:9998;
+        opacity:0;
+        pointer-events:none;
+        transition:.18s;
+    }
+
+    .lc-modal-backdrop.open {
+        opacity:1;
+        pointer-events:auto;
+    }
+
+    .lc-drawer {
+        position:fixed;
+        top:0;
+        right:0;
+        width:min(780px,100%);
+        height:100vh;
+        background:var(--color-card,#fff);
+        z-index:9999;
+        transform:translateX(100%);
+        transition:.22s;
+        box-shadow:-12px 0 36px rgba(15,23,42,.22);
+        display:flex;
+        flex-direction:column;
+    }
+
+    .lc-drawer.open { transform:translateX(0); }
+
+    .lc-drawer form {
+        height:100%;
+        display:flex;
+        flex-direction:column;
+    }
+
+    .lc-drawer-head {
+        padding:1rem;
+        border-bottom:1px solid var(--color-border-subtle,#e5e7eb);
+        display:flex;
+        justify-content:space-between;
+        gap:1rem;
+        align-items:flex-start;
+    }
+
+    .lc-drawer-head h3 {
+        margin:0;
+        font-size:1rem;
+        font-weight:900;
+        color:var(--color-text,#111827);
+    }
+
+    .lc-drawer-head p {
+        margin:.2rem 0 0;
+        font-size:.72rem;
+        color:var(--color-secondary-text,#6b7280);
+    }
+
+    .lc-drawer-body {
+        padding:1rem;
+        overflow:auto;
+        flex:1;
+        display:flex;
+        flex-direction:column;
+        gap:1rem;
+    }
+
+    .lc-drawer-foot {
+        padding:.85rem 1rem;
+        border-top:1px solid var(--color-border-subtle,#e5e7eb);
+        display:flex;
+        justify-content:flex-end;
+        gap:.55rem;
+        flex-wrap:wrap;
+    }
+
+    .lc-form-grid {
+        display:grid;
+        grid-template-columns:repeat(2,minmax(0,1fr));
+        gap:.75rem;
+    }
+
+    @media(max-width:700px){
+        .lc-form-grid{grid-template-columns:1fr;}
+    }
+
+    .lc-field {
+        display:flex;
+        flex-direction:column;
+        gap:.28rem;
+    }
+
+    .lc-field.full {
+        grid-column:1 / -1;
+    }
+
+    .lc-field label {
+        font-size:.62rem;
+        font-weight:900;
+        text-transform:uppercase;
+        letter-spacing:.06em;
+        color:var(--color-secondary-text,#6b7280);
+    }
+
+    .lc-subform-card {
+        border:1px solid var(--color-border-subtle,#e5e7eb);
+        border-radius:15px;
+        overflow:hidden;
+        background:rgba(148,163,184,.05);
+    }
+
+    .lc-subform-head {
+        padding:.7rem .8rem;
+        border-bottom:1px solid var(--color-border-subtle,#e5e7eb);
+        display:flex;
+        justify-content:space-between;
+        align-items:center;
+        gap:.6rem;
+    }
+
+    .lc-subform-head strong {
+        font-size:.78rem;
+        color:var(--color-text,#111827);
+        font-weight:900;
+    }
+
+    .lc-subform-body { padding:.8rem; }
 </style>
 @endpush
 
 @section('content')
-
-@if(!empty($pageError))
-    <div class="alert alert-danger" style="margin-bottom:.75rem;">
-        {{ $pageError }}
-    </div>
-@endif
-
-@if(session('success'))
-    <div class="alert alert-success" style="margin-bottom:.75rem;">
-        {{ session('success') }}
-    </div>
-@endif
-
-@if(session('error'))
-    <div class="alert alert-danger" style="margin-bottom:.75rem;">
-        {{ session('error') }}
-    </div>
-@endif
-
-@if($errors->any())
-    <div class="alert alert-danger" style="margin-bottom:.75rem;">
-        <ul style="margin:0;padding-left:1.25rem;">
-            @foreach($errors->all() as $error)
-                <li>{{ $error }}</li>
-            @endforeach
-        </ul>
-    </div>
-@endif
-
-
-@php
-$contracts = $contracts ?? [];
-$chauffeurs_list = $chauffeurs_list ?? [];
-$vehicules_list = $vehicules_list ?? [];
-@endphp
-
-{{-- ═══════════════════════════════════════════════
-     KPI STICKY BAR
-═══════════════════════════════════════════════ --}}
-<div class="lc-kpi-bar" id="lcKpiBar">
-    <div class="lc-kpi-grid">
-
-        <div class="lckpi">
-            <div class="lckpi-left">
-                <p class="lckpi-label">Contrats actifs</p>
-                <p class="lckpi-value" id="kActive">—</p>
-            </div>
-            <div class="lckpi-icon ico-green"><i class="fas fa-file-contract"></i></div>
+<div class="lease-console">
+    @if(session('success'))
+        <div class="lc-panel" style="padding:.85rem 1rem;color:#15803d;background:rgba(22,163,74,.08);border-color:rgba(22,163,74,.22);">
+            <strong><i class="fas fa-check-circle"></i> Succès :</strong>
+            {{ session('success') }}
         </div>
+    @endif
 
-        <div class="lckpi">
-            <div class="lckpi-left">
-                <p class="lckpi-label">Montant engagé</p>
-                <p class="lckpi-value neutral" id="kEngaged">—</p>
-            </div>
-            <div class="lckpi-icon ico-grey"><i class="fas fa-file-invoice-dollar"></i></div>
+    @if(session('error'))
+        <div class="lc-panel" style="padding:.85rem 1rem;color:#b91c1c;background:rgba(220,38,38,.08);border-color:rgba(220,38,38,.22);">
+            <strong><i class="fas fa-exclamation-triangle"></i> Erreur :</strong>
+            {{ session('error') }}
         </div>
+    @endif
 
-        <div class="lckpi">
-            <div class="lckpi-left">
-                <p class="lckpi-label">Total collecté</p>
-                <p class="lckpi-value success" id="kCollected">—</p>
-            </div>
-            <div class="lckpi-icon ico-green"><i class="fas fa-coins"></i></div>
+    @if($errors->any())
+        <div class="lc-panel" style="padding:.85rem 1rem;color:#b91c1c;background:rgba(220,38,38,.08);border-color:rgba(220,38,38,.22);">
+            <strong><i class="fas fa-exclamation-circle"></i> Validation :</strong>
+            <ul style="margin:.5rem 0 0 1.2rem;">
+                @foreach($errors->all() as $error)
+                    <li style="font-size:.78rem;">{{ $error }}</li>
+                @endforeach
+            </ul>
         </div>
+    @endif
 
-        <div class="lckpi">
-            <div class="lckpi-left">
-                <p class="lckpi-label">Restant dû</p>
-                <p class="lckpi-value warning" id="kRemaining">—</p>
+    @if(!empty($pageWarnings))
+        @foreach($pageWarnings as $warning)
+            <div class="lc-panel" style="padding:.85rem 1rem;color:#b45309;background:rgba(245,158,11,.08);border-color:rgba(245,158,11,.25);">
+                <strong><i class="fas fa-exclamation-triangle"></i> Attention :</strong>
+                {{ $warning }}
             </div>
-            <div class="lckpi-icon ico-amber"><i class="fas fa-hourglass-half"></i></div>
+        @endforeach
+    @endif
+
+    @if(!empty($pageError))
+        <div class="lc-panel" style="padding:.85rem 1rem;color:#b45309;background:rgba(245,158,11,.08);border-color:rgba(245,158,11,.25);">
+            <strong><i class="fas fa-exclamation-triangle"></i> Attention :</strong>
+            {{ $pageError }}
         </div>
+    @endif
 
-        <div class="lckpi">
-            <div class="lckpi-left">
-                <p class="lckpi-label">En retard</p>
-                <p class="lckpi-value danger" id="kLate">—</p>
-            </div>
-            <div class="lckpi-icon ico-red"><i class="fas fa-exclamation-triangle"></i></div>
+    @if($contractTypes->isEmpty())
+        <div class="lc-panel" style="padding:.85rem 1rem;color:#b91c1c;background:rgba(220,38,38,.08);border-color:rgba(220,38,38,.22);">
+            <strong><i class="fas fa-ban"></i> Types de contrats indisponibles :</strong>
+            la création de contrats est désactivée tant que l’API recouvrement ne retourne pas les types.
         </div>
+    @endif
 
-        <div class="lckpi">
-            <div class="lckpi-left">
-                <p class="lckpi-label">Terminés</p>
-                <p class="lckpi-value info" id="kDone">—</p>
-            </div>
-            <div class="lckpi-icon ico-blue"><i class="fas fa-check-double"></i></div>
-        </div>
-
-    </div>
-</div>
-
-{{-- ═══════════════════════════════════════════════
-     CONTENU PRINCIPAL
-═══════════════════════════════════════════════ --}}
-<div style="padding-top:.75rem;">
-
-    {{-- Header --}}
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:.75rem;">
+    <section class="lc-hero">
         <div>
-            <h1 style="font-family:var(--font-display);font-size:1.05rem;font-weight:800;color:var(--color-text);margin:0;display:flex;align-items:center;gap:.5rem;">
-                <i class="fas fa-file-signature" style="color:var(--color-primary);font-size:.9rem;"></i>
-                Contrats Lease
+            <h1>
+                <i class="fas fa-file-contract"></i>
+                Contrats, sous-contrats et règles de coupure
             </h1>
-           
-        </div>
-        <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">
-            <button class="btn-secondary" onclick="window.exportContractsCsv()" title="Exporter">
-                <i class="fas fa-download"></i> Export
-            </button>
-            <button class="btn-primary" id="btnNewContract" onclick="window.openContractModal()">
-                <i class="fas fa-plus"></i> Nouveau contrat
-            </button>
-        </div>
-    </div>
-
-    {{-- Onglets navigation (cohérence avec users.blade) --}}
-    <div style="border-bottom:1px solid var(--color-border-subtle);padding-bottom:.7rem;margin-bottom:.8rem;">
-        <nav style="display:flex;align-items:center;gap:.25rem;flex-wrap:wrap;">
-            <a href="#" class="nav-tab active" style="display:inline-flex;align-items:center;gap:.4rem;padding:.42rem .85rem;border-radius:.5rem;font-family:var(--font-display);font-size:.67rem;font-weight:600;letter-spacing:.02em;text-decoration:none;color:var(--color-primary);background:var(--color-primary-light);border:1px solid var(--color-primary-border);">
-                <i class="fas fa-file-contract"></i> Contrats
-            </a>
-            <a href="#" style="display:inline-flex;align-items:center;gap:.4rem;padding:.42rem .85rem;border-radius:.5rem;font-family:var(--font-display);font-size:.67rem;font-weight:600;letter-spacing:.02em;text-decoration:none;color:var(--color-secondary-text);border:1px solid transparent;transition:all .15s;" onmouseover="this.style.color='var(--color-primary)';this.style.background='var(--color-primary-light)';this.style.borderColor='var(--color-border-subtle)';" onmouseout="this.style.color='var(--color-secondary-text)';this.style.background='transparent';this.style.borderColor='transparent';">
-                <i class="fas fa-money-bill-wave"></i> Paiements
-            </a>
-            
-        </nav>
-    </div>
-
-    {{-- ── TOOLBAR ── --}}
-    <div class="lc-toolbar">
-
-        <div class="lc-search-wrap">
-            <i class="fas fa-search"></i>
-            <input type="text" id="contractSearch" placeholder="Réf, chauffeur, véhicule…" autocomplete="off">
-        </div>
-
-        <div class="toolbar-sep"></div>
-
-        {{-- Filtre statut --}}
-        <div class="filter-pill-wrap" id="fw-statut">
-            <button class="filter-pill-btn" id="fpb-statut" onclick="lcToggleDrop('statut')">
-                <i class="fas fa-tag" style="font-size:.6rem;"></i>
-                Statut
-                <i class="fas fa-chevron-down fchev"></i>
-            </button>
-            <div class="filter-dropdown-menu" id="fdrop-statut">
-                <div class="fdrop-label">Filtrer par statut</div>
-                <div class="fdrop-item selected" data-val="all"      onclick="lcSetFilter('statut','all',this)">
-                    <span class="fdot" style="background:var(--color-border)"></span>Tous<i class="fas fa-check fcheck"></i>
-                </div>
-                <div class="fdrop-item" data-val="actif"    onclick="lcSetFilter('statut','actif',this)">
-                    <span class="fdot" style="background:var(--color-success)"></span>Actifs<i class="fas fa-check fcheck"></i>
-                </div>
-                <div class="fdrop-item" data-val="retard"   onclick="lcSetFilter('statut','retard',this)">
-                    <span class="fdot" style="background:var(--color-error)"></span>En retard<i class="fas fa-check fcheck"></i>
-                </div>
-                <div class="fdrop-item" data-val="termine"  onclick="lcSetFilter('statut','termine',this)">
-                    <span class="fdot" style="background:var(--color-info)"></span>Terminés<i class="fas fa-check fcheck"></i>
-                </div>
-                <div class="fdrop-item" data-val="suspendu" onclick="lcSetFilter('statut','suspendu',this)">
-                    <span class="fdot" style="background:var(--color-warning)"></span>Suspendus<i class="fas fa-check fcheck"></i>
-                </div>
-            </div>
-        </div>
-
-        {{-- Filtre fréquence --}}
-        <div class="filter-pill-wrap" id="fw-freq">
-            <button class="filter-pill-btn" id="fpb-freq" onclick="lcToggleDrop('freq')">
-                <i class="fas fa-sync-alt" style="font-size:.6rem;"></i>
-                Fréquence
-                <i class="fas fa-chevron-down fchev"></i>
-            </button>
-            <div class="filter-dropdown-menu" id="fdrop-freq">
-                <div class="fdrop-label">Fréquence paiement</div>
-                <div class="fdrop-item selected" data-val="all"           onclick="lcSetFilter('freq','all',this)">Toutes<i class="fas fa-check fcheck"></i></div>
-                <div class="fdrop-item"           data-val="journalier"    onclick="lcSetFilter('freq','journalier',this)">Journalier<i class="fas fa-check fcheck"></i></div>
-                <div class="fdrop-item"           data-val="hebdomadaire"  onclick="lcSetFilter('freq','hebdomadaire',this)">Hebdomadaire<i class="fas fa-check fcheck"></i></div>
-                <div class="fdrop-item"           data-val="mensuel"       onclick="lcSetFilter('freq','mensuel',this)">Mensuel<i class="fas fa-check fcheck"></i></div>
-            </div>
-        </div>
-
-        <div class="toolbar-sep"></div>
-
-        <span class="count-chip" id="contractsCount">
-            <i class="fas fa-file-contract" style="font-size:.58rem;"></i>
-            <span id="contractsCountVal">10</span> contrat(s)
-        </span>
-
-    </div>
-
-    {{-- ── TABLEAU ── --}}
-    <div class="lc-table-card">
-        <div class="lc-table-scroll">
-            <table class="ui-table" id="contractsTable">
-                <thead>
-                    <tr>
-                        <th style="cursor:pointer;" onclick="lcSort('ref')">
-                            Référence <i class="fas fa-sort" style="font-size:.5rem;opacity:.4;"></i>
-                        </th>
-                        <th style="cursor:pointer;" onclick="lcSort('chauffeur')">
-                            Chauffeur <i class="fas fa-sort" style="font-size:.5rem;opacity:.4;"></i>
-                        </th>
-                        <th>Véhicule</th>
-                        <th style="text-align:right;">Montant total</th>
-                        <th>Progression</th>
-                        <th style="text-align:right;">Total payé</th>
-                        <th style="text-align:right;">Restant</th>
-                        <th>Versement</th>
-                        <th>Fréquence</th>
-                        <th>Prochaine échéance</th>
-                        <th>Statut</th>
-                        <th style="text-align:right;">Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="contractsTableBody">
-                    {{-- Rempli par JS --}}
-                </tbody>
-            </table>
-        </div>
-
-        <div class="lc-table-footer">
-            <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;">
-                <div class="lc-table-info">
-                    <i class="fas fa-info-circle" style="color:var(--color-primary);font-size:.62rem;"></i>
-                    <span id="lcTableInfo">—</span>
-                </div>
-                <div class="perpage-select">
-                    Afficher
-                    <select id="lcPerPage" onchange="lcSetPerPage(this.value)">
-                        <option value="10" selected>10</option>
-                        <option value="25">25</option>
-                        <option value="50">50</option>
-                    </select>
-                    lignes
-                </div>
-            </div>
-            <div class="lc-pagination" id="lcPagination"></div>
-        </div>
-    </div>
-
-</div>
-
-{{-- ═══════════════════════════════════════════════
-     MODALE CRÉER / ÉDITER CONTRAT
-═══════════════════════════════════════════════ --}}
-<div id="modalContract" class="fl-modal-overlay" aria-modal="true" role="dialog">
-    <div class="fl-modal-panel" id="modalContractPanel">
-
-        {{-- Header sticky --}}
-        <div class="fl-modal-header">
-            <div>
-                <h2 class="fl-modal-title" id="contractModalTitle">
-                    <i class="fas fa-file-signature" style="color:var(--color-primary);font-size:.82rem;margin-right:.35rem;"></i>
-                    Nouveau contrat
-                </h2>
-                <p class="fl-modal-subtitle" id="contractModalSub">Définissez les conditions du contrat de lease</p>
-            </div>
-            <button type="button" class="fl-modal-close" onclick="lcCloseModal('modalContract')">&times;</button>
-        </div>
-
-        <form id="contractForm" method="POST" action="{{ route('lease.contrat.store') }}">
-            @csrf
-
-            <div class="fl-modal-body">
-
-                {{-- ── Section Affectation ── --}}
-                <div class="modal-section">
-                    <div class="modal-section-header">
-                        <i class="fas fa-link"></i>
-                        Affectation
-                    </div>
-                    <div class="modal-section-body">
-                        <div class="form-grid-2" style="margin-bottom:.6rem;">
-                            <div class="fl-form-group">
-                                <label class="fl-form-label">Chauffeur <span style="color:var(--color-error);">*</span></label>
-                                <select id="ctChauffeur" name="chauffeur" class="ui-input-style" style="appearance:auto;" required>
-                                    <option value="">Sélectionner un chauffeur…</option>
-                                    @foreach(($chauffeurs_list ?? []) as $ch)
-                                        @php
-                                            $chId = is_array($ch) ? ($ch['id'] ?? null) : ($ch->id ?? null);
-                                            $chLabel = is_array($ch)
-                                                ? ($ch['label'] ?? $ch['nom_complet'] ?? $ch['email'] ?? ('Chauffeur #' . $chId))
-                                                : ($ch->label ?? $ch->nom_complet ?? $ch->email ?? ('Chauffeur #' . $chId));
-                                        @endphp
-                                        @if($chId)
-                                            <option value="{{ $chId }}" @selected(old('chauffeur') == $chId)>{{ $chLabel }}</option>
-                                        @endif
-                                    @endforeach
-                                </select>
-                                @if(empty($chauffeurs_list))
-                                    <small style="color:var(--color-error);font-size:.68rem;">Aucun chauffeur recouvrement trouvé.</small>
-                                @endif
-                            </div>
-                            <div class="fl-form-group">
-                                <label class="fl-form-label">Véhicule <span style="color:var(--color-error);">*</span></label>
-                                <select id="ctVehicule" name="immatriculation" class="ui-input-style" style="appearance:auto;" required>
-                                    <option value="">Sélectionner un véhicule…</option>
-                                    @foreach(($vehicules_list ?? []) as $veh)
-                                        @php
-                                            $vehId = is_array($veh) ? ($veh['id'] ?? null) : ($veh->id ?? null);
-                                            $immat = is_array($veh) ? ($veh['immatriculation'] ?? '') : ($veh->immatriculation ?? '');
-                                            $vehLabel = is_array($veh) ? ($veh['label'] ?? $immat) : ($veh->label ?? $immat);
-                                        @endphp
-                                        @if($vehId && $immat)
-                                            <option value="{{ $immat }}" data-vehicle-id="{{ $vehId }}" @selected(old('immatriculation') == $immat)>{{ $vehLabel }}</option>
-                                        @endif
-                                    @endforeach
-                                </select>
-                                <input type="hidden" id="ctVehicleId" name="vehicle_id" value="{{ old('vehicle_id') }}">
-                                @if(empty($vehicules_list))
-                                    <small style="color:var(--color-error);font-size:.68rem;">Aucun véhicule local trouvé.</small>
-                                @endif
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {{-- ── Section Durée ── --}}
-                <div class="modal-section">
-                    <div class="modal-section-header">
-                        <i class="fas fa-calendar-alt"></i>
-                        Durée du contrat
-                    </div>
-                    <div class="modal-section-body">
-                        <div class="form-grid-3">
-                            <div class="fl-form-group">
-                                <label class="fl-form-label">Date de début <span style="color:var(--color-error);">*</span></label>
-                                <input type="date" id="ctDateDebut" name="date_debut" class="ui-input-style" value="{{ old('date_debut') }}" required>
-                            </div>
-                            <div class="fl-form-group">
-                                <label class="fl-form-label">Date de fin prévue <span style="color:var(--color-error);">*</span></label>
-                                <input type="date" id="ctDateFin" name="date_fin" class="ui-input-style" value="{{ old('date_fin') }}" required>
-                            </div>
-                            <div class="fl-form-group">
-                                <label class="fl-form-label">Prochaine échéance <span style="color:var(--color-error);">*</span></label>
-                                <input type="date" id="ctPremEcheance" name="prochaine_echeance" class="ui-input-style" value="{{ old('prochaine_echeance') }}" required>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {{-- ── Section Financier ── --}}
-                <div class="modal-section">
-                    <div class="modal-section-header">
-                        <i class="fas fa-coins"></i>
-                        Conditions financières
-                    </div>
-                    <div class="modal-section-body">
-                        <div class="form-grid-3" style="margin-bottom:.6rem;">
-                            <div class="fl-form-group">
-                                <label class="fl-form-label">Montant total contrat (XAF) <span style="color:var(--color-error);">*</span></label>
-                                <input type="number" id="ctMontantTotal" name="montant_total" class="ui-input-style" placeholder="1500000" min="1" step="1000" value="{{ old('montant_total') }}" oninput="lcCalcContractPreview()" required>
-                            </div>
-                            <div class="fl-form-group">
-                                <label class="fl-form-label">Versement régulier (XAF) <span style="color:var(--color-error);">*</span></label>
-                                <input type="number" id="ctVersement" name="montant_par_paiement" class="ui-input-style" placeholder="25000" min="1" step="500" value="{{ old('montant_par_paiement', '25000') }}" oninput="lcCalcContractPreview()" required>
-                            </div>
-                            <div class="fl-form-group">
-                                <label class="fl-form-label">Fréquence <span style="color:var(--color-error);">*</span></label>
-                                <select id="ctFrequence" name="frequence" class="ui-input-style" style="appearance:auto;" onchange="lcCalcContractPreview()" required>
-                                    <option value="">—</option>
-                                    <option value="JOURNALIER" @selected(old('frequence') === 'JOURNALIER')>JOURNALIER</option>
-                                    <option value="HEBDOMADAIRE" @selected(old('frequence', 'HEBDOMADAIRE') === 'HEBDOMADAIRE')>HEBDOMADAIRE</option>
-                                    <option value="MENSUEL" @selected(old('frequence') === 'MENSUEL')>MENSUEL</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div id="ctCalcPreview" style="width:100%;background:var(--color-primary-light);border:1px solid var(--color-primary-border);border-radius:var(--r-md);padding:.45rem .65rem;font-family:var(--font-display);font-size:.7rem;color:var(--color-primary);font-weight:700;display:none;">
-                            <i class="fas fa-calculator" style="margin-right:.3rem;"></i>
-                            <span id="ctCalcText">—</span>
-                        </div>
-                    </div>
-                </div>
-
-                {{-- ── Section Options ── --}}
-                <div class="modal-section">
-                    <div class="modal-section-header">
-                        <i class="fas fa-sliders-h"></i>
-                        Options & configuration
-                    </div>
-                    <div class="modal-section-body">
-                        <div class="option-row">
-                            <div class="option-label">
-                                Coupure automatique
-                                <small>Créer ou mettre à jour la règle de coupure locale pour ce véhicule</small>
-                            </div>
-
-                            <label style="display:flex;align-items:center;gap:.55rem;cursor:pointer;">
-                                <input type="checkbox" id="ctCoupureAuto" name="coupure_auto" value="1" @checked(old('coupure_auto'))>
-                                <span style="font-size:.75rem;color:var(--color-secondary-text);">Activer</span>
-                            </label>
-                        </div>
-
-                        <div id="ctCutoffTimeWrap" style="margin-top:.65rem;display:none;">
-                            <label class="fl-form-label" style="display:block;margin-bottom:.3rem;">Heure de coupure</label>
-                            <input type="time" id="ctCutoffTime" name="cutoff_time" class="ui-input-style" value="{{ old('cutoff_time', '12:00') }}" style="max-width:180px;">
-                        </div>
-                    </div>
-                </div>
-
-            </div>
-
-            {{-- Footer sticky --}}
-            <div class="fl-modal-footer">
-                <button type="button" class="btn-secondary" onclick="lcCloseModal('modalContract')">Annuler</button>
-                <button type="button" class="btn-primary" id="ctSubmitBtn" onclick="lcSubmitContract()">
-                    <i class="fas fa-plus"></i> Créer le contrat
-                </button>
-            </div>
-        </form>
-    </div>
-</div>
-
-{{-- ═══════════════════════════════════════════════
-     MODALE CONFIRMATION SUPPRESSION
-═══════════════════════════════════════════════ --}}
-<div id="modalDelete" class="fl-modal-overlay" aria-modal="true" role="dialog">
-    <div class="fl-modal-panel sm" id="modalDeletePanel">
-        <div class="fl-modal-header">
-            <h2 class="fl-modal-title">Supprimer le contrat</h2>
-            <button class="fl-modal-close" onclick="lcCloseModal('modalDelete')">&times;</button>
-        </div>
-        <div class="fl-modal-body" style="text-align:center;padding-top:1.2rem;">
-            <div class="fl-confirm-icon danger"><i class="fas fa-trash-alt"></i></div>
-            <p class="fl-confirm-title">Confirmer la suppression ?</p>
-            <p class="fl-confirm-msg">Cette action est irréversible. Tout l'historique de paiement associé sera conservé mais le contrat sera définitivement supprimé.</p>
-            <div class="fl-confirm-detail" id="deleteContractDetail">—</div>
-        </div>
-        <div class="fl-modal-footer">
-            <button class="btn-secondary" onclick="lcCloseModal('modalDelete')">Annuler</button>
-            <button class="btn-danger" onclick="lcConfirmDelete()"><i class="fas fa-trash-alt"></i> Supprimer</button>
-        </div>
-    </div>
-</div>
-
-{{-- ═══════════════════════════════════════════════
-     MODALE CHANGEMENT STATUT
-═══════════════════════════════════════════════ --}}
-<div id="modalStatus" class="fl-modal-overlay" aria-modal="true" role="dialog">
-    <div class="fl-modal-panel sm" id="modalStatusPanel">
-        <div class="fl-modal-header">
-            <h2 class="fl-modal-title">Changer le statut</h2>
-            <button class="fl-modal-close" onclick="lcCloseModal('modalStatus')">&times;</button>
-        </div>
-        <div class="fl-modal-body">
-            <p style="font-family:var(--font-body);font-size:.8rem;color:var(--color-secondary-text);margin:0 0 .85rem;">
-                Sélectionnez le nouveau statut pour le contrat :
+            <p>
+                Les chauffeurs viennent de recouvrement. Les véhicules viennent de Tracking.
+                L’immatriculation et le VIN sont remplis automatiquement depuis le véhicule sélectionné.
+                Pour clôturer un contrat déjà lié à des échéances, on change son statut en SOLDÉ au lieu de le supprimer définitivement.
             </p>
-            <div class="fl-confirm-detail" id="statusContractDetail" style="margin-bottom:.85rem;">—</div>
-            <div class="fl-form-group">
-                <label class="fl-form-label">Nouveau statut</label>
-                <select id="newStatusSelect" class="ui-input-style" style="appearance:auto;">
-                    <option value="actif">✅ Actif</option>
-                    <option value="suspendu">⏸ Suspendu</option>
-                    <option value="termine">✔️ Terminé</option>
-                    <option value="retard">⚠️ En retard</option>
+        </div>
+
+        <div class="lc-actions">
+            <button type="button" class="lc-btn soft" id="openPolicyBtn">
+                <i class="fas fa-bolt"></i>
+                Paramètres du contrat
+            </button>
+
+            <button type="button"
+                    class="lc-btn primary"
+                    id="openCreateBtn"
+                    @disabled($contractTypes->isEmpty() || empty($chauffeurs_list) || empty($vehicules_list))>
+                <i class="fas fa-plus"></i>
+                Nouveau contrat
+            </button>
+        </div>
+    </section>
+
+    <section class="lc-grid-stats">
+        <div class="lc-stat">
+            <span>Contrats</span>
+            <strong>{{ $stats['total'] }}</strong>
+        </div>
+        <div class="lc-stat">
+            <span>Actifs</span>
+            <strong>{{ $stats['active'] }}</strong>
+        </div>
+        <div class="lc-stat">
+            <span>Alertes / retards</span>
+            <strong>{{ $stats['late'] }}</strong>
+        </div>
+        <div class="lc-stat">
+            <span>Sous-contrats</span>
+            <strong>{{ $stats['subs'] }}</strong>
+        </div>
+    </section>
+
+    <section class="lc-layout">
+        <aside class="lc-panel">
+            <div class="lc-panel-head">
+                <h2><i class="fas fa-list"></i> Liste des contrats</h2>
+                <span class="lc-status actif">{{ count($contractsPayload) }} ligne(s)</span>
+            </div>
+
+            <div class="lc-toolbar-advanced">
+                <input type="search"
+                       class="lc-input"
+                       id="contractSearch"
+                       placeholder="Rechercher chauffeur, véhicule, référence, VIN...">
+
+                <select class="lc-select" id="statusFilter">
+                    <option value="all">Tous les statuts</option>
+                    <option value="actif">Actifs</option>
+                    <option value="retard">Avec retard</option>
+                    <option value="solde">Soldés</option>
+                    <option value="suspendu">Suspendus</option>
+                    <option value="contentieux">Contentieux</option>
+                </select>
+
+                <select class="lc-select" id="subTypeFilter">
+                    <option value="all">Tous les types</option>
+                    <option value="main">Contrat sans sous-contrat</option>
+                    @foreach($subContractTypes as $type)
+                        <option value="{{ $type['id'] }}">Avec sous-contrat {{ $type['label'] }}</option>
+                    @endforeach
+                </select>
+
+                <select class="lc-select" id="cutoffFilter">
+                    <option value="all">Toutes les coupures</option>
+                    <option value="cutoff_enabled">Coupure activée</option>
+                    <option value="cutoff_disabled">Coupure désactivée</option>
+                    <option value="late_cuttable">Retard pouvant couper</option>
                 </select>
             </div>
-            <div class="fl-form-group" style="margin-top:.5rem;">
-                <label class="fl-form-label">Raison <span class="opt">(optionnel)</span></label>
-                <input type="text" id="statusReason" class="ui-input-style" placeholder="Motif du changement…">
+
+            <div class="lc-selection-bar" id="selectionBar">
+                <div class="lc-selection-count">
+                    <i class="fas fa-check-square"></i>
+                    <span id="selectionCount">0 contrat sélectionné</span>
+                </div>
+
+                <div class="lc-actions">
+                    <button type="button" class="lc-btn soft" id="bulkPolicyBtn">
+                        <i class="fas fa-bolt"></i>
+                        Appliquer règles
+                    </button>
+
+                    <button type="button" class="lc-btn danger" id="clearSelectionBtn">
+                        <i class="fas fa-times"></i>
+                        Annuler
+                    </button>
+                </div>
             </div>
-        </div>
-        <div class="fl-modal-footer">
-            <button class="btn-secondary" onclick="lcCloseModal('modalStatus')">Annuler</button>
-            <button class="btn-primary" onclick="lcConfirmStatus()"><i class="fas fa-check"></i> Appliquer</button>
-        </div>
-    </div>
+
+            <div class="lc-list" id="contractList"></div>
+        </aside>
+
+        <main class="lc-panel lc-detail">
+            <div class="lc-panel-head">
+                <h2><i class="fas fa-eye"></i> Détail du contrat</h2>
+                <div class="lc-actions">
+                    <button type="button" class="lc-btn soft" id="openContractPolicyBtn">
+                        <i class="fas fa-bolt"></i>
+                        Coupure du contrat
+                    </button>
+                    <button type="button" class="lc-btn" id="addSubToCurrentBtn">
+                        <i class="fas fa-layer-group"></i>
+                        Ajouter sous-contrat
+                    </button>
+                </div>
+            </div>
+
+            <div class="lc-detail-body" id="contractDetail"></div>
+        </main>
+    </section>
 </div>
 
+<div class="lc-modal-backdrop" id="drawerBackdrop"></div>
+
+{{-- DRAWER : création contrat principal --}}
+<aside class="lc-drawer" id="createDrawer">
+    <form method="POST" action="{{ route('lease.contrat.store') }}" id="createContractForm">
+        @csrf
+
+        <div class="lc-drawer-head">
+            <div>
+                <h3>Créer un contrat</h3>
+                <p>Chauffeur recouvrement + véhicule Tracking. L’immatriculation et le VIN sont automatiques.</p>
+            </div>
+            <button type="button" class="lc-btn" data-close-drawer>
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+
+        <div class="lc-drawer-body">
+            <div class="lc-panel" style="box-shadow:none;">
+                <div class="lc-panel-head">
+                    <h2><i class="fas fa-user"></i> Chauffeur et véhicule</h2>
+                </div>
+
+                <div style="padding:1rem;">
+                    <div class="lc-form-grid">
+                        <div class="lc-field">
+                            <label>Chauffeur recouvrement</label>
+                            <select class="lc-select" name="chauffeur" id="createChauffeur" required>
+                                <option value="">Sélectionner un chauffeur</option>
+                                @foreach($chauffeurs_list ?? [] as $chauffeur)
+                                    <option value="{{ $chauffeur['id'] }}">
+                                        {{ $chauffeur['label'] }}
+                                        @if(!empty($chauffeur['phone']))
+                                            — {{ $chauffeur['phone'] }}
+                                        @endif
+                                    </option>
+                                @endforeach
+                            </select>
+                            <small class="lc-form-help">Ce champ envoie l’ID chauffeur recouvrement.</small>
+                        </div>
+
+                        <div class="lc-field">
+                            <label>Véhicule Tracking</label>
+                            <select class="lc-select" name="vehicle_id" id="createVehicle" required>
+                                <option value="">Sélectionner un véhicule</option>
+                                @foreach($vehicules_list ?? [] as $vehicle)
+                                    @php
+                                        $vehicleId = $vehicle['id'] ?? $vehicle['vehicle_id'] ?? '';
+                                        $immat = $vehicle['immatriculation'] ?? '';
+                                        $vin = $vehicle['vin'] ?? '';
+                                        $marque = $vehicle['marque'] ?? '';
+                                        $model = $vehicle['model'] ?? '';
+                                        $label = $vehicle['label'] ?? trim($immat . ' — ' . trim($marque . ' ' . $model));
+                                    @endphp
+
+                                    <option value="{{ $vehicleId }}"
+                                            data-immat="{{ $immat }}"
+                                            data-vin="{{ $vin }}">
+                                        {{ $label ?: 'Véhicule #' . $vehicleId }}
+                                    </option>
+                                @endforeach
+                            </select>
+                            <small class="lc-form-help">Ce champ vient de Tracking.</small>
+                        </div>
+
+                        <div class="lc-field">
+                            <label>Immatriculation</label>
+                            <input class="lc-input" name="immatriculation" id="createImmatriculation" readonly required>
+                        </div>
+
+                        <div class="lc-field">
+                            <label>VIN</label>
+                            <input class="lc-input" name="vin" id="createVin" readonly>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lc-panel" style="box-shadow:none;">
+                <div class="lc-panel-head">
+                    <h2><i class="fas fa-file-contract"></i> Contrat principal</h2>
+                </div>
+
+                <div style="padding:1rem;">
+                    <div class="lc-form-grid">
+                        <div class="lc-field">
+                            <label>Type de contrat principal</label>
+                            <select class="lc-select" name="type_contrat" required>
+                                @foreach($contractTypes as $type)
+                                    <option value="{{ $type['id'] }}" @selected((int) $type['id'] === (int) $mainTypeId)>
+                                        {{ $type['label'] }}
+                                    </option>
+                                @endforeach
+                            </select>
+                        </div>
+
+                        <div class="lc-field">
+                            <label>Montant total</label>
+                            <input type="number" class="lc-input" name="montant_total" step="0.01" required>
+                        </div>
+
+                        <div class="lc-field">
+                            <label>Montant par paiement</label>
+                            <input type="number" class="lc-input" name="montant_par_paiement" step="0.01" required>
+                        </div>
+
+                        <div class="lc-field">
+                            <label>Fréquence</label>
+                            <select class="lc-select" name="frequence" required>
+                                <option value="JOURNALIER">Journalier</option>
+                                <option value="HEBDOMADAIRE">Hebdomadaire</option>
+                                <option value="MENSUEL">Mensuel</option>
+                            </select>
+                        </div>
+
+                        <div class="lc-field">
+                            <label>Date début</label>
+                            <input type="date" class="lc-input" name="date_debut" id="createDateDebut" required>
+                        </div>
+
+                        <div class="lc-field">
+                            <label>Date fin</label>
+                            <input type="date" class="lc-input" name="date_fin" id="createDateFin" required>
+                        </div>
+
+                        <div class="lc-field">
+                            <label>Prochaine échéance</label>
+                            <input type="date" class="lc-input" name="prochaine_echeance" id="createProchaineEcheance" required>
+                        </div>
+
+                        <div class="lc-field full">
+                            <label>Spécificités</label>
+                            <textarea class="lc-textarea" name="specificites" rows="3"></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lc-panel" style="box-shadow:none;">
+                <div class="lc-panel-head">
+                    <h2><i class="fas fa-layer-group"></i> Sous-contrats</h2>
+                    <button type="button" class="lc-btn soft" id="createAddSubBtn">
+                        <i class="fas fa-plus"></i>
+                        Ajouter
+                    </button>
+                </div>
+
+                <div style="padding:1rem;display:flex;flex-direction:column;gap:.75rem;" id="createSubList"></div>
+            </div>
+        </div>
+
+        <div class="lc-drawer-foot">
+            <button type="button" class="lc-btn" data-close-drawer>Annuler</button>
+            <button type="submit" class="lc-btn primary">
+                <i class="fas fa-save"></i>
+                Créer
+            </button>
+        </div>
+    </form>
+</aside>
+
+{{-- DRAWER : ajouter sous-contrat --}}
+<aside class="lc-drawer" id="addSubDrawer">
+    <form method="POST" action="{{ route('lease.contrat.store') }}" id="addSubForm">
+        @csrf
+
+        <input type="hidden" name="parent" id="addSubParent">
+        <input type="hidden" name="chauffeur" id="addSubChauffeur">
+        <input type="hidden" name="vehicle_id" id="addSubVehicleId">
+        <input type="hidden" name="immatriculation" id="addSubImmatriculation">
+        <input type="hidden" name="vin" id="addSubVin">
+
+        <div class="lc-drawer-head">
+            <div>
+                <h3>Ajouter un sous-contrat</h3>
+                <p id="addSubSubtitle"></p>
+            </div>
+            <button type="button" class="lc-btn" data-close-drawer>
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+
+        <div class="lc-drawer-body">
+            <div class="lc-inline-edit">
+                <div class="lc-form-grid">
+                    <div class="lc-field">
+                        <label>Type de sous-contrat</label>
+                        <select class="lc-select" name="type_contrat" required>
+                            @foreach($subContractTypes as $type)
+                                <option value="{{ $type['id'] }}">{{ $type['label'] }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <div class="lc-field">
+                        <label>Montant total</label>
+                        <input type="number" class="lc-input" name="montant_total" step="0.01" required>
+                    </div>
+
+                    <div class="lc-field">
+                        <label>Montant par paiement</label>
+                        <input type="number" class="lc-input" name="montant_par_paiement" step="0.01" required>
+                    </div>
+
+                    <div class="lc-field">
+                        <label>Fréquence</label>
+                        <select class="lc-select" name="frequence" required>
+                            <option value="JOURNALIER">Journalier</option>
+                            <option value="HEBDOMADAIRE">Hebdomadaire</option>
+                            <option value="MENSUEL">Mensuel</option>
+                        </select>
+                    </div>
+
+                    <div class="lc-field">
+                        <label>Date début</label>
+                        <input type="date" class="lc-input" name="date_debut" id="addSubDateDebut" required>
+                    </div>
+
+                    <div class="lc-field">
+                        <label>Date fin</label>
+                        <input type="date" class="lc-input" name="date_fin" id="addSubDateFin" required>
+                    </div>
+
+                    <div class="lc-field">
+                        <label>Prochaine échéance</label>
+                        <input type="date" class="lc-input" name="prochaine_echeance" id="addSubProchaineEcheance" required>
+                    </div>
+
+                    <div class="lc-field full">
+                        <label>Spécificités</label>
+                        <textarea class="lc-textarea" name="specificites" rows="4"></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="lc-drawer-foot">
+            <button type="button" class="lc-btn" data-close-drawer>Annuler</button>
+            <button type="submit" class="lc-btn primary">
+                <i class="fas fa-save"></i>
+                Ajouter
+            </button>
+        </div>
+    </form>
+</aside>
+
+{{-- DRAWER : modifier contrat / sous-contrat --}}
+<aside class="lc-drawer" id="editContractDrawer">
+    <form method="POST" action="#" id="editContractForm">
+        @csrf
+        @method('PUT')
+
+        <input type="hidden" name="vehicle_id" id="editVehicleId">
+        <input type="hidden" name="parent" id="editParent">
+
+        <div class="lc-drawer-head">
+            <div>
+                <h3 id="editDrawerTitle">Modifier</h3>
+                <p>Modification envoyée au backend Laravel, puis vers recouvrement.</p>
+            </div>
+            <button type="button" class="lc-btn" data-close-drawer>
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+
+        <div class="lc-drawer-body">
+            <div class="lc-inline-edit">
+                <div class="lc-form-grid">
+                    <div class="lc-field">
+                        <label>Type</label>
+                        <select class="lc-select" name="type_contrat" id="editType" required>
+                            @foreach($contractTypes as $type)
+                                <option value="{{ $type['id'] }}">{{ $type['label'] }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <div class="lc-field">
+                        <label>Statut</label>
+                        <select class="lc-select" name="statut" id="editStatus">
+                            <option value="ACTIF">Actif</option>
+                            <option value="SUSPENDU">Suspendu</option>
+                            <option value="SOLDE">Soldé</option>
+                            <option value="CONTENTIEUX">Contentieux</option>
+                        </select>
+                    </div>
+
+                    <div class="lc-field">
+                        <label>Chauffeur recouvrement</label>
+                        <select class="lc-select" name="chauffeur" id="editChauffeur" required>
+                            @foreach($chauffeurs_list ?? [] as $chauffeur)
+                                <option value="{{ $chauffeur['id'] }}">{{ $chauffeur['label'] }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <div class="lc-field">
+                        <label>Immatriculation</label>
+                        <input class="lc-input" name="immatriculation" id="editImmatriculation" readonly required>
+                    </div>
+
+                    <div class="lc-field">
+                        <label>VIN</label>
+                        <input class="lc-input" name="vin" id="editVin" readonly>
+                    </div>
+
+                    <div class="lc-field">
+                        <label>Montant total</label>
+                        <input type="number" class="lc-input" name="montant_total" id="editTotal" step="0.01" required>
+                    </div>
+
+                    <div class="lc-field">
+                        <label>Montant restant</label>
+                        <input type="number" class="lc-input" name="montant_restant" id="editRemaining" step="0.01">
+                    </div>
+
+                    <div class="lc-field">
+                        <label>Montant par paiement</label>
+                        <input type="number" class="lc-input" name="montant_par_paiement" id="editInstallment" step="0.01" required>
+                    </div>
+
+                    <div class="lc-field">
+                        <label>Fréquence</label>
+                        <select class="lc-select" name="frequence" id="editFrequency" required>
+                            <option value="JOURNALIER">Journalier</option>
+                            <option value="HEBDOMADAIRE">Hebdomadaire</option>
+                            <option value="MENSUEL">Mensuel</option>
+                        </select>
+                    </div>
+
+                    <div class="lc-field">
+                        <label>Date début</label>
+                        <input type="date" class="lc-input" name="date_debut" id="editStartDate" required>
+                    </div>
+
+                    <div class="lc-field">
+                        <label>Date fin</label>
+                        <input type="date" class="lc-input" name="date_fin" id="editEndDate" required>
+                    </div>
+
+                    <div class="lc-field">
+                        <label>Prochaine échéance</label>
+                        <input type="date" class="lc-input" name="prochaine_echeance" id="editDueDate" required>
+                    </div>
+
+                    <div class="lc-field full">
+                        <label>Spécificités</label>
+                        <textarea class="lc-textarea" name="specificites" id="editSpecificites" rows="4"></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="lc-drawer-foot">
+            <button type="button" class="lc-btn" data-close-drawer>Annuler</button>
+            <button type="submit" class="lc-btn primary">
+                <i class="fas fa-save"></i>
+                Enregistrer
+            </button>
+        </div>
+    </form>
+</aside>
+
+{{-- DRAWER : règles de coupure --}}
+<aside class="lc-drawer" id="policyDrawer">
+    <form method="POST" action="{{ route('lease.contrat.cutoff-policy') }}" id="policyForm">
+        @csrf
+
+        <input type="hidden" name="contract_id" id="policyContractId">
+        <input type="hidden" name="vehicle_id" id="policyVehicleId">
+
+        <div class="lc-drawer-head">
+            <div>
+                <h3>Paramétrage de coupure</h3>
+                <p id="policyDrawerSubtitle"></p>
+            </div>
+            <button type="button" class="lc-btn" data-close-drawer>
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+
+        <div class="lc-drawer-body">
+            <div class="lc-inline-edit">
+                <div class="lc-form-grid">
+                    <div class="lc-field">
+                        <label>Coupure automatique</label>
+                        <select class="lc-select" name="cutoff[is_enabled]" id="policyEnabled">
+                            <option value="1">Activée</option>
+                            <option value="0">Désactivée</option>
+                        </select>
+                    </div>
+
+                    <div class="lc-field">
+                        <label>Heure de coupure</label>
+                        <input type="time" class="lc-input" name="cutoff[cutoff_time]" id="policyTime">
+                    </div>
+
+                    <div class="lc-field">
+                        <label>Délai de grâce</label>
+                        <input type="number" min="0" max="60" class="lc-input" name="cutoff[grace_days]" id="policyGrace">
+                    </div>
+
+                    <div class="lc-field">
+                        <label>Condition sécurité</label>
+                        <select class="lc-select" name="cutoff[only_when_stopped]" id="policyOnlyStopped">
+                            <option value="1">Couper seulement si arrêté</option>
+                            <option value="0">Ne pas imposer l’arrêt</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lc-panel" style="box-shadow:none;">
+                <div class="lc-panel-head">
+                    <h2><i class="fas fa-tags"></i> Types autorisés</h2>
+                </div>
+                <div style="padding:1rem;" id="policyTypeList"></div>
+            </div>
+        </div>
+
+        <div class="lc-drawer-foot">
+            <button type="button" class="lc-btn" data-close-drawer>Fermer</button>
+            <button type="submit" class="lc-btn primary">
+                <i class="fas fa-save"></i>
+                Enregistrer
+            </button>
+        </div>
+    </form>
+</aside>
+
+{{-- DRAWER : règles de coupure en lot --}}
+<aside class="lc-drawer" id="bulkPolicyDrawer">
+    <form method="POST" action="{{ route('lease.contrat.bulk-cutoff-policy') }}" id="bulkPolicyForm">
+        @csrf
+
+        <div id="bulkSelectedContracts"></div>
+
+        <div class="lc-drawer-head">
+            <div>
+                <h3>Appliquer des règles à plusieurs contrats</h3>
+                <p id="bulkPolicySubtitle"></p>
+            </div>
+            <button type="button" class="lc-btn" data-close-drawer>
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+
+        <div class="lc-drawer-body">
+            <div class="lc-inline-edit">
+                <div class="lc-form-grid">
+                    <div class="lc-field">
+                        <label>Coupure automatique</label>
+                        <select class="lc-select" name="cutoff[is_enabled]">
+                            <option value="1">Activer</option>
+                            <option value="0">Désactiver</option>
+                        </select>
+                    </div>
+
+                    <div class="lc-field">
+                        <label>Heure de coupure</label>
+                        <input type="time" class="lc-input" name="cutoff[cutoff_time]">
+                    </div>
+
+                    <div class="lc-field">
+                        <label>Délai de grâce</label>
+                        <input type="number" min="0" max="60" class="lc-input" name="cutoff[grace_days]">
+                    </div>
+
+                    <div class="lc-field">
+                        <label>Sécurité</label>
+                        <select class="lc-select" name="cutoff[only_when_stopped]">
+                            <option value="1">Couper seulement si arrêté</option>
+                            <option value="0">Ne pas imposer l’arrêt</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lc-panel" style="box-shadow:none;">
+                <div class="lc-panel-head">
+                    <h2><i class="fas fa-tags"></i> Types qui peuvent déclencher la coupure</h2>
+                </div>
+                <div style="padding:1rem;" id="bulkTypePolicyList"></div>
+            </div>
+        </div>
+
+        <div class="lc-drawer-foot">
+            <button type="button" class="lc-btn" data-close-drawer>Annuler</button>
+            <button type="submit" class="lc-btn primary">
+                <i class="fas fa-check"></i>
+                Appliquer
+            </button>
+        </div>
+    </form>
+</aside>
+
+<template id="subFormTemplate">
+    <div class="lc-subform-card" data-subform>
+        <div class="lc-subform-head">
+            <strong data-subform-title>Sous-contrat</strong>
+            <button type="button" class="lc-btn danger" data-remove-subform>
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>
+
+        <div class="lc-subform-body">
+            <div class="lc-form-grid">
+                <div class="lc-field">
+                    <label>Type</label>
+                    <select class="lc-select" data-sub-type>
+                        @foreach($subContractTypes as $type)
+                            <option value="{{ $type['id'] }}">{{ $type['label'] }}</option>
+                        @endforeach
+                    </select>
+                </div>
+
+                <div class="lc-field">
+                    <label>Montant total</label>
+                    <input type="number" class="lc-input" data-sub-total step="0.01">
+                </div>
+
+                <div class="lc-field">
+                    <label>Montant par paiement</label>
+                    <input type="number" class="lc-input" data-sub-installment step="0.01">
+                </div>
+
+                <div class="lc-field">
+                    <label>Fréquence</label>
+                    <select class="lc-select" data-sub-frequency>
+                        <option value="JOURNALIER">Journalier</option>
+                        <option value="HEBDOMADAIRE">Hebdomadaire</option>
+                        <option value="MENSUEL">Mensuel</option>
+                    </select>
+                </div>
+
+                <div class="lc-field">
+                    <label>Date début</label>
+                    <input type="date" class="lc-input" data-sub-start>
+                </div>
+
+                <div class="lc-field">
+                    <label>Date fin</label>
+                    <input type="date" class="lc-input" data-sub-end>
+                </div>
+
+                <div class="lc-field">
+                    <label>Prochaine échéance</label>
+                    <input type="date" class="lc-input" data-sub-due>
+                </div>
+
+                <div class="lc-field full">
+                    <label>Spécificités</label>
+                    <textarea class="lc-textarea" data-sub-specificites rows="2"></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
 @endsection
 
 @push('scripts')
 <script>
-(function () {
-    'use strict';
+document.addEventListener('DOMContentLoaded', () => {
+    const contracts = @json($contractsPayload);
+    const contractTypes = @json($contractTypes->values());
+    const updateUrlTemplate = @json(route('lease.contrat.update', ['id' => '__ID__']));
+    const csrfToken = @json(csrf_token());
 
-    /* ── Données statiques (PHP → JS) ── */
-    const RAW = @json($contracts ?? []);
-    let filtered = [...RAW];
-    let currentPage = 1;
-    let perPage = 10;
-    let sortKey = 'ref';
-    let sortDir = 'asc';
-    let filters = { statut: 'all', freq: 'all' };
-    let searchQ  = '';
-    let pendingId = null;
-    let editMode  = false;
-    let editId    = null;
-    let autoRefIdx = 1; // pour générer des refs auto
+    const typeById = Object.fromEntries(contractTypes.map(type => [Number(type.id), type]));
 
-    /* ── Helpers ── */
-    const fmt   = n  => Number(n || 0).toLocaleString('fr-FR') + ' F';
-    const fmtK  = n  => (n >= 1000000 ? (n/1000000).toFixed(2) + ' M' : n >= 1000 ? (n/1000).toFixed(0) + ' k' : String(n)) + ' F';
-    const esc   = s  => String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
-    const pct   = (p, t) => t > 0 ? Math.min(100, Math.round(p / t * 100)) : 0;
+    let selectedContractId = contracts[0]?.id || null;
+    let selectedContractIds = new Set();
+    let subFormIndex = 0;
 
-    const STATUS_MAP = {
-        actif:    { cls: 'cb-actif',    icon: 'fa-circle',             label: 'Actif' },
-        retard:   { cls: 'cb-retard',   icon: 'fa-exclamation-circle', label: 'En retard' },
-        termine:  { cls: 'cb-termine',  icon: 'fa-check-circle',       label: 'Terminé' },
-        suspendu: { cls: 'cb-suspendu', icon: 'fa-pause-circle',       label: 'Suspendu' },
-    };
-    const FREQ_MAP = {
-        journalier:   { icon: 'fa-sun',      label: 'Journalier' },
-        hebdomadaire: { icon: 'fa-calendar-week', label: 'Hebdo' },
-        mensuel:      { icon: 'fa-calendar', label: 'Mensuel' },
-    };
-    const PROGRESS_COLORS = {
-        actif: '#16a34a', retard: '#dc2626', termine: '#2563eb', suspendu: '#d97706',
+    const $ = (selector, root = document) => root.querySelector(selector);
+    const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+
+    const money = value => {
+        const amount = Number(value || 0);
+        return new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 }).format(amount) + ' FCFA';
     };
 
-    /* ════════════════════════
-       KPI
-    ════════════════════════ */
-    function renderKPIs() {
-        const data = filtered;
-        const actifs    = data.filter(c => c.statut === 'actif').length;
-        const retards   = data.filter(c => c.statut === 'retard').length;
-        const termines  = data.filter(c => c.statut === 'termine').length;
-        const engaged   = data.reduce((s, c) => s + (c.montant_total  || 0), 0);
-        const collected = data.reduce((s, c) => s + (c.total_paye     || 0), 0);
-        const remaining = data.filter(c => c.statut !== 'termine').reduce((s, c) => s + Math.max(0, (c.montant_total || 0) - (c.total_paye || 0)), 0);
+    const pct = value => Math.max(0, Math.min(100, Number(value || 0)));
+    const buildUrl = (template, id) => template.replace('__ID__', id);
 
-        const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-        set('kActive',    actifs);
-        set('kEngaged',   fmtK(engaged));
-        set('kCollected', fmtK(collected));
-        set('kRemaining', fmtK(remaining));
-        set('kLate',      retards);
-        set('kDone',      termines);
-
-        const cntEl = document.getElementById('contractsCountVal');
-        if (cntEl) cntEl.textContent = data.length;
+    function today() {
+        return new Date().toISOString().slice(0, 10);
     }
 
-    /* ════════════════════════
-       FILTRAGE
-    ════════════════════════ */
-    function applyFilters() {
-        let data = [...RAW];
+    function addMonths(dateString, months) {
+        const date = new Date(dateString);
+        date.setMonth(date.getMonth() + months);
+        return date.toISOString().slice(0, 10);
+    }
 
-        if (filters.statut !== 'all') data = data.filter(c => c.statut === filters.statut);
-        if (filters.freq   !== 'all') data = data.filter(c => c.frequence === filters.freq);
+    function statusLabel(status) {
+        const value = String(status || 'actif').toLowerCase();
 
-        if (searchQ.trim()) {
-            const q = searchQ.toLowerCase();
-            data = data.filter(c =>
-                (c.ref       || '').toLowerCase().includes(q) ||
-                (c.chauffeur || '').toLowerCase().includes(q) ||
-                (c.vehicule  || '').toLowerCase().includes(q) ||
-                (c.partenaire|| '').toLowerCase().includes(q)
-            );
+        if (value === 'retard') return 'En retard';
+        if (value === 'termine') return 'Terminé';
+        if (value === 'suspendu') return 'Suspendu';
+        if (value === 'solde') return 'Soldé';
+        if (value === 'contentieux') return 'Contentieux';
+
+        return 'Actif';
+    }
+
+    function apiStatus(status) {
+        const value = String(status || 'ACTIF').toUpperCase();
+
+        if (value === 'SOLDE') return 'SOLDE';
+        if (value === 'SUSPENDU') return 'SUSPENDU';
+        if (value === 'CONTENTIEUX') return 'CONTENTIEUX';
+
+        return 'ACTIF';
+    }
+
+    function currentContract() {
+        return contracts.find(contract => Number(contract.id) === Number(selectedContractId)) || contracts[0] || null;
+    }
+
+    function hasSubType(contract, typeId) {
+        return (contract.sub_contracts || []).some(sub => Number(sub.type_contrat) === Number(typeId));
+    }
+
+    function hasLateSub(contract) {
+        return (contract.sub_contracts || []).some(sub => sub.statut === 'retard');
+    }
+
+    function hasCuttableLate(contract) {
+        if (!contract.cutoff?.enabled) return false;
+
+        if (contract.statut === 'retard') return true;
+
+        const lateSub = (contract.sub_contracts || []).find(sub => sub.statut === 'retard');
+        if (!lateSub) return false;
+
+        const rule = (contract.cutoff.contract_types || []).find(
+            item => Number(item.type_contrat) === Number(lateSub.type_contrat)
+        );
+
+        return Boolean(rule?.enabled);
+    }
+
+    function passesFilters(contract) {
+        const search = ($('#contractSearch')?.value || '').toLowerCase().trim();
+        const status = $('#statusFilter')?.value || 'all';
+        const subType = $('#subTypeFilter')?.value || 'all';
+        const cutoff = $('#cutoffFilter')?.value || 'all';
+
+        const haystack = [
+            contract.ref,
+            contract.chauffeur,
+            contract.vehicule,
+            contract.phone_ch,
+            contract.vin,
+            contract.type_label,
+            ...(contract.sub_contracts || []).map(sub => sub.type_label)
+        ].join(' ').toLowerCase();
+
+        if (search && !haystack.includes(search)) return false;
+
+        if (status !== 'all') {
+            if (status === 'retard') {
+                if (contract.statut !== 'retard' && !hasLateSub(contract)) return false;
+            } else if (contract.statut !== status) {
+                return false;
+            }
         }
 
-        data.sort((a, b) => {
-            let va = a[sortKey] ?? '', vb = b[sortKey] ?? '';
-            if (typeof va === 'number') return sortDir === 'asc' ? va - vb : vb - va;
-            return sortDir === 'asc' ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
-        });
+        if (subType !== 'all') {
+            if (subType === 'main') {
+                if ((contract.sub_contracts || []).length > 0) return false;
+            } else if (!hasSubType(contract, subType)) {
+                return false;
+            }
+        }
 
-        filtered = data;
-        currentPage = 1;
-        renderTable();
-        renderKPIs();
-        renderPagination();
+        if (cutoff !== 'all') {
+            if (cutoff === 'cutoff_enabled' && !contract.cutoff?.enabled) return false;
+            if (cutoff === 'cutoff_disabled' && contract.cutoff?.enabled) return false;
+            if (cutoff === 'late_cuttable' && !hasCuttableLate(contract)) return false;
+        }
+
+        return true;
     }
 
-    /* ════════════════════════
-       TABLEAU
-    ════════════════════════ */
-    function renderTable() {
-        const tbody = document.getElementById('contractsTableBody');
-        if (!tbody) return;
+    function renderList() {
+        const list = $('#contractList');
+        const filtered = contracts.filter(passesFilters);
 
-        const start = (currentPage - 1) * perPage;
-        const end   = start + perPage;
-        const page  = filtered.slice(start, end);
-
-        const info = document.getElementById('lcTableInfo');
-        if (info) info.textContent = `${filtered.length} contrat${filtered.length !== 1 ? 's' : ''} (${start+1}–${Math.min(end, filtered.length)})`;
-
-        if (!page.length) {
-            tbody.innerHTML = `<tr><td colspan="12"><div class="lc-empty"><i class="fas fa-file-contract"></i>Aucun contrat ne correspond aux filtres.</div></td></tr>`;
+        if (!filtered.length) {
+            list.innerHTML = `
+                <div class="lc-empty">
+                    <i class="fas fa-search"></i><br>
+                    Aucun contrat trouvé.
+                </div>
+            `;
+            updateSelectionBar();
             return;
         }
 
-        const today = new Date().toISOString().slice(0,10);
-
-        tbody.innerHTML = page.map(c => {
-            const progress  = pct(c.total_paye, c.montant_total);
-            const restant   = Math.max(0, (c.montant_total || 0) - (c.total_paye || 0));
-            const sm = STATUS_MAP[c.statut] || STATUS_MAP.actif;
-            const fm = FREQ_MAP[c.frequence] || { icon:'fa-question', label: c.frequence };
-            const progColor = PROGRESS_COLORS[c.statut] || '#16a34a';
-
-            let echClass = 'echeance-ok';
-            let echText  = c.prochaine_echeance || '—';
-            if (c.prochaine_echeance) {
-                if (c.prochaine_echeance < today)         echClass = 'echeance-late';
-                else if (c.prochaine_echeance === today)  echClass = 'echeance-soon';
-            }
-            if (c.statut === 'termine') echText = '✔ Soldé';
+        list.innerHTML = filtered.map(contract => {
+            const badges = (contract.sub_contracts || []).map(sub => `
+                <span class="lc-type-badge ${sub.statut === 'retard' ? 'late' : ''}">
+                    <i class="fas fa-file-contract"></i>
+                    ${sub.type_label}
+                </span>
+            `).join('');
 
             return `
-<tr data-id="${c.id}">
-    <td><span class="ref-code">${esc(c.ref)}</span></td>
-    <td style="white-space:nowrap;">
-        <div style="font-weight:600;font-size:.8rem;">${esc(c.chauffeur)}</div>
-        <div style="font-size:.68rem;color:var(--color-secondary-text);margin-top:1px;font-family:var(--font-mono,monospace);">${esc(c.phone_ch)}</div>
-    </td>
-    <td style="white-space:nowrap;">
-        <div style="font-family:var(--font-mono,monospace);font-weight:700;font-size:.72rem;">${esc(c.vehicule)}</div>
-        <div style="font-size:.65rem;color:var(--color-secondary-text);margin-top:1px;">${esc(c.marque)}</div>
-    </td>
-    <td style="text-align:right;"><span class="amount-cell">${fmt(c.montant_total)}</span></td>
-    <td>
-        <div class="contract-progress-wrap">
-            <div class="contract-progress-bar">
-                <div class="contract-progress-fill" style="width:${progress}%;background:${progColor};"></div>
-            </div>
-            <span class="contract-progress-pct" style="color:${progColor};">${progress}%</span>
-        </div>
-    </td>
-    <td style="text-align:right;"><span class="amount-cell good">${fmt(c.total_paye)}</span></td>
-    <td style="text-align:right;"><span class="amount-cell bad">${restant > 0 ? fmt(restant) : '<span style="color:var(--color-success)">Soldé</span>'}</span></td>
-    <td><span style="font-family:var(--font-display);font-weight:700;font-size:.75rem;white-space:nowrap;">${fmt(c.versement)}</span></td>
-    <td><span class="freq-badge"><i class="fas ${fm.icon}" style="font-size:.55rem;"></i> ${esc(fm.label)}</span></td>
-    <td><span class="${echClass}" style="font-size:.75rem;font-family:var(--font-body);">${esc(echText)}</span></td>
-    <td><span class="contract-badge ${sm.cls}"><i class="fas ${sm.icon}"></i> ${sm.label}</span></td>
-    <td>
-        <div style="display:flex;align-items:center;justify-content:flex-end;gap:.2rem;">
-            <button class="tbl-action view"    onclick="lcOpenEdit(${c.id})"      title="Voir / éditer le contrat"><i class="fas fa-pen"></i></button>
-            <button class="tbl-action suspend" onclick="lcOpenStatus(${c.id})"    title="Changer le statut"><i class="fas fa-exchange-alt"></i></button>
-            <button class="tbl-action delete"  onclick="lcOpenDelete(${c.id})"    title="Supprimer"><i class="fas fa-trash"></i></button>
-        </div>
-    </td>
-</tr>`;
+                <article class="lc-contract-item ${Number(contract.id) === Number(selectedContractId) ? 'active' : ''}">
+                    <div>
+                        <input type="checkbox"
+                               class="lc-select-contract"
+                               data-select-contract="${contract.id}"
+                               ${selectedContractIds.has(Number(contract.id)) ? 'checked' : ''}>
+                    </div>
+
+                    <div class="lc-contract-content" data-open-contract="${contract.id}">
+                        <div class="lc-contract-top">
+                            <div>
+                                <p class="lc-contract-ref">${contract.ref}</p>
+                                <p class="lc-contract-meta">${contract.chauffeur || '—'} · ${contract.vehicule || '—'}</p>
+                                <p class="lc-contract-meta">
+                                    ${(contract.sub_contracts || []).length} sous-contrat(s)
+                                    · coupure ${contract.cutoff?.enabled ? 'activée' : 'désactivée'}
+                                </p>
+                            </div>
+
+                            <span class="lc-status ${contract.statut}">
+                                ${statusLabel(contract.statut)}
+                            </span>
+                        </div>
+
+                        <div class="lc-sub-badges">
+                            ${badges || '<span class="lc-type-badge"><i class="fas fa-file-contract"></i> Aucun sous-contrat</span>'}
+                        </div>
+
+                        <div class="lc-money-row">
+                            <div class="lc-progress">
+                                <span style="width:${pct(contract.progress)}%"></span>
+                            </div>
+                            <span class="lc-progress-text">${pct(contract.progress)}%</span>
+                        </div>
+                    </div>
+                </article>
+            `;
         }).join('');
-    }
 
-    /* ════════════════════════
-       PAGINATION
-    ════════════════════════ */
-    function renderPagination() {
-        const total = Math.ceil(filtered.length / perPage) || 1;
-        const pag   = document.getElementById('lcPagination');
-        if (!pag) return;
-
-        let html = `<button class="pg-btn${currentPage===1?' disabled':''}" onclick="lcGoPage(${currentPage-1})">‹</button>`;
-        for (let i = 1; i <= total; i++) {
-            if (total > 7 && i !== 1 && i !== total && Math.abs(i - currentPage) > 2) {
-                if (i === 2 || i === total-1) html += `<span style="font-size:.7rem;padding:0 .15rem;color:var(--color-secondary-text);">…</span>`;
-                continue;
-            }
-            html += `<button class="pg-btn${i===currentPage?' active':''}" onclick="lcGoPage(${i})">${i}</button>`;
-        }
-        html += `<button class="pg-btn${currentPage===total?' disabled':''}" onclick="lcGoPage(${currentPage+1})">›</button>`;
-        pag.innerHTML = html;
-    }
-
-    window.lcGoPage = n => {
-        const total = Math.ceil(filtered.length / perPage) || 1;
-        if (n < 1 || n > total) return;
-        currentPage = n;
-        renderTable();
-        renderPagination();
-        document.querySelector('.lc-table-scroll')?.scrollTo({ top:0, behavior:'smooth' });
-    };
-
-    window.lcSetPerPage = v => { perPage = parseInt(v,10); currentPage=1; renderTable(); renderPagination(); };
-
-    /* ════════════════════════
-       TRI
-    ════════════════════════ */
-    window.lcSort = key => {
-        if (sortKey === key) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
-        else { sortKey = key; sortDir = 'asc'; }
-        applyFilters();
-    };
-
-    /* ════════════════════════
-       FILTRES DROPDOWN
-    ════════════════════════ */
-    window.lcToggleDrop = name => {
-        const menu = document.getElementById('fdrop-' + name);
-        const btn  = document.getElementById('fpb-' + name);
-        if (!menu || !btn) return;
-        const isOpen = menu.classList.contains('open');
-        document.querySelectorAll('.filter-dropdown-menu.open').forEach(m => m.classList.remove('open'));
-        document.querySelectorAll('.filter-pill-btn.open').forEach(b => b.classList.remove('open'));
-        if (!isOpen) { menu.classList.add('open'); btn.classList.add('open'); }
-    };
-    document.addEventListener('click', e => {
-        if (!e.target.closest('.filter-pill-wrap')) {
-            document.querySelectorAll('.filter-dropdown-menu.open').forEach(m => m.classList.remove('open'));
-            document.querySelectorAll('.filter-pill-btn.open').forEach(b => b.classList.remove('open'));
-        }
-    });
-    window.lcSetFilter = (name, val, el) => {
-        filters[name] = val;
-        const menu = document.getElementById('fdrop-' + name);
-        menu?.querySelectorAll('.fdrop-item').forEach(i => i.classList.toggle('selected', i.dataset.val === val));
-        document.getElementById('fpb-' + name)?.classList.toggle('active', val !== 'all');
-        applyFilters();
-    };
-
-    /* Recherche */
-    document.getElementById('contractSearch')?.addEventListener('input', function () {
-        searchQ = this.value;
-        applyFilters();
-    });
-
-    /* ════════════════════════
-       MODALES
-    ════════════════════════ */
-    window.lcOpenModal = id => {
-        const ov = document.getElementById(id);
-        const pn = ov?.querySelector('.fl-modal-panel');
-        if (!ov) return;
-        ov.classList.add('open');
-        document.body.style.overflow = 'hidden';
-        requestAnimationFrame(() => requestAnimationFrame(() => pn?.classList.add('visible')));
-    };
-    window.lcCloseModal = id => {
-        const ov = document.getElementById(id);
-        const pn = ov?.querySelector('.fl-modal-panel');
-        pn?.classList.remove('visible');
-        document.body.style.overflow = '';
-        setTimeout(() => ov?.classList.remove('open'), 220);
-    };
-    ['modalContract','modalDelete','modalStatus'].forEach(id => {
-        document.getElementById(id)?.addEventListener('click', function(e) {
-            if (e.target === this) window.lcCloseModal(id);
-        });
-    });
-
-    /* ── Modale contrat : CRÉER ── */
-    window.openContractModal = () => {
-        editMode = false;
-        editId = null;
-
-        const today = new Date().toISOString().slice(0,10);
-        const setVal = (id, v) => {
-            const el = document.getElementById(id);
-            if (el) el.value = v;
-        };
-
-        setVal('ctChauffeur', '');
-        setVal('ctVehicule', '');
-        setVal('ctVehicleId', '');
-        setVal('ctDateDebut', today);
-        setVal('ctDateFin', '');
-        setVal('ctMontantTotal', '');
-        setVal('ctVersement', '25000');
-        setVal('ctFrequence', 'HEBDOMADAIRE');
-        setVal('ctPremEcheance', today);
-        setVal('ctCutoffTime', '12:00');
-
-        const cutoffCheckbox = document.getElementById('ctCoupureAuto');
-        if (cutoffCheckbox) cutoffCheckbox.checked = false;
-
-        const cutoffWrap = document.getElementById('ctCutoffTimeWrap');
-        if (cutoffWrap) cutoffWrap.style.display = 'none';
-
-        const title = document.getElementById('contractModalTitle');
-        if (title) {
-            title.innerHTML = '<i class="fas fa-file-signature" style="color:var(--color-primary);font-size:.82rem;margin-right:.35rem;"></i>Nouveau contrat';
-        }
-
-        const sub = document.getElementById('contractModalSub');
-        if (sub) sub.textContent = 'Définissez les conditions du contrat de lease';
-
-        const btn = document.getElementById('ctSubmitBtn');
-        if (btn) btn.innerHTML = '<i class="fas fa-plus"></i> Créer le contrat';
-
-        const preview = document.getElementById('ctCalcPreview');
-        if (preview) preview.style.display = 'none';
-
-        window.lcOpenModal('modalContract');
-    };
-
-    /* ── Modale contrat : ÉDITER ──
-       L’API recouvrement fournie ici ne précise pas encore l’endpoint update.
-       On garde donc l’action edit non destructive : ouverture en lecture/pré-remplissage basique. */
-    window.lcOpenEdit = id => {
-        const c = RAW.find(x => x.id === id);
-        if (!c) return;
-
-        editMode = true;
-        editId = id;
-
-        const setVal = (elId, v) => {
-            const el = document.getElementById(elId);
-            if (el) el.value = v || '';
-        };
-
-        setVal('ctChauffeur', c.chauffeur || c.chauffeur_id || '');
-        setVal('ctVehicule', c.immatriculation || c.vehicule || '');
-        setVal('ctDateDebut', c.date_debut || '');
-        setVal('ctDateFin', c.date_fin || c.date_fin_prevue || '');
-        setVal('ctMontantTotal', parseInt(c.montant_total || 0, 10) || '');
-        setVal('ctVersement', parseInt(c.montant_par_paiement || c.versement || 0, 10) || '');
-        setVal('ctFrequence', (c.frequence || '').toString().toUpperCase());
-        setVal('ctPremEcheance', c.prochaine_echeance || '');
-
-        const vehicleSelect = document.getElementById('ctVehicule');
-        const vehicleIdInput = document.getElementById('ctVehicleId');
-        if (vehicleSelect && vehicleIdInput) {
-            const option = vehicleSelect.options[vehicleSelect.selectedIndex];
-            vehicleIdInput.value = option?.dataset?.vehicleId || '';
-        }
-
-        const cutoffCheckbox = document.getElementById('ctCoupureAuto');
-        if (cutoffCheckbox) cutoffCheckbox.checked = false;
-
-        const cutoffWrap = document.getElementById('ctCutoffTimeWrap');
-        if (cutoffWrap) cutoffWrap.style.display = 'none';
-
-        const title = document.getElementById('contractModalTitle');
-        if (title) {
-            title.innerHTML = '<i class="fas fa-eye" style="color:var(--color-primary);font-size:.82rem;margin-right:.35rem;"></i>Détail du contrat';
-        }
-
-        const sub = document.getElementById('contractModalSub');
-        if (sub) sub.textContent = `Contrat #${c.id || ''}`;
-
-        const btn = document.getElementById('ctSubmitBtn');
-        if (btn) btn.innerHTML = '<i class="fas fa-save"></i> Enregistrer';
-
-        lcCalcContractPreview();
-        window.lcOpenModal('modalContract');
-    };
-
-    /* Calcul aperçu durée */
-    window.lcCalcContractPreview = () => {
-        const total = parseInt(document.getElementById('ctMontantTotal')?.value || 0, 10);
-        const vers = parseInt(document.getElementById('ctVersement')?.value || 0, 10);
-        const freq = document.getElementById('ctFrequence')?.value;
-        const preview = document.getElementById('ctCalcPreview');
-        const text = document.getElementById('ctCalcText');
-
-        if (!preview || !text) return;
-
-        if (total > 0 && vers > 0 && freq) {
-            const nb = Math.ceil(total / vers);
-
-            const freqLabel = {
-                JOURNALIER: 'jour(s)',
-                HEBDOMADAIRE: 'semaine(s)',
-                MENSUEL: 'mois'
-            }[freq] || 'échéance(s)';
-
-            text.textContent = `≈ ${nb} ${freqLabel} pour solder ${Number(total).toLocaleString('fr-FR')} F`;
-            preview.style.display = 'block';
-        } else {
-            preview.style.display = 'none';
-        }
-    };
-
-    /* Ancienne génération de référence : conservée en no-op pour ne pas casser les handlers existants. */
-    window.lcUpdateContractRef = () => {};
-
-    /* Submit (simulation) */
-    window.lcSubmitContract = () => {
-        const form = document.getElementById('contractForm');
-
-        const chId = document.getElementById('ctChauffeur')?.value;
-        const vehImmat = document.getElementById('ctVehicule')?.value;
-        const vehId = document.getElementById('ctVehicleId')?.value;
-        const total = parseInt(document.getElementById('ctMontantTotal')?.value || 0, 10);
-        const vers = parseInt(document.getElementById('ctVersement')?.value || 0, 10);
-        const freq = document.getElementById('ctFrequence')?.value;
-        const dateDebut = document.getElementById('ctDateDebut')?.value;
-        const dateFin = document.getElementById('ctDateFin')?.value;
-        const echeance = document.getElementById('ctPremEcheance')?.value;
-
-        if (!form) return;
-        if (!chId) { alert('Sélectionnez un chauffeur.'); return; }
-        if (!vehImmat || !vehId) { alert('Sélectionnez un véhicule.'); return; }
-        if (total <= 0) { alert('Le montant total doit être > 0.'); return; }
-        if (vers <= 0) { alert('Le versement doit être > 0.'); return; }
-        if (!freq) { alert('Choisissez une fréquence.'); return; }
-        if (!dateDebut) { alert('La date de début est obligatoire.'); return; }
-        if (!dateFin) { alert('La date de fin est obligatoire.'); return; }
-        if (!echeance) { alert('La prochaine échéance est obligatoire.'); return; }
-
-        form.submit();
-    };
-
-    /* ── Modale suppression ── */
-    window.lcOpenDelete = id => {
-        const c = RAW.find(x => x.id === id);
-        if (!c) return;
-        pendingId = id;
-        const det = document.getElementById('deleteContractDetail');
-        if (det) det.textContent = `${c.ref} — ${c.chauffeur} — ${c.vehicule}`;
-        window.lcOpenModal('modalDelete');
-    };
-    window.lcConfirmDelete = () => {
-        const c = RAW.find(x => x.id === pendingId);
-        const idx = RAW.indexOf(c);
-        if (idx > -1) RAW.splice(idx, 1);
-        window.lcCloseModal('modalDelete');
-        if (window.showToast) window.showToast('Contrat supprimé', `Contrat ${c?.ref || ''} supprimé`, 'error');
-        applyFilters();
-    };
-
-    /* ── Modale changement statut ── */
-    window.lcOpenStatus = id => {
-        const c = RAW.find(x => x.id === id);
-        if (!c) return;
-        pendingId = id;
-        const det = document.getElementById('statusContractDetail');
-        if (det) det.textContent = `${c.ref} — ${c.chauffeur} — ${STATUS_MAP[c.statut]?.label || c.statut}`;
-        const sel = document.getElementById('newStatusSelect');
-        if (sel) sel.value = c.statut;
-        const reason = document.getElementById('statusReason');
-        if (reason) reason.value = '';
-        window.lcOpenModal('modalStatus');
-    };
-    window.lcConfirmStatus = () => {
-        const newStatus = document.getElementById('newStatusSelect')?.value;
-        const c = RAW.find(x => x.id === pendingId);
-        if (c && newStatus) c.statut = newStatus;
-        window.lcCloseModal('modalStatus');
-        if (window.showToast) window.showToast('Statut mis à jour', `${c?.ref || ''} → ${STATUS_MAP[newStatus]?.label || newStatus}`, 'success');
-        applyFilters();
-    };
-
-    /* ── Export CSV ── */
-    window.exportContractsCsv = () => {
-        const headers = ['Référence','Chauffeur','Véhicule','Montant total','Total payé','Restant','Versement','Fréquence','Statut','Date début','Date fin','Prochaine échéance'];
-        const rows = filtered.map(c => [
-            c.ref, c.chauffeur, c.vehicule, c.montant_total, c.total_paye,
-            Math.max(0, c.montant_total - c.total_paye), c.versement, c.frequence,
-            c.statut, c.date_debut, c.date_fin_prevue, c.prochaine_echeance || ''
-        ]);
-        const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
-        const a   = document.createElement('a');
-        a.href     = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent(csv);
-        a.download = `contrats_lease_${new Date().toISOString().slice(0,10)}.csv`;
-        a.click();
-    };
-
-    /* ── KPI bar height ── */
-    function measureKpiBar() {
-        const bar = document.getElementById('lcKpiBar');
-        if (bar) document.documentElement.style.setProperty('--lc-kpi-h', Math.round(bar.getBoundingClientRect().height) + 'px');
-    }
-
-    /* ── INIT ── */
-    const boot = () => {
-        const vehicleSelect = document.getElementById('ctVehicule');
-        const vehicleIdInput = document.getElementById('ctVehicleId');
-
-        if (vehicleSelect && vehicleIdInput) {
-            vehicleSelect.addEventListener('change', function () {
-                const option = this.options[this.selectedIndex];
-                vehicleIdInput.value = option?.dataset?.vehicleId || '';
+        $$('[data-open-contract]').forEach(area => {
+            area.addEventListener('click', () => {
+                selectedContractId = Number(area.dataset.openContract);
+                renderList();
+                renderDetail();
             });
+        });
 
-            const option = vehicleSelect.options[vehicleSelect.selectedIndex];
-            vehicleIdInput.value = option?.dataset?.vehicleId || vehicleIdInput.value || '';
+        $$('[data-select-contract]').forEach(check => {
+            check.addEventListener('click', event => {
+                event.stopPropagation();
+
+                const id = Number(check.dataset.selectContract);
+
+                if (check.checked) selectedContractIds.add(id);
+                else selectedContractIds.delete(id);
+
+                updateSelectionBar();
+            });
+        });
+
+        updateSelectionBar();
+    }
+
+    function updateSelectionBar() {
+        const bar = $('#selectionBar');
+        if (!bar) return;
+
+        const count = selectedContractIds.size;
+        bar.classList.toggle('open', count > 0);
+
+        $('#selectionCount').textContent = count <= 1
+            ? `${count} contrat sélectionné`
+            : `${count} contrats sélectionnés`;
+    }
+
+    function renderDetail() {
+        const contract = currentContract();
+        const detail = $('#contractDetail');
+
+        if (!contract) {
+            detail.innerHTML = `<div class="lc-empty">Aucun contrat disponible.</div>`;
+            return;
         }
 
-        const cutoffCheckbox = document.getElementById('ctCoupureAuto');
-        const cutoffWrap = document.getElementById('ctCutoffTimeWrap');
+        const subHtml = (contract.sub_contracts || []).length
+            ? contract.sub_contracts.map(renderSubContract).join('')
+            : `<div class="lc-empty" style="grid-column:1/-1;">Aucun sous-contrat.</div>`;
 
-        function syncCutoffVisibility() {
-            if (!cutoffCheckbox || !cutoffWrap) return;
-            cutoffWrap.style.display = cutoffCheckbox.checked ? 'block' : 'none';
+        detail.innerHTML = `
+            <div class="lc-detail-title">
+                <div>
+                    <h3>${contract.ref} · ${contract.vehicule}</h3>
+                    <p>Chauffeur : <strong>${contract.chauffeur}</strong>${contract.phone_ch ? ' · ' + contract.phone_ch : ''}</p>
+                </div>
+
+                <div class="lc-detail-actions">
+                    <span class="lc-status ${contract.statut}">${statusLabel(contract.statut)}</span>
+
+                    <button type="button" class="lc-btn" id="editMainContractBtn">
+                        <i class="fas fa-edit"></i>
+                        Modifier
+                    </button>
+
+                    <button type="button" class="lc-btn danger" id="closeMainContractBtn">
+                        <i class="fas fa-ban"></i>
+                        Clôturer
+                    </button>
+                </div>
+            </div>
+
+            <div class="lc-info-grid">
+                <div class="lc-info"><span>Type</span><strong>${contract.type_label || '—'}</strong></div>
+                <div class="lc-info"><span>Montant total</span><strong>${money(contract.montant_total)}</strong></div>
+                <div class="lc-info"><span>Déjà payé</span><strong>${money(contract.total_paye)}</strong></div>
+                <div class="lc-info"><span>Restant</span><strong>${money(contract.montant_restant)}</strong></div>
+                <div class="lc-info"><span>Versement</span><strong>${money(contract.versement)}</strong></div>
+                <div class="lc-info"><span>Fréquence</span><strong>${contract.frequence || '—'}</strong></div>
+                <div class="lc-info"><span>Échéance</span><strong>${contract.prochaine_echeance || '—'}</strong></div>
+                <div class="lc-info"><span>Fin</span><strong>${contract.date_fin || '—'}</strong></div>
+            </div>
+
+            <div>
+                <div class="lc-section-title">
+                    <h4><i class="fas fa-layer-group"></i> Sous-contrats</h4>
+                    <button type="button" class="lc-btn soft" id="addSubBtn">
+                        <i class="fas fa-plus"></i>
+                        Ajouter
+                    </button>
+                </div>
+
+                <div class="lc-sub-list">${subHtml}</div>
+            </div>
+
+            <div>
+                <div class="lc-section-title">
+                    <h4><i class="fas fa-bolt"></i> Règles de coupure</h4>
+                    <button type="button" class="lc-btn soft" id="editPolicyBtn">
+                        <i class="fas fa-sliders-h"></i>
+                        Modifier
+                    </button>
+                </div>
+
+                ${renderPolicySummary(contract)}
+            </div>
+        `;
+
+        $('#editMainContractBtn')?.addEventListener('click', () => openEditDrawer(contract));
+        $('#closeMainContractBtn')?.addEventListener('click', () => closeContractByStatus(contract, null, 'SOLDE'));
+        $('#addSubBtn')?.addEventListener('click', () => openAddSubDrawer(contract));
+        $('#editPolicyBtn')?.addEventListener('click', () => openPolicyDrawer(contract));
+
+        $$('[data-edit-sub]').forEach(button => {
+            button.addEventListener('click', () => {
+                const subId = Number(button.dataset.editSub);
+                const found = findSub(subId);
+                if (found) openEditDrawer(found.sub, found.contract);
+            });
+        });
+
+        $$('[data-close-sub]').forEach(button => {
+            button.addEventListener('click', () => {
+                const subId = Number(button.dataset.closeSub);
+                const found = findSub(subId);
+                if (found) closeContractByStatus(found.sub, found.contract, 'SOLDE');
+            });
+        });
+    }
+
+    function renderSubContract(sub) {
+        return `
+            <article class="lc-sub-card">
+                <div class="lc-sub-head">
+                    <div>
+                        <p class="lc-sub-title">
+                            <i class="fas fa-file-contract"></i>
+                            ${sub.type_label}
+                        </p>
+                        <p class="lc-sub-meta">${sub.frequence || '—'} · échéance ${sub.prochaine_echeance || '—'}</p>
+                    </div>
+
+                    <span class="lc-status ${sub.statut}">${statusLabel(sub.statut)}</span>
+                </div>
+
+                <div class="lc-info-grid" style="grid-template-columns:repeat(2,minmax(0,1fr));">
+                    <div class="lc-info"><span>Total</span><strong>${money(sub.montant_total)}</strong></div>
+                    <div class="lc-info"><span>Restant</span><strong>${money(sub.montant_restant)}</strong></div>
+                </div>
+
+                <div class="lc-sub-actions">
+                    <button type="button" class="lc-sub-action" data-edit-sub="${sub.id}">
+                        <i class="fas fa-edit"></i>
+                        Modifier
+                    </button>
+
+                    <button type="button" class="lc-sub-action" data-close-sub="${sub.id}">
+                        <i class="fas fa-ban"></i>
+                        Clôturer
+                    </button>
+                </div>
+            </article>
+        `;
+    }
+
+    function renderPolicySummary(contract) {
+        const cutoff = contract.cutoff || {};
+        const rules = cutoff.contract_types || [];
+        const enabledCount = rules.filter(rule => rule.enabled).length;
+
+        return `
+            <div class="lc-policy-box">
+                <div class="lc-info-grid">
+                    <div class="lc-info"><span>Coupure auto</span><strong>${cutoff.enabled ? 'Activée' : 'Désactivée'}</strong></div>
+                    <div class="lc-info"><span>Heure</span><strong>${cutoff.cutoff_time || '—'}</strong></div>
+                    <div class="lc-info"><span>Délai défaut</span><strong>${cutoff.grace_days ?? 0} jour(s)</strong></div>
+                    <div class="lc-info"><span>Types autorisés</span><strong>${enabledCount}</strong></div>
+                </div>
+
+                <div style="margin-top:.75rem;display:flex;gap:.4rem;flex-wrap:wrap;">
+                    ${rules.map(rule => `
+                        <span class="lc-status ${rule.enabled ? 'actif' : 'termine'}">
+                            ${rule.label} : ${rule.enabled ? 'coupe' : 'ne coupe pas'}
+                        </span>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    function findSub(subId) {
+        for (const contract of contracts) {
+            const sub = (contract.sub_contracts || []).find(item => Number(item.id) === Number(subId));
+            if (sub) return { contract, sub };
         }
 
-        cutoffCheckbox?.addEventListener('change', syncCutoffVisibility);
-        syncCutoffVisibility();
+        return null;
+    }
 
-        @if($errors->any())
-            window.lcOpenModal('modalContract');
-            window.lcCalcContractPreview();
-        @endif
+    function openDrawer(drawer) {
+        $('#drawerBackdrop')?.classList.add('open');
+        drawer?.classList.add('open');
+    }
 
-        applyFilters();
-        measureKpiBar();
-        if (window.ResizeObserver) {
-            const bar = document.getElementById('lcKpiBar');
-            if (bar) new ResizeObserver(() => measureKpiBar()).observe(bar);
+    function closeDrawers() {
+        $('#drawerBackdrop')?.classList.remove('open');
+        $$('.lc-drawer').forEach(drawer => drawer.classList.remove('open'));
+    }
+
+    function fillVehicleIdentityFromTracking() {
+        const select = $('#createVehicle');
+        if (!select) return;
+
+        const option = select.options[select.selectedIndex];
+
+        $('#createImmatriculation').value = option?.dataset?.immat || '';
+        $('#createVin').value = option?.dataset?.vin || '';
+    }
+
+    function openCreateDrawer() {
+        openDrawer($('#createDrawer'));
+        fillVehicleIdentityFromTracking();
+
+        const start = today();
+
+        $('#createDateDebut').value = $('#createDateDebut').value || start;
+        $('#createProchaineEcheance').value = $('#createProchaineEcheance').value || start;
+        $('#createDateFin').value = $('#createDateFin').value || addMonths(start, 12);
+    }
+
+    function openAddSubDrawer(contract) {
+        $('#addSubParent').value = contract.id;
+        $('#addSubChauffeur').value = contract.chauffeur_id || '';
+        $('#addSubVehicleId').value = contract.vehicle_id || '';
+        $('#addSubImmatriculation').value = contract.vehicule || '';
+        $('#addSubVin').value = contract.vin || '';
+        $('#addSubSubtitle').textContent = `${contract.ref} · ${contract.vehicule} · ${contract.chauffeur}`;
+
+        const start = today();
+
+        $('#addSubDateDebut').value = start;
+        $('#addSubProchaineEcheance').value = start;
+        $('#addSubDateFin').value = addMonths(start, 2);
+
+        console.log('[LEASE_ADD_SUB_CONTEXT]', {
+            parent: contract.id,
+            chauffeur: contract.chauffeur_id,
+            vehicle_id_tracking_local: contract.vehicle_id,
+            immatriculation: contract.vehicule,
+            vin: contract.vin
+        });
+
+        openDrawer($('#addSubDrawer'));
+    }
+
+    function openEditDrawer(item, parent = null) {
+        const isSub = Boolean(parent);
+
+        $('#editDrawerTitle').textContent = isSub ? 'Modifier le sous-contrat' : 'Modifier le contrat';
+        $('#editContractForm').action = buildUrl(updateUrlTemplate, item.id);
+
+        $('#editVehicleId').value = parent?.vehicle_id || item.vehicle_id || '';
+        $('#editParent').value = parent?.id || item.parent || '';
+        $('#editType').value = item.type_contrat || '';
+        $('#editStatus').value = apiStatus(item.statut);
+        $('#editChauffeur').value = parent?.chauffeur_id || item.chauffeur_id || '';
+        $('#editImmatriculation').value = parent?.vehicule || item.vehicule || '';
+        $('#editVin').value = parent?.vin || item.vin || '';
+        $('#editTotal').value = item.montant_total || '';
+        $('#editRemaining').value = item.montant_restant || '';
+        $('#editInstallment').value = item.versement || item.montant_par_paiement || '';
+        $('#editFrequency').value = item.frequence || 'JOURNALIER';
+        $('#editStartDate').value = item.date_debut || parent?.date_debut || today();
+        $('#editEndDate').value = item.date_fin || '';
+        $('#editDueDate').value = item.prochaine_echeance || today();
+
+        if (typeof item.specificites === 'object' && item.specificites !== null) {
+            $('#editSpecificites').value = JSON.stringify(item.specificites, null, 2);
+        } else {
+            $('#editSpecificites').value = item.specificites || '';
         }
-    };
 
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
-    else boot();
+        openDrawer($('#editContractDrawer'));
+    }
 
-})();
+    function closeContractByStatus(item, parent = null, status = 'SOLDE') {
+        const isSub = Boolean(parent);
+        const label = isSub ? 'sous-contrat' : 'contrat';
+
+        if (!confirm(`Ce ${label} sera marqué ${status}. Il ne sera pas supprimé définitivement. Continuer ?`)) {
+            return;
+        }
+
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = buildUrl(updateUrlTemplate, item.id);
+        form.style.display = 'none';
+
+        const payload = {
+            _token: csrfToken,
+            _method: 'PUT',
+            vehicle_id: parent?.vehicle_id || item.vehicle_id || '',
+            parent: parent?.id || item.parent || '',
+            chauffeur: parent?.chauffeur_id || item.chauffeur_id || '',
+            type_contrat: item.type_contrat || '',
+            immatriculation: parent?.vehicule || item.vehicule || '',
+            vin: parent?.vin || item.vin || '',
+            montant_total: item.montant_total || 0,
+            montant_restant: item.montant_restant || 0,
+            montant_par_paiement: item.versement || item.montant_par_paiement || 0,
+            frequence: item.frequence || 'JOURNALIER',
+            date_debut: item.date_debut || parent?.date_debut || today(),
+            date_fin: item.date_fin || parent?.date_fin || today(),
+            prochaine_echeance: item.prochaine_echeance || today(),
+            specificites: typeof item.specificites === 'object' && item.specificites !== null
+                ? JSON.stringify(item.specificites)
+                : (item.specificites || ''),
+            statut: status,
+        };
+
+        Object.entries(payload).forEach(([name, value]) => {
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = name;
+            input.value = value ?? '';
+            form.appendChild(input);
+        });
+
+        document.body.appendChild(form);
+        form.submit();
+    }
+
+    function openPolicyDrawer(contract) {
+        $('#policyContractId').value = contract.id;
+        $('#policyVehicleId').value = contract.vehicle_id || '';
+        $('#policyDrawerSubtitle').textContent = `${contract.ref} · ${contract.vehicule} · ${contract.chauffeur}`;
+
+        $('#policyEnabled').value = contract.cutoff?.enabled ? '1' : '0';
+        $('#policyTime').value = contract.cutoff?.cutoff_time || '';
+        $('#policyGrace').value = contract.cutoff?.grace_days ?? 0;
+        $('#policyOnlyStopped').value = contract.cutoff?.only_when_stopped ? '1' : '0';
+
+        renderPolicyTypeList(contract.cutoff?.contract_types || []);
+
+        openDrawer($('#policyDrawer'));
+    }
+
+    function renderPolicyTypeList(rules) {
+        $('#policyTypeList').innerHTML = rules.map((rule, index) => `
+            <div class="lc-policy-row">
+                <div>
+                    <div class="lc-policy-name">${rule.label}</div>
+                    <span class="lc-policy-help">Type de contrat recouvrement</span>
+                </div>
+
+                <label class="lc-switch">
+                    <input type="checkbox"
+                           name="cutoff[contract_types][${index}][is_enabled]"
+                           value="1"
+                           ${rule.enabled ? 'checked' : ''}>
+                    <span class="lc-slider"></span>
+                </label>
+
+                <input type="hidden" name="cutoff[contract_types][${index}][type_contrat_id]" value="${rule.type_contrat}">
+                <input type="hidden" name="cutoff[contract_types][${index}][type_contrat_label]" value="${rule.label}">
+
+                <input type="number"
+                       min="0"
+                       max="60"
+                       class="lc-input"
+                       name="cutoff[contract_types][${index}][grace_days]"
+                       value="${rule.grace_days ?? 0}">
+            </div>
+        `).join('');
+    }
+
+    function openBulkPolicyDrawer() {
+        if (!selectedContractIds.size) return;
+
+        const selectedVehicleIds = Array.from(selectedContractIds)
+            .map(id => contracts.find(contract => Number(contract.id) === Number(id))?.vehicle_id)
+            .filter(value => value !== null && value !== undefined && value !== '')
+            .map(value => Number(value));
+
+        const uniqueVehicleIds = Array.from(new Set(selectedVehicleIds));
+
+        if (!uniqueVehicleIds.length) {
+            alert('Aucun véhicule Tracking n’est associé aux contrats sélectionnés. Impossible d’appliquer une règle de coupure en lot.');
+            return;
+        }
+
+        $('#bulkSelectedContracts').innerHTML = uniqueVehicleIds
+            .map(id => `<input type="hidden" name="vehicle_ids[]" value="${id}">`)
+            .join('');
+
+        $('#bulkPolicySubtitle').textContent = `${selectedContractIds.size} contrat(s) sélectionné(s), ${uniqueVehicleIds.length} véhicule(s) Tracking concerné(s).`;
+
+        $('#bulkTypePolicyList').innerHTML = contractTypes.map((type, index) => `
+            <div class="lc-type-row">
+                <div>
+                    <div class="lc-policy-name">${type.label}</div>
+                    <span class="lc-policy-help">${type.description || ''}</span>
+                </div>
+
+                <label class="lc-switch">
+                    <input type="checkbox" name="cutoff[contract_types][${index}][is_enabled]" value="1">
+                    <span class="lc-slider"></span>
+                </label>
+
+                <input type="hidden" name="cutoff[contract_types][${index}][type_contrat_id]" value="${type.id}">
+                <input type="hidden" name="cutoff[contract_types][${index}][type_contrat_label]" value="${type.label}">
+
+                <input type="number"
+                       min="0"
+                       max="60"
+                       class="lc-input"
+                       name="cutoff[contract_types][${index}][grace_days]"
+                       placeholder="Délai">
+            </div>
+        `).join('');
+
+        openDrawer($('#bulkPolicyDrawer'));
+    }
+
+    function addSubForm() {
+        const template = $('#subFormTemplate');
+        const node = template.content.cloneNode(true);
+        const card = $('[data-subform]', node);
+        const index = subFormIndex++;
+
+        $('[data-sub-type]', card).setAttribute('name', `sous_contrats[${index}][type_contrat]`);
+        $('[data-sub-total]', card).setAttribute('name', `sous_contrats[${index}][montant_total]`);
+        $('[data-sub-installment]', card).setAttribute('name', `sous_contrats[${index}][montant_par_paiement]`);
+        $('[data-sub-frequency]', card).setAttribute('name', `sous_contrats[${index}][frequence]`);
+        $('[data-sub-start]', card).setAttribute('name', `sous_contrats[${index}][date_debut]`);
+        $('[data-sub-end]', card).setAttribute('name', `sous_contrats[${index}][date_fin]`);
+        $('[data-sub-due]', card).setAttribute('name', `sous_contrats[${index}][prochaine_echeance]`);
+        $('[data-sub-specificites]', card).setAttribute('name', `sous_contrats[${index}][specificites]`);
+
+        const start = today();
+
+        $('[data-sub-start]', card).value = start;
+        $('[data-sub-due]', card).value = start;
+        $('[data-sub-end]', card).value = addMonths(start, 2);
+
+        const select = $('[data-sub-type]', card);
+        const title = $('[data-subform-title]', card);
+
+        function refreshTitle() {
+            title.textContent = 'Sous-contrat · ' + (select.options[select.selectedIndex]?.textContent || '');
+        }
+
+        select.addEventListener('change', refreshTitle);
+        refreshTitle();
+
+        $('[data-remove-subform]', card).addEventListener('click', () => card.remove());
+
+        $('#createSubList').appendChild(card);
+    }
+
+    function boot() {
+        $('#contractSearch')?.addEventListener('input', renderList);
+        $('#statusFilter')?.addEventListener('change', renderList);
+        $('#subTypeFilter')?.addEventListener('change', renderList);
+        $('#cutoffFilter')?.addEventListener('change', renderList);
+
+        $('#openCreateBtn')?.addEventListener('click', openCreateDrawer);
+        $('#createVehicle')?.addEventListener('change', fillVehicleIdentityFromTracking);
+        $('#createAddSubBtn')?.addEventListener('click', addSubForm);
+
+        $('#addSubToCurrentBtn')?.addEventListener('click', () => {
+            const contract = currentContract();
+            if (contract) openAddSubDrawer(contract);
+        });
+
+        $('#openPolicyBtn')?.addEventListener('click', () => {
+            const contract = currentContract();
+            if (contract) openPolicyDrawer(contract);
+        });
+
+        $('#openContractPolicyBtn')?.addEventListener('click', () => {
+            const contract = currentContract();
+            if (contract) openPolicyDrawer(contract);
+        });
+
+        $('#bulkPolicyBtn')?.addEventListener('click', openBulkPolicyDrawer);
+
+        $('#clearSelectionBtn')?.addEventListener('click', () => {
+            selectedContractIds.clear();
+            renderList();
+            updateSelectionBar();
+        });
+
+        $('#drawerBackdrop')?.addEventListener('click', closeDrawers);
+
+        $$('[data-close-drawer]').forEach(button => {
+            button.addEventListener('click', closeDrawers);
+        });
+
+        renderList();
+        renderDetail();
+    }
+
+    boot();
+});
 </script>
 @endpush

@@ -78,8 +78,16 @@ class KeycloakUserProvisioningService
      */
     private string $targetClientId;
 
-    private const ROLE_PARTNER = 'gestionnaire_plateforme';
-    private const ROLE_DRIVER = 'utilisateur_secondaire';
+    private const DEFAULT_PARTNER_ROLE = 'gestionnaire_plateforme';
+    private const DEFAULT_DRIVER_ROLE = 'utilisateur_secondaire';
+
+    private const TRACKING_ROLE_MAP = [
+        'gestionnaire_plateforme' => 'gestionnaire_plateforme',
+        'utilisateur_secondaire' => 'utilisateur_secondaire',
+        'utilisateur_principale' => 'utilisateur_principale',
+        'call_center' => 'call_center',
+        'admin' => 'admin',
+    ];
 
     public function __construct()
     {
@@ -154,6 +162,34 @@ class KeycloakUserProvisioningService
             plainPassword: $plainPassword,
             resetPasswordIfExists: true,
             source: 'first_login_local_password_match'
+        );
+    }
+
+    /**
+     * Provisionnement utilisé quand un partenaire connecté crée un chauffeur.
+     *
+     * Règle métier :
+     * - users.partner_id doit être renseigné ;
+     * - compte_id Keycloak = users.partner_id ;
+     * - donc compte_id = id du partenaire connecté.
+     */
+    public function provisionDriverCreatedByPartner(User $user, string $plainPassword): array
+    {
+        if (trim($plainPassword) === '') {
+            throw new RuntimeException('Mot de passe vide : impossible de créer le chauffeur dans Keycloak.');
+        }
+
+        if (empty($user->partner_id)) {
+            throw new RuntimeException(
+                "Impossible de provisionner le chauffeur local #{$user->id} : partner_id absent, donc compte_id impossible à déterminer."
+            );
+        }
+
+        return $this->provision(
+            user: $user,
+            plainPassword: $plainPassword,
+            resetPasswordIfExists: true,
+            source: 'partner_interface_driver_creation'
         );
     }
 
@@ -444,6 +480,8 @@ class KeycloakUserProvisioningService
                 'business_type' => [$this->resolveBusinessType($user)],
                 'source_app' => ['tracking'],
                 'local_role' => [(string) ($user->role?->slug ?? '')],
+                'phone' => [(string) ($user->phone ?? '')],
+                'user_unique_id' => [(string) ($user->user_unique_id ?? '')],
             ],
         ];
 
@@ -676,8 +714,14 @@ class KeycloakUserProvisioningService
 
     private function resolveRoleName(User $user): string
     {
+        $localRoleSlug = (string) ($user->role?->slug ?? '');
+
+        if ($localRoleSlug !== '' && isset(self::TRACKING_ROLE_MAP[$localRoleSlug])) {
+            return self::TRACKING_ROLE_MAP[$localRoleSlug];
+        }
+
         return empty($user->partner_id)
-            ? self::ROLE_PARTNER
-            : self::ROLE_DRIVER;
+            ? self::DEFAULT_PARTNER_ROLE
+            : self::DEFAULT_DRIVER_ROLE;
     }
 }

@@ -138,3 +138,46 @@ E. Logging structuré des accès partenaire
 Cette migration peut se faire progressivement sans downtime.
 
 ================================================================================
+
+
+
+
+
+
+# Patch backend contrats + sous-contrats + règles de coupure
+
+## Fichiers inclus
+
+- `app/Http/Controllers/Leases/ContratLeaseController.php`
+- `app/Services/Leases/PartnerLeaseApiService.php`
+- `app/Services/Leases/LeaseContractLinkService.php`
+- `app/Services/Leases/LeaseCutoffRuleService.php`
+- `routes/web_additions.txt`
+
+## Rôle
+
+Ce patch connecte la console contrats à l'API recouvrement actuelle :
+
+- `POST /api/v1/contrats/` avec `type_contrat`, `vin`, `specificites`, `sous_contrats` ;
+- `GET /api/v1/contrats/` avec filtres ;
+- `PUT /api/v1/contrats/{id}/` pour modifier un contrat ou sous-contrat ;
+- `DELETE /api/v1/contrats/{id}/` pour supprimer ;
+- `GET /api/v1/type-contrats/` pour récupérer les types réels.
+
+Les règles de coupure restent côté Tracking :
+
+- `lease_cutoff_rules`
+- `lease_cutoff_rule_contract_types`
+- `lease_contract_links`
+
+## Après copie
+
+```bash
+php artisan optimize:clear
+composer dump-autoload
+php -l app/Http/Controllers/Leases/ContratLeaseController.php
+php -l app/Services/Leases/PartnerLeaseApiService.php
+php -l app/Services/Leases/LeaseContractLinkService.php
+php -l app/Services/Leases/LeaseCutoffRuleService.php
+php artisan route:list
+```

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Leases;
 
+use App\Exceptions\LeaseApiException;
 use App\Http\Controllers\Controller;
 use App\Services\Leases\LeaseForgivenessService;
 use App\Services\Leases\PartnerLeaseApiService;
@@ -16,29 +17,54 @@ class LeaseController extends Controller
     /**
      * Page paiements lease.
      *
-     * Important :
-     * - Les contrats enrichissent les leases.
-     * - Les leases viennent bien de GET /leases/.
-     * - La vue principale utilise $lease_data.
+     * Cohérence métier :
+     * - /leases/ est la source des échéances à payer ;
+     * - /contrats/ permet de savoir si l'échéance concerne le contrat parent
+     *   ou un sous-contrat et de connaître son type ;
+     * - Tracking applique ensuite les règles de coupure véhicule + type contrat.
      */
     public function index(Request $request, PartnerLeaseApiService $leaseApiService): View
     {
+        $contracts = [];
+        $leaseData = [];
+        $contractTypes = [];
+        $pageWarnings = [];
+        $pageError = null;
+
         try {
             Log::info('[LEASE_PAGE_INDEX_START]', [
                 'user_id' => optional($request->user())->id,
                 'partner_id' => optional($request->user())->partner_id,
+                'query' => $request->query(),
             ]);
 
+            $contractTypes = $leaseApiService->fetchContractTypes();
             $contracts = $leaseApiService->fetchContracts();
 
-            $leaseData = $leaseApiService->fetchLeases(null, $contracts);
+            /**
+             * La page peut utiliser les filtres documentés par /leases/.
+             * Les filtres UI restent aussi disponibles côté navigateur pour une
+             * navigation rapide sans rechargement.
+             */
+            $leaseFilters = $request->only([
+                'search',
+                'statut',
+                'statut__in',
+                'date_echeance',
+                'date_echeance_start',
+                'date_echeance_end',
+                'created_at',
+                'start_date',
+                'end_date',
+                'page',
+            ]);
 
+            $leaseData = $leaseApiService->fetchLeases(null, $contracts, $leaseFilters);
             $cutoffHub = $leaseApiService->buildPaymentCutoffHub($leaseData);
-
-            $pageError = null;
 
             Log::info('[LEASE_PAGE_INDEX_DONE]', [
                 'contracts_count' => count($contracts),
+                'contract_types_count' => count($contractTypes),
                 'leases_count' => count($leaseData),
                 'hub' => $cutoffHub,
             ]);
@@ -47,12 +73,12 @@ class LeaseController extends Controller
 
             Log::error('[LEASE_PAGE_INDEX_FAILED]', [
                 'user_id' => optional($request->user())->id,
+                'exception_class' => get_class($e),
                 'error' => $e->getMessage(),
+                'lease_request_id' => $e instanceof LeaseApiException ? $e->requestId : null,
+                'status' => $e instanceof LeaseApiException ? $e->status : null,
+                'api_message' => $e instanceof LeaseApiException ? $e->apiMessage : null,
             ]);
-
-            $contracts = [];
-
-            $leaseData = [];
 
             $cutoffHub = [
                 'global_enabled' => false,
@@ -60,44 +86,27 @@ class LeaseController extends Controller
                 'next_cutoff_time' => null,
                 'upcoming_cutoff_times' => [],
                 'active_rules_count' => 0,
+                'active_type_rules_count' => 0,
                 'eligible_unpaid_count' => 0,
             ];
 
-            $pageError = app()->environment('local')
-                ? $e->getMessage()
-                : "Impossible de charger les paiements lease pour le moment.";
+            $pageError = $e instanceof LeaseApiException
+                ? $e->userMessage()
+                : (app()->environment('local')
+                    ? $e->getMessage()
+                    : "Impossible de charger les paiements lease pour le moment.");
         }
 
         return view('leases.index', [
-            /**
-             * Nom principal utilisé par ta vue actuelle.
-             */
             'lease_data' => $leaseData,
-
-            /**
-             * Alias de sécurité.
-             * Ça évite de casser une ancienne version de vue si elle utilise
-             * $leases, $payments ou $paymentData.
-             */
             'leases' => $leaseData,
             'payments' => $leaseData,
             'paymentData' => $leaseData,
-
-            /**
-             * Contrats disponibles si la vue en a besoin plus tard.
-             */
             'contracts' => $contracts,
-
-            /**
-             * Hub de coupure automatique.
-             */
+            'contractTypes' => $contractTypes,
             'cutoffHub' => $cutoffHub,
-
-            /**
-             * Message d’erreur éventuel.
-             */
             'pageError' => $pageError,
-             // Utilisateur connecté pour la vue
+            'pageWarnings' => $pageWarnings,
             'connectedUserId' => optional($request->user())->id,
             'connectedUserName' => $this->connectedUserLabel($request->user()),
         ]);
@@ -162,17 +171,19 @@ class LeaseController extends Controller
     /**
      * Paiement cash d’un lease.
      *
-     * API recouvrement attend :
-     * {
-     *   "lease": 14,
-     *   "montant": 2500
-     * }
+     * Documentation recouvrement :
+     * POST /paiements/
+     * { "lease_id": 97, "montant": "100" }
      */
     public function payCash(Request $request, PartnerLeaseApiService $leaseApiService): JsonResponse
     {
         $data = $request->validate([
             'lease_id' => ['required', 'integer'],
             'montant' => ['required', 'numeric', 'min:1'],
+        ], [
+            'lease_id.required' => 'La ligne de lease à payer est introuvable.',
+            'montant.required' => 'Le montant du paiement est obligatoire.',
+            'montant.min' => 'Le montant du paiement doit être supérieur à zéro.',
         ]);
 
         try {
@@ -186,10 +197,7 @@ class LeaseController extends Controller
 
             $result = $leaseApiService->registerCashPayment([
                 'lease_id' => (int) $data['lease_id'],
-                'montant' => (float) $data['montant'],
-
-                // Utilisé pour logs/debug côté Tracking.
-                // L’API recouvrement, elle, identifie normalement l’enregistreur via le token Keycloak.
+                'montant' => (string) $data['montant'],
                 'recorded_by' => optional($request->user())->id,
                 'recorded_by_name' => $recordedByName,
             ]);
@@ -197,7 +205,7 @@ class LeaseController extends Controller
             Log::info('[LEASE_CASH_PAYMENT_DONE]', [
                 'user_id' => optional($request->user())->id,
                 'lease_id' => (int) $data['lease_id'],
-                'response' => $result,
+                'response_shape' => is_array($result) ? array_keys($result) : null,
             ]);
 
             return response()->json([
@@ -213,13 +221,63 @@ class LeaseController extends Controller
                 'user_id' => optional($request->user())->id,
                 'lease_id' => $data['lease_id'] ?? null,
                 'montant' => $data['montant'] ?? null,
-                'error' => $e->getMessage(),
+                'exception_class' => get_class($e),
+                'message' => $e->getMessage(),
+                'lease_request_id' => $e instanceof LeaseApiException ? $e->requestId : null,
+                'status' => $e instanceof LeaseApiException ? $e->status : null,
+                'api_message' => $e instanceof LeaseApiException ? $e->apiMessage : null,
             ]);
 
             return response()->json([
                 'ok' => false,
-                'message' => $e->getMessage() ?: "Impossible d'enregistrer le paiement cash.",
-            ], 500);
+                'message' => $e instanceof LeaseApiException
+                    ? $e->userMessage()
+                    : "Impossible d'enregistrer le paiement cash.",
+            ], $e instanceof LeaseApiException && $e->status < 500 ? $e->status : 500);
+        }
+    }
+
+    /**
+     * Paiement mobile d’un ou plusieurs leases.
+     */
+    public function payMobile(Request $request, PartnerLeaseApiService $leaseApiService): JsonResponse
+    {
+        $data = $request->validate([
+            'phone_number' => ['required', 'string', 'max:30'],
+            'lignes' => ['required', 'array', 'min:1'],
+            'lignes.*.lease_id' => ['required', 'integer'],
+            'lignes.*.montant' => ['required', 'numeric', 'min:1'],
+        ]);
+
+        try {
+            $result = $leaseApiService->initiateMobilePayment(
+                lines: $data['lignes'],
+                phoneNumber: $data['phone_number']
+            );
+
+            return response()->json([
+                'ok' => true,
+                'message' => 'Paiement mobile initié avec succès.',
+                'data' => $result,
+            ]);
+        } catch (Throwable $e) {
+            report($e);
+
+            Log::error('[LEASE_MOBILE_PAYMENT_FAILED]', [
+                'user_id' => optional($request->user())->id,
+                'exception_class' => get_class($e),
+                'message' => $e->getMessage(),
+                'lease_request_id' => $e instanceof LeaseApiException ? $e->requestId : null,
+                'status' => $e instanceof LeaseApiException ? $e->status : null,
+                'api_message' => $e instanceof LeaseApiException ? $e->apiMessage : null,
+            ]);
+
+            return response()->json([
+                'ok' => false,
+                'message' => $e instanceof LeaseApiException
+                    ? $e->userMessage()
+                    : "Impossible d'initier le paiement mobile.",
+            ], $e instanceof LeaseApiException && $e->status < 500 ? $e->status : 500);
         }
     }
 

@@ -23,6 +23,7 @@ use App\Http\Controllers\Leases\LeaseCutoffHistoryController;
 use App\Http\Controllers\Partner\PartnerDriverController;
 
 
+
 Route::middleware(['auth:web'])->group(function () {
 
     // ── Dashboard ──────────────────────────────────────────────────────
@@ -32,7 +33,7 @@ Route::middleware(['auth:web'])->group(function () {
         ->middleware('rebuild.dashboard')
         ->name('dashboard');
 
-    Route::get('/dashboard/vehicles/positions', [DashboardController::class, 'vehiclesPositions']);
+
     Route::get('/dashboard/stream', [DashboardController::class, 'dashboardStream'])->name('dashboard.stream');
     Route::post('/dashboard/rebuild', [DashboardController::class, 'rebuildCache'])->name('dashboard.rebuild');
 
@@ -71,33 +72,67 @@ Route::middleware(['auth:web'])->group(function () {
 
     // ── Alerts ─────────────────────────────────────────────────────────
     Route::get('/alerts', [AlertController::class, 'index'])->name('alerts.index');
-    Route::get('/alerts/day', [AlertController::class, 'day'])->name('alerts.day');
 
-    // Marquer une alerte comme lue / traitée (appelé depuis le front JS)
-    Route::patch('/alerts/{alert}/read', [AlertController::class, 'markRead'])->name('alerts.read');
-    Route::patch('/alerts/{alert}/process', [AlertController::class, 'markProcessed'])->name('alerts.process');
+
+ 
+
+
+   
+   
+
 
     // ── Trajets ────────────────────────────────────────────────────────
     Route::get('/trajets', [TrajetController::class, 'index'])->name('trajets.index');
     Route::get('/trajets/{vehicle_id}/detail/{trajet_id}', [TrajetController::class, 'showTrajet'])
         ->name('trajets.detail.api');
-    Route::get('/voitures/{id}/trajets', [TrajetController::class, 'byVoiture'])->name('voitures.trajets');
+    //Route::get('/voitures/{id}/trajets', [TrajetController::class, 'byVoiture'])->name('voitures.trajets');
     Route::get('/trajets/show/{voiture_id}/{trajet_id}', [TrajetController::class, 'showTrajet'])
         ->name('trajets.show');
 
     // ── Vehicles ───────────────────────────────────────────────────────
     Route::get('/add-vehicle', fn() => view('vehicles.create'))->name('vehicles.add');
-    Route::post('/save-vehicle', [\App\Http\Controllers\VehicleController::class, 'store'])->name('vehicles.save');
+ 
 
 
+    //gestion des lease
     //gestion des lease
     Route::get('lease', [LeaseController::class, 'index'])->name('lease.index');
     Route::post('/leases/payments/cash', [\App\Http\Controllers\Leases\LeaseController::class, 'payCash'])
     ->name('leases.payments.cash');
+
+Route::post('/leases/payments/mobile', [\App\Http\Controllers\Leases\LeaseController::class, 'payMobile'])
+    ->name('leases.payments.mobile');
+
+
     //gestion contrat de lease
-    Route::get('contrats', [ContratLeaseController::class, 'index'])->name('lease.contrat');
-    Route::post('contrats', [ContratLeaseController::class, 'store'])
+Route::get('contrats', [ContratLeaseController::class, 'index'])
+    ->name('lease.contrat');
+
+Route::post('contrats', [ContratLeaseController::class, 'store'])
     ->name('lease.contrat.store');
+
+Route::put('contrats/{id}', [ContratLeaseController::class, 'update'])
+    ->whereNumber('id')
+    ->name('lease.contrat.update');
+
+Route::patch('contrats/{id}', [ContratLeaseController::class, 'update'])
+    ->whereNumber('id')
+    ->name('lease.contrat.patch');
+
+Route::delete('contrats/{id}', [ContratLeaseController::class, 'destroy'])
+    ->whereNumber('id')
+    ->name('lease.contrat.destroy');
+
+Route::post('contrats/cutoff-policy', [ContratLeaseController::class, 'updateCutoffPolicy'])
+    ->name('lease.contrat.cutoff-policy');
+
+Route::post('contrats/bulk-cutoff-policy', [ContratLeaseController::class, 'bulkUpdateCutoffPolicies'])
+    ->name('lease.contrat.bulk-cutoff-policy');
+
+
+
+
+
 
 // regle de coupure automatique de vehicule en leases 
 Route::get('lease/cutoff-rules', [LeaseCutoffRuleController::class, 'index'])
@@ -109,6 +144,9 @@ Route::post('/leases/global-cutoff', [\App\Http\Controllers\Leases\LeaseControll
 
 Route::post('lease/cutoff-rules', [LeaseCutoffRuleController::class, 'store'])
     ->name('lease.cutoff-rules.store');
+
+Route::post('lease/cutoff-rules/type-contrats', [LeaseCutoffRuleController::class, 'storeContractType'])
+    ->name('lease.cutoff-rules.type-contrats.store');
 
     //pardonner un lease non payé  en rallumant le vehicuel
     Route::post('/leases/{leaseId}/forgive', [\App\Http\Controllers\Leases\LeaseController::class, 'forgive'])

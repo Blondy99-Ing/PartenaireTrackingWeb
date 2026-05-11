@@ -2,965 +2,552 @@
 
 @section('title', 'Paramétrage coupure lease')
 
+@php
+    $vehicles = collect($vehicles ?? []);
+    $contractTypes = collect($contractTypes ?? []);
+
+    $totalVehicles = $vehicles->count();
+    $enabledVehicles = $vehicles->where('is_enabled', true)->count();
+    $activeTypeRules = $vehicles->sum(fn ($vehicle) => (int) ($vehicle['enabled_type_rules_count'] ?? 0));
+    $missingTimeVehicles = $vehicles->filter(fn ($vehicle) => !empty($vehicle['is_enabled']) && empty($vehicle['cutoff_time']))->count();
+@endphp
+
 @push('styles')
 <style>
-/* ============================================================
-   LEASE CUTOFF RULES — aligné design system Fleetra
-   ============================================================ */
+    .lco-page { display:flex; flex-direction:column; gap:1rem; }
+    .lco-card { background:var(--color-card,#fff); border:1px solid var(--color-border-subtle,#e5e7eb); border-radius:18px; box-shadow:var(--shadow-sm,0 8px 24px rgba(15,23,42,.06)); overflow:hidden; }
+    .lco-head { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; padding:1rem; border-bottom:1px solid var(--color-border-subtle,#e5e7eb); }
+    .lco-head h2 { margin:0; font-size:1rem; font-weight:900; color:var(--color-text,#111827); display:flex; align-items:center; gap:.5rem; }
+    .lco-head h2 i { color:var(--color-primary,#f58220); }
+    .lco-head p { margin:.25rem 0 0; font-size:.76rem; color:var(--color-secondary-text,#6b7280); line-height:1.45; max-width:880px; }
+    .lco-actions { display:flex; gap:.5rem; flex-wrap:wrap; justify-content:flex-end; }
+    .lco-btn { border:1px solid var(--color-border-subtle,#e5e7eb); background:var(--color-card,#fff); color:var(--color-text,#111827); border-radius:12px; padding:.62rem .82rem; font-size:.72rem; font-weight:900; cursor:pointer; display:inline-flex; align-items:center; gap:.4rem; transition:.16s ease; text-decoration:none; }
+    .lco-btn:hover { border-color:var(--color-primary,#f58220); color:var(--color-primary,#f58220); transform:translateY(-1px); }
+    .lco-btn.primary { background:var(--color-primary,#f58220); border-color:var(--color-primary,#f58220); color:#fff; }
+    .lco-btn.soft { background:rgba(245,130,32,.09); border-color:rgba(245,130,32,.22); color:var(--color-primary,#f58220); }
+    .lco-btn.danger { color:#dc2626; border-color:rgba(220,38,38,.25); }
 
-.lco-page {
-    display: flex;
-    flex-direction: column;
-    gap: .85rem;
-}
+    .lco-alert { padding:.85rem 1rem; border-radius:16px; border:1px solid transparent; font-size:.78rem; font-weight:800; }
+    .lco-alert.success { color:#15803d; background:rgba(22,163,74,.08); border-color:rgba(22,163,74,.22); }
+    .lco-alert.error { color:#b91c1c; background:rgba(220,38,38,.08); border-color:rgba(220,38,38,.22); }
+    .lco-alert.warn { color:#b45309; background:rgba(245,158,11,.08); border-color:rgba(245,158,11,.25); }
 
-/* ── Flash messages ──────────────────────────────────────── */
-.flash-success,
-.flash-error {
-    padding: .75rem .95rem;
-    border-radius: var(--r-xl, 12px);
-    font-family: var(--font-display);
-    font-weight: 900;
-    font-size: .68rem;
-    display: flex;
-    align-items: center;
-    gap: .55rem;
-}
-.flash-success {
-    background: var(--color-success-bg, rgba(22,163,74,.1));
-    color: var(--color-success, #15803d);
-    border: 1px solid rgba(22,163,74,.2);
-}
-.flash-error {
-    background: var(--color-error-bg, rgba(220,38,38,.1));
-    color: var(--color-error, #b91c1c);
-    border: 1px solid rgba(220,38,38,.2);
-}
+    .lco-kpis { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.75rem; padding:1rem; }
+    @media(max-width:900px){ .lco-kpis{grid-template-columns:repeat(2,minmax(0,1fr));} }
+    @media(max-width:560px){ .lco-kpis{grid-template-columns:1fr;} }
+    .lco-kpi { border:1px solid var(--color-border-subtle,#e5e7eb); border-radius:16px; padding:.85rem; background:rgba(148,163,184,.05); display:flex; justify-content:space-between; gap:.6rem; align-items:center; }
+    .lco-kpi span { display:block; color:var(--color-secondary-text,#6b7280); font-size:.62rem; font-weight:900; letter-spacing:.07em; text-transform:uppercase; }
+    .lco-kpi strong { display:block; margin-top:.15rem; color:var(--color-primary,#f58220); font-size:1.35rem; font-weight:900; }
+    .lco-kpi i { width:36px; height:36px; border-radius:12px; display:flex; align-items:center; justify-content:center; background:rgba(245,130,32,.12); color:var(--color-primary,#f58220); }
 
-/* ── Header card ─────────────────────────────────────────── */
-.lco-header-card {
-    background: var(--color-card);
-    border: 1px solid var(--color-border-subtle);
-    border-radius: var(--r-lg, 10px);
-    box-shadow: var(--shadow-sm);
-    overflow: hidden;
-}
+    .lco-create { padding:1rem; }
+    .lco-form-grid { display:grid; grid-template-columns:1.2fr .7fr .7fr .7fr auto; gap:.65rem; align-items:end; }
+    @media(max-width:980px){ .lco-form-grid{grid-template-columns:1fr 1fr;} }
+    @media(max-width:620px){ .lco-form-grid{grid-template-columns:1fr;} }
+    .lco-field { display:flex; flex-direction:column; gap:.3rem; }
+    .lco-field label { font-size:.62rem; font-weight:900; text-transform:uppercase; letter-spacing:.06em; color:var(--color-secondary-text,#6b7280); }
+    .lco-input,.lco-select { width:100%; border:1px solid var(--color-border-subtle,#e5e7eb); border-radius:12px; padding:.62rem .75rem; background:var(--color-card,#fff); color:var(--color-text,#111827); font-size:.76rem; outline:none; }
+    .lco-input:focus,.lco-select:focus { border-color:var(--color-primary,#f58220); box-shadow:0 0 0 3px rgba(245,130,32,.12); }
+    .lco-checkline { display:flex; align-items:center; gap:.45rem; font-size:.75rem; color:var(--color-text,#111827); font-weight:800; padding:.58rem .2rem; }
+    .lco-checkline input { width:16px; height:16px; accent-color:var(--color-primary,#f58220); }
 
-.lco-head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: .85rem .95rem;
-    border-bottom: 1px solid var(--color-border-subtle);
-}
-.lco-head h2 {
-    margin: 0;
-    font-family: var(--font-display);
-    font-weight: 900;
-    font-size: .9rem;
-    color: var(--color-text);
-    display: flex;
-    align-items: center;
-    gap: .45rem;
-}
-.lco-head h2 i { color: var(--color-primary); font-size: .8rem; }
-.lco-head p {
-    margin: .2rem 0 0;
-    font-family: var(--font-body);
-    font-size: .72rem;
-    color: var(--color-secondary-text, #8b949e);
-    max-width: 680px;
-}
+    .lco-toolbar { padding:.85rem 1rem; border-bottom:1px solid var(--color-border-subtle,#e5e7eb); display:flex; flex-direction:column; gap:.7rem; }
+    .lco-toolbar-top { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; }
+    .lco-search { position:relative; flex:1; min-width:240px; }
+    .lco-search i { position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--color-secondary-text,#6b7280); font-size:.75rem; }
+    .lco-search input { padding-left:2.1rem; }
+    .lco-filter-pills { display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; }
+    .lco-pill { border:1px solid var(--color-border-subtle,#e5e7eb); border-radius:999px; padding:.32rem .65rem; font-size:.62rem; font-weight:900; color:var(--color-secondary-text,#6b7280); cursor:pointer; background:transparent; }
+    .lco-pill.active { border-color:var(--color-primary,#f58220); background:rgba(245,130,32,.09); color:var(--color-primary,#f58220); }
+    .lco-meta { margin-left:auto; color:var(--color-secondary-text,#6b7280); font-size:.68rem; font-weight:900; }
 
-/* ── KPI strip ───────────────────────────────────────────── */
-.lco-kpi-strip {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: .65rem;
-    padding: .85rem;
-}
-@media(max-width:640px) { .lco-kpi-strip { grid-template-columns: 1fr; } }
+    .lco-selection { display:none; padding:.75rem 1rem; border-bottom:1px solid rgba(245,130,32,.25); background:rgba(245,130,32,.08); gap:.5rem; align-items:center; flex-wrap:wrap; }
+    .lco-selection.show { display:flex; }
+    .lco-selection strong { color:var(--color-primary,#f58220); font-size:.72rem; }
 
-.lco-kpi {
-    border: 1px solid var(--color-border-subtle);
-    border-radius: 14px;
-    background: rgba(0,0,0,.03);
-    padding: .7rem .8rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: .6rem;
-}
-.dark-mode .lco-kpi { background: rgba(255,255,255,.03); }
-.lco-kpi .lbl {
-    margin: 0;
-    font-family: var(--font-display);
-    font-size: .58rem; font-weight: 900;
-    letter-spacing: .08em; text-transform: uppercase;
-    color: var(--color-secondary-text, #8b949e);
-}
-.lco-kpi .val {
-    margin: .12rem 0 0;
-    font-family: var(--font-display);
-    font-size: 1.35rem; font-weight: 900;
-    color: var(--color-primary);
-}
-.lco-kpi .ico {
-    width: 36px; height: 36px;
-    border-radius: 10px;
-    background: var(--color-primary-light);
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
-}
-.lco-kpi .ico i { color: var(--color-primary); font-size: .8rem; }
+    .lco-table-wrap { overflow:auto; max-height:calc(100vh - 360px); min-height:240px; }
+    .lco-table { width:100%; min-width:1180px; border-collapse:separate; border-spacing:0; }
+    .lco-table th { position:sticky; top:0; z-index:2; background:var(--color-card,#fff); border-bottom:1px solid var(--color-border-subtle,#e5e7eb); padding:.7rem .75rem; text-align:left; font-size:.58rem; font-weight:900; letter-spacing:.08em; text-transform:uppercase; color:var(--color-secondary-text,#6b7280); }
+    .lco-table td { padding:.75rem; border-bottom:1px solid var(--color-border-subtle,#e5e7eb); vertical-align:top; color:var(--color-text,#111827); font-size:.74rem; }
+    .lco-row:hover { background:rgba(148,163,184,.05); }
+    .lco-row.selected { background:rgba(245,130,32,.08); }
+    .lco-row.dirty { outline:2px solid rgba(245,158,11,.16); outline-offset:-2px; }
+    .lco-row.hidden { display:none; }
+    .lco-row-check,.lco-check-all { width:17px; height:17px; accent-color:var(--color-primary,#f58220); cursor:pointer; }
 
-/* ── Form card ───────────────────────────────────────────── */
-.lco-form-card {
-    background: var(--color-card);
-    border: 1px solid var(--color-border-subtle);
-    border-radius: var(--r-lg, 10px);
-    box-shadow: var(--shadow-sm);
-    overflow: hidden;
-}
+    .veh-title { font-size:.82rem; font-weight:900; margin:0; color:var(--color-text,#111827); }
+    .veh-sub { margin:.18rem 0 0; font-size:.66rem; color:var(--color-secondary-text,#6b7280); }
+    .veh-gps { margin:.18rem 0 0; font-family:monospace; font-size:.65rem; color:var(--color-secondary-text,#6b7280); }
 
-/* ── Toolbar ─────────────────────────────────────────────── */
-.lco-toolbar {
-    display: flex;
-    flex-direction: column;
-    gap: .55rem;
-    padding: .75rem .85rem;
-    border-bottom: 1px solid var(--color-border-subtle);
-}
-.lco-toolbar-top {
-    display: flex;
-    align-items: center;
-    gap: .65rem;
-    flex-wrap: wrap;
-}
+    .tag { display:inline-flex; align-items:center; gap:.28rem; border-radius:999px; padding:.24rem .55rem; font-size:.58rem; font-weight:900; border:1px solid transparent; white-space:nowrap; }
+    .tag.ok { background:rgba(22,163,74,.1); color:#15803d; border-color:rgba(22,163,74,.22); }
+    .tag.off { background:rgba(107,114,128,.1); color:#4b5563; border-color:rgba(107,114,128,.2); }
+    .tag.warn { background:rgba(245,158,11,.12); color:#b45309; border-color:rgba(245,158,11,.22); }
 
-.swrap {
-    position: relative;
-    flex: 1;
-    min-width: 180px;
-}
-.swrap i {
-    position: absolute; left: 10px; top: 50%;
-    transform: translateY(-50%);
-    font-size: .7rem;
-    color: var(--color-secondary-text, #8b949e);
-    pointer-events: none;
-}
-.swrap input {
-    width: 100%;
-    border: 1px solid var(--color-border-subtle);
-    border-radius: 10px;
-    padding: .5rem .6rem .5rem 2rem;
-    font-size: .75rem;
-    background: var(--color-card);
-    color: var(--color-text);
-    font-family: var(--font-body);
-    outline: none;
-}
-.swrap input:focus { border-color: var(--color-primary); }
-.sclear {
-    position: absolute; right: 8px; top: 50%;
-    transform: translateY(-50%);
-    display: none;
-    width: 18px; height: 18px;
-    border-radius: 9999px;
-    border: none;
-    background: var(--color-border-subtle);
-    color: var(--color-secondary-text, #8b949e);
-    font-weight: 900; cursor: pointer;
-    font-size: .75rem; line-height: 1;
-}
-.sclear.show { display: flex; align-items: center; justify-content: center; }
+    .switch { position:relative; width:44px; height:24px; display:inline-block; }
+    .switch input { opacity:0; width:0; height:0; }
+    .slider { position:absolute; inset:0; border-radius:999px; background:#cbd5e1; transition:.16s; cursor:pointer; }
+    .slider:before { content:""; position:absolute; width:16px; height:16px; top:4px; left:4px; border-radius:999px; background:#fff; transition:.16s; box-shadow:0 2px 6px rgba(0,0,0,.2); }
+    .switch input:checked + .slider { background:#16a34a; }
+    .switch input:checked + .slider:before { transform:translateX(20px); }
 
-.lco-bulk-actions {
-    display: flex; align-items: center;
-    gap: .4rem; flex-wrap: wrap; flex-shrink: 0;
-}
+    .type-grid { display:grid; grid-template-columns:repeat(2,minmax(190px,1fr)); gap:.55rem; }
+    @media(max-width:1300px){ .type-grid{grid-template-columns:1fr;} }
+    .type-card { border:1px solid var(--color-border-subtle,#e5e7eb); border-radius:14px; padding:.65rem; background:rgba(148,163,184,.04); display:flex; flex-direction:column; gap:.55rem; }
+    .type-card.enabled { border-color:rgba(22,163,74,.28); background:rgba(22,163,74,.05); }
+    .type-card-head { display:flex; align-items:center; justify-content:space-between; gap:.5rem; }
+    .type-name { font-weight:900; font-size:.75rem; display:flex; align-items:center; gap:.35rem; }
+    .type-name small { font-size:.55rem; color:var(--color-secondary-text,#6b7280); font-weight:900; border:1px solid var(--color-border-subtle,#e5e7eb); border-radius:999px; padding:.1rem .35rem; }
+    .type-options { display:grid; grid-template-columns:88px 84px; gap:.45rem; align-items:end; }
+    .mini-field { display:flex; flex-direction:column; gap:.18rem; }
+    .mini-field label { font-size:.52rem; font-weight:900; color:var(--color-secondary-text,#6b7280); text-transform:uppercase; }
+    .mini-input { border:1px solid var(--color-border-subtle,#e5e7eb); border-radius:9px; padding:.38rem .45rem; font-size:.68rem; background:var(--color-card,#fff); color:var(--color-text,#111827); }
 
-.lco-btn {
-    border: 1px solid var(--color-border-subtle);
-    background: transparent;
-    border-radius: 10px;
-    padding: .48rem .7rem;
-    font-family: var(--font-display);
-    font-weight: 900; font-size: .62rem;
-    cursor: pointer;
-    color: var(--color-secondary-text, #8b949e);
-    transition: .12s;
-    white-space: nowrap;
-    display: inline-flex; align-items: center; gap: .35rem;
-}
-.lco-btn:hover { border-color: var(--color-primary); color: var(--color-primary); }
-.lco-btn.soft {
-    background: var(--color-primary-light);
-    color: var(--color-primary);
-    border-color: var(--color-primary-border, rgba(245,130,32,.3));
-}
-.lco-btn.soft:hover { border-color: var(--color-primary); }
-.lco-btn.primary {
-    background: var(--color-primary); color: #fff;
-    border-color: var(--color-primary);
-}
-.lco-btn.primary:hover { background: var(--color-primary-hover, #e07318); color: #fff; }
-.lco-btn.danger:hover {
-    border-color: var(--color-error, #dc2626);
-    color: var(--color-error, #dc2626);
-}
-
-.lco-time-bulk {
-    border: 1px solid var(--color-border-subtle);
-    border-radius: 10px;
-    background: var(--color-card);
-    color: var(--color-text);
-    padding: .46rem .6rem; outline: none;
-    font-size: .72rem; font-family: var(--font-body);
-    width: 108px;
-}
-.lco-time-bulk:focus { border-color: var(--color-primary); }
-
-/* ── Filter bar ──────────────────────────────────────────── */
-.lco-filterline {
-    display: flex; align-items: center;
-    justify-content: space-between;
-    gap: .6rem; flex-wrap: wrap;
-}
-.lco-filters { display: flex; gap: .3rem; flex-wrap: wrap; }
-
-.lco-f {
-    border: 1px solid var(--color-border-subtle);
-    border-radius: 9999px;
-    padding: .22rem .55rem;
-    font-family: var(--font-display);
-    font-size: .58rem; font-weight: 800;
-    color: var(--color-secondary-text, #8b949e);
-    cursor: pointer; transition: .12s;
-    background: transparent; user-select: none;
-    display: inline-flex; align-items: center; gap: .25rem;
-}
-.lco-f:hover { border-color: var(--color-primary); color: var(--color-primary); }
-.lco-f.active {
-    background: var(--color-primary-light);
-    border-color: var(--color-primary);
-    color: var(--color-primary);
-}
-
-.lco-meta {
-    font-size: .65rem;
-    color: var(--color-secondary-text, #8b949e);
-    font-family: var(--font-display);
-    font-weight: 800; white-space: nowrap;
-}
-
-/* ── Selection action bar ────────────────────────────────── */
-.lco-sel-bar {
-    display: none;
-    align-items: center;
-    gap: .5rem;
-    flex-wrap: wrap;
-    padding: .6rem .85rem;
-    background: var(--color-primary-light);
-    border-bottom: 1px solid var(--color-primary-border, rgba(245,130,32,.25));
-    animation: selBarIn .15s ease;
-}
-@keyframes selBarIn {
-    from { opacity:0; transform:translateY(-4px); }
-    to   { opacity:1; transform:translateY(0); }
-}
-.lco-sel-bar.show { display: flex; }
-
-.sel-badge {
-    display: inline-flex; align-items: center; gap: .3rem;
-    background: var(--color-primary);
-    color: #fff;
-    font-family: var(--font-display);
-    font-weight: 900; font-size: .62rem;
-    padding: .28rem .6rem;
-    border-radius: 9999px;
-    flex-shrink: 0;
-}
-
-.sel-label {
-    font-family: var(--font-display);
-    font-weight: 900; font-size: .65rem;
-    color: var(--color-primary);
-    flex-shrink: 0;
-}
-
-.sel-sep {
-    width: 1px; height: 18px;
-    background: var(--color-primary-border, rgba(245,130,32,.3));
-    flex-shrink: 0;
-}
-
-.sel-time-wrap {
-    display: flex; align-items: center; gap: .3rem;
-}
-.sel-time-wrap label {
-    font-family: var(--font-display);
-    font-weight: 900; font-size: .6rem;
-    color: var(--color-primary);
-    white-space: nowrap;
-}
-.lco-time-sel {
-    border: 1px solid var(--color-primary-border, rgba(245,130,32,.3));
-    border-radius: 9px;
-    background: var(--color-card);
-    color: var(--color-text);
-    padding: .42rem .55rem; outline: none;
-    font-size: .7rem; font-family: var(--font-body);
-    width: 100px;
-}
-.lco-time-sel:focus { border-color: var(--color-primary); }
-
-.sel-deselect {
-    margin-left: auto;
-    font-family: var(--font-display);
-    font-weight: 900; font-size: .6rem;
-    color: var(--color-primary);
-    cursor: pointer; opacity: .7;
-    background: none; border: none;
-    display: inline-flex; align-items: center; gap: .25rem;
-    padding: 0;
-}
-.sel-deselect:hover { opacity: 1; }
-
-/* ── Table ───────────────────────────────────────────────── */
-.lco-table-wrap {
-    overflow: auto;
-    max-height: calc(100vh - 350px);
-    min-height: 200px;
-}
-.lco-table-wrap::-webkit-scrollbar { width: 6px; height: 6px; }
-.lco-table-wrap::-webkit-scrollbar-thumb {
-    background: var(--color-border-subtle);
-    border-radius: 999px;
-}
-
-.lco-table {
-    width: 100%;
-    min-width: 820px;
-    border-collapse: separate;
-    border-spacing: 0;
-}
-
-.lco-table thead th {
-    position: sticky; top: 0; z-index: 2;
-    background: var(--color-card);
-    border-bottom: 1px solid var(--color-border-subtle);
-    padding: .65rem .75rem;
-    text-align: left;
-    font-family: var(--font-display);
-    font-size: .58rem; font-weight: 900;
-    letter-spacing: .08em; text-transform: uppercase;
-    color: var(--color-secondary-text, #8b949e);
-    white-space: nowrap;
-}
-.lco-table thead th:first-child  { padding-left: .75rem; width: 36px; }
-.lco-table thead th:nth-child(2) { width: 38px; text-align: center; }
-
-.lco-table tbody td {
-    padding: .72rem .75rem;
-    border-bottom: 1px solid var(--color-border-subtle);
-    vertical-align: middle;
-    font-family: var(--font-body); font-size: .75rem;
-    color: var(--color-text);
-}
-.lco-table tbody td:first-child  { padding-left: .75rem; }
-.lco-table tbody td:nth-child(2) { text-align: center; }
-
-.lco-row { transition: background .1s; }
-.lco-row:last-child td { border-bottom: none; }
-.lco-row:hover { background: rgba(128,128,128,.04); }
-.lco-row.is-dirty { background: rgba(245,158,11,.07); }
-.dark-mode .lco-row.is-dirty { background: rgba(245,158,11,.05); }
-.lco-row.is-selected { background: var(--color-primary-light) !important; }
-.lco-row.is-selected td {
-    border-bottom-color: var(--color-primary-border, rgba(245,130,32,.2));
-}
-
-/* Checkboxes */
-.check-all,
-.row-check {
-    width: 15px; height: 15px;
-    border-radius: 4px;
-    cursor: pointer;
-    accent-color: var(--color-primary);
-    flex-shrink: 0;
-}
-
-/* Vehicle cell */
-.veh-cell { display: flex; flex-direction: column; gap: .1rem; }
-.veh-cell .veh-title {
-    font-family: var(--font-display);
-    font-weight: 900; font-size: .78rem;
-    color: var(--color-text); margin: 0;
-}
-.veh-cell .veh-sub {
-    font-family: var(--font-body); font-size: .65rem;
-    color: var(--color-secondary-text, #8b949e); margin: 0;
-}
-
-/* Tag / pill */
-.tag {
-    font-family: var(--font-display);
-    font-weight: 800; font-size: .55rem;
-    padding: .2rem .45rem; border-radius: 9999px;
-    display: inline-flex; align-items: center; gap: .25rem;
-}
-.dot { width: 7px; height: 7px; border-radius: 9999px; flex-shrink: 0; }
-
-/* Toggle switch */
-.rule-switch {
-    position: relative; width: 46px; height: 25px;
-    display: inline-block; flex-shrink: 0;
-}
-.rule-switch input { opacity: 0; width: 0; height: 0; }
-.rule-slider {
-    position: absolute; inset: 0;
-    border-radius: 9999px;
-    background: var(--color-border, #9ca3af);
-    transition: .2s; cursor: pointer;
-}
-.rule-slider::before {
-    content: "";
-    position: absolute;
-    width: 17px; height: 17px;
-    left: 4px; top: 4px;
-    border-radius: 9999px;
-    background: #fff; transition: .2s;
-    box-shadow: 0 2px 6px rgba(0,0,0,.18);
-}
-.rule-switch input:checked + .rule-slider { background: var(--color-success, #16a34a); }
-.rule-switch input:checked + .rule-slider::before { transform: translateX(21px); }
-
-.lco-time-inline {
-    border: 1px solid var(--color-border-subtle);
-    border-radius: 9px;
-    background: var(--color-card);
-    color: var(--color-text);
-    padding: .44rem .55rem; outline: none;
-    font-size: .72rem; font-family: var(--font-body);
-    width: 100px;
-}
-.lco-time-inline:focus { border-color: var(--color-primary); }
-
-.lco-num {
-    font-family: var(--font-mono, monospace);
-    font-size: .6rem;
-    color: var(--color-secondary-text, #8b949e);
-}
-
-/* ── Footer ──────────────────────────────────────────────── */
-.lco-footer {
-    display: flex; align-items: center;
-    justify-content: space-between;
-    gap: 1rem; flex-wrap: wrap;
-    padding: .75rem .9rem;
-    border-top: 1px solid var(--color-border-subtle);
-}
-.lco-footer .hint {
-    margin: 0; font-family: var(--font-body);
-    font-size: .68rem;
-    color: var(--color-secondary-text, #8b949e);
-}
-.lco-footer .hint i { color: var(--color-warning, #d97706); margin-right: .25rem; }
-.lco-footer-actions { display: flex; gap: .4rem; flex-wrap: wrap; }
-
-/* ── Empty ───────────────────────────────────────────────── */
-.lco-empty {
-    padding: 2.5rem 1rem; text-align: center;
-    color: var(--color-secondary-text, #8b949e);
-    font-family: var(--font-display); font-weight: 800; font-size: .75rem;
-}
-.lco-empty i { font-size: 1.5rem; opacity: .4; }
-
-/* ── Tip ─────────────────────────────────────────────────── */
-.lco-tip {
-    display: inline-flex; align-items: center; gap: .35rem;
-    font-family: var(--font-body); font-size: .68rem;
-    color: var(--color-secondary-text, #8b949e);
-    background: rgba(37,99,235,.06);
-    border: 1px solid rgba(37,99,235,.12);
-    border-radius: 10px; padding: .45rem .7rem;
-}
-.dark-mode .lco-tip { background: rgba(37,99,235,.1); }
-.lco-tip i { color: var(--color-info, #2563eb); flex-shrink: 0; }
+    .lco-footer { padding:.85rem 1rem; border-top:1px solid var(--color-border-subtle,#e5e7eb); display:flex; justify-content:space-between; gap:1rem; align-items:center; flex-wrap:wrap; }
+    .lco-footer p { margin:0; font-size:.68rem; color:var(--color-secondary-text,#6b7280); }
+    .empty { padding:2.5rem 1rem; text-align:center; color:var(--color-secondary-text,#6b7280); font-weight:900; }
 </style>
 @endpush
 
 @section('content')
-@php
-    $vehicles = collect($vehicles ?? []);
-    $totalVehicles = $vehicles->count();
-    $enabledVehicles = $vehicles->where('is_enabled', true)->count();
-    $missingTimeVehicles = $vehicles->filter(fn ($v) => !empty($v['is_enabled']) && empty($v['cutoff_time']))->count();
-@endphp
-
 <div class="lco-page">
+    @if(session('success'))
+        <div class="lco-alert success"><i class="fas fa-check-circle"></i> {{ session('success') }}</div>
+    @endif
 
- 
-    {{-- ── Header + KPIs ── --}}
-    <div class="lco-header-card">
+    @if(session('error'))
+        <div class="lco-alert error"><i class="fas fa-exclamation-triangle"></i> {{ session('error') }}</div>
+    @endif
+
+    @if($errors->any())
+        <div class="lco-alert error">
+            <i class="fas fa-exclamation-triangle"></i>
+            <div>
+                <strong>Veuillez corriger les champs suivants :</strong>
+                <ul style="margin:.4rem 0 0 1rem;">
+                    @foreach($errors->all() as $error)
+                        <li>{{ $error }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        </div>
+    @endif
+
+    @if(!empty($pageWarnings))
+        @foreach($pageWarnings as $warning)
+            <div class="lco-alert warn"><i class="fas fa-info-circle"></i> {{ $warning }}</div>
+        @endforeach
+    @endif
+
+    <section class="lco-card">
         <div class="lco-head">
             <div>
-                <h2><i class="fas fa-bolt"></i> Paramétrage des coupures automatiques lease</h2>
-                <p>Configurez les règles de coupure par véhicule. Cochez plusieurs véhicules pour leur appliquer les mêmes paramètres en une seule action.</p>
+                <h2><i class="fas fa-bolt"></i> Paramétrage coupure contrats & sous-contrats</h2>
+                <p>
+                    La coupure est décidée côté Tracking par véhicule et par type de contrat recouvrement.
+                    Si un sous-contrat impayé a son type activé pour le véhicule du contrat parent, ce véhicule sera planifié à la coupure à l’heure indiquée.
+                    Si le type est désactivé, il ne déclenche pas la coupure.
+                </p>
             </div>
-            <div class="lco-tip" style="align-self:flex-start;flex-shrink:0">
-                <i class="fas fa-info-circle"></i>
-                <span>Cochez des lignes pour les actions groupées.</span>
+            <div class="lco-actions">
+                <button type="button" class="lco-btn soft" id="enableVisibleBtn"><i class="fas fa-toggle-on"></i> Activer visibles</button>
+                <button type="button" class="lco-btn" id="disableVisibleBtn"><i class="fas fa-toggle-off"></i> Désactiver visibles</button>
             </div>
         </div>
 
-        <div class="lco-kpi-strip">
-            <div class="lco-kpi">
-                <div>
-                    <p class="lbl">Total véhicules</p>
-                    <p class="val" id="kpiTotalVehicles">{{ $totalVehicles }}</p>
-                </div>
-                <div class="ico"><i class="fas fa-car"></i></div>
-            </div>
-            <div class="lco-kpi">
-                <div>
-                    <p class="lbl">Coupure active</p>
-                    <p class="val" id="kpiEnabledVehicles">{{ $enabledVehicles }}</p>
-                </div>
-                <div class="ico" style="background:rgba(22,163,74,.12)">
-                    <i class="fas fa-bolt" style="color:#16a34a"></i>
-                </div>
-            </div>
-            <div class="lco-kpi">
-                <div>
-                    <p class="lbl">Actifs sans heure</p>
-                    <p class="val" id="kpiMissingTime" style="{{ $missingTimeVehicles > 0 ? 'color:var(--color-warning,#d97706)' : '' }}">{{ $missingTimeVehicles }}</p>
-                </div>
-                <div class="ico" style="background:rgba(217,119,6,.1)">
-                    <i class="fas fa-clock" style="color:#d97706"></i>
-                </div>
+        <div class="lco-kpis">
+            <div class="lco-kpi"><div><span>Véhicules</span><strong>{{ $totalVehicles }}</strong></div><i class="fas fa-car"></i></div>
+            <div class="lco-kpi"><div><span>Règles véhicule actives</span><strong id="kpiEnabledVehicles">{{ $enabledVehicles }}</strong></div><i class="fas fa-bolt"></i></div>
+            <div class="lco-kpi"><div><span>Types actifs</span><strong id="kpiActiveTypes">{{ $activeTypeRules }}</strong></div><i class="fas fa-tags"></i></div>
+            <div class="lco-kpi"><div><span>Actifs sans heure</span><strong id="kpiMissingTime">{{ $missingTimeVehicles }}</strong></div><i class="fas fa-clock"></i></div>
+        </div>
+    </section>
+
+    <section class="lco-card">
+        <div class="lco-head">
+            <div>
+                <h2><i class="fas fa-plus-circle"></i> Créer un type de contrat / sous-contrat</h2>
+                <p>
+                    Le type est créé dans recouvrement via <strong>POST /api/v1/type-contrats/</strong>.
+                    Tracking l’ajoute ensuite à la matrice de coupure. Par sécurité, un nouveau type est désactivé par défaut.
+                </p>
             </div>
         </div>
-    </div>
 
-    {{-- ── Form card ── --}}
-    <div class="lco-form-card">
-        <form method="POST" action="{{ route('lease.cutoff-rules.store') }}">
+        <div class="lco-create">
+            <form method="POST" action="{{ route('lease.cutoff-rules.type-contrats.store') }}">
+                @csrf
+                <div class="lco-form-grid">
+                    <div class="lco-field">
+                        <label>Libellé</label>
+                        <input class="lco-input" name="libelle" placeholder="Ex : Batterie, Casque, Assurance" value="{{ old('libelle') }}" required>
+                    </div>
+                    <div class="lco-field">
+                        <label>Code</label>
+                        <input class="lco-input" name="code" placeholder="Ex : BAT" value="{{ old('code') }}">
+                    </div>
+                    <label class="lco-checkline">
+                        <input type="checkbox" name="est_principal" value="1" @checked(old('est_principal'))>
+                        Type principal
+                    </label>
+                    <label class="lco-checkline" title="Déconseillé sauf si vous voulez que ce nouveau type coupe immédiatement sur tous les véhicules.">
+                        <input type="checkbox" name="enable_by_default" value="1" @checked(old('enable_by_default'))>
+                        Activer par défaut
+                    </label>
+                    <button class="lco-btn primary" type="submit"><i class="fas fa-save"></i> Créer</button>
+                </div>
+            </form>
+        </div>
+    </section>
+
+    <section class="lco-card">
+        <form method="POST" action="{{ route('lease.cutoff-rules.store') }}" id="cutoffRulesForm">
             @csrf
 
-            {{-- Toolbar : recherche + actions globales (visibles) --}}
             <div class="lco-toolbar">
                 <div class="lco-toolbar-top">
-                    <div class="swrap">
+                    <div class="lco-search">
                         <i class="fas fa-search"></i>
-                        <input id="vehicleSearch" placeholder="Immatriculation, marque, GPS…" autocomplete="off">
-                        <button type="button" id="vehicleSearchClear" class="sclear" aria-label="Effacer">×</button>
+                        <input class="lco-input" id="vehicleSearch" placeholder="Rechercher véhicule, GPS, marque, type de contrat...">
                     </div>
 
-                    <div class="lco-bulk-actions">
-                        <button type="button" class="lco-btn soft" id="enableAllBtn">
-                            <i class="fas fa-toggle-on"></i> Activer visibles
-                        </button>
-                        <button type="button" class="lco-btn" id="disableAllBtn">
-                            <i class="fas fa-toggle-off"></i> Désactiver visibles
-                        </button>
-                        <input type="time" id="bulkTime" class="lco-time-bulk" step="60" title="Heure à appliquer aux visibles">
-                        <button type="button" class="lco-btn soft" id="applyTimeAllBtn">
-                            <i class="fas fa-clock"></i> Appliquer aux visibles
-                        </button>
-                        <button type="button" class="lco-btn danger" id="clearVisibleTimeBtn" title="Vider l'heure des visibles">
-                            <i class="fas fa-eraser"></i>
-                        </button>
-                    </div>
+                    <input type="time" class="lco-input" id="bulkTime" style="width:130px" title="Heure à appliquer">
+                    <button type="button" class="lco-btn soft" id="applyTimeVisibleBtn"><i class="fas fa-clock"></i> Heure visibles</button>
+                    <button type="button" class="lco-btn soft" id="enableAllTypesVisibleBtn"><i class="fas fa-check-double"></i> Tous types visibles ON</button>
+                    <button type="button" class="lco-btn" id="disableAllTypesVisibleBtn"><i class="fas fa-ban"></i> Tous types visibles OFF</button>
                 </div>
 
-                <div class="lco-filterline">
-                    <div class="lco-filters" id="quickFilters">
-                        <span class="lco-f active" data-filter="all">Tous</span>
-                        <span class="lco-f" data-filter="enabled">
-                            <span class="dot" style="background:#16a34a"></span> Actifs
-                        </span>
-                        <span class="lco-f" data-filter="disabled">
-                            <span class="dot" style="background:#6b7280"></span> Inactifs
-                        </span>
-                        <span class="lco-f" data-filter="missing-time">
-                            <span class="dot" style="background:#d97706"></span> Actifs sans heure
-                        </span>
-                    </div>
-                    <div class="lco-meta">
-                        <span id="visibleCount">{{ $totalVehicles }}</span> véhicule(s) visible(s)
-                    </div>
+                <div class="lco-filter-pills" id="quickFilters">
+                    <button type="button" class="lco-pill active" data-filter="all">Tous</button>
+                    <button type="button" class="lco-pill" data-filter="enabled">Véhicules actifs</button>
+                    <button type="button" class="lco-pill" data-filter="disabled">Véhicules inactifs</button>
+                    <button type="button" class="lco-pill" data-filter="has-type-enabled">Au moins un type actif</button>
+                    <button type="button" class="lco-pill" data-filter="missing-time">Actifs sans heure</button>
+                    <span class="lco-meta"><span id="visibleCount">{{ $totalVehicles }}</span> véhicule(s) visible(s)</span>
                 </div>
             </div>
 
-            {{-- Barre d'actions sur la sélection — apparaît dès qu'une ligne est cochée --}}
-            <div class="lco-sel-bar" id="selBar">
-                <span class="sel-badge">
-                    <i class="fas fa-check-square"></i>
-                    <span id="selCount">0</span> sélectionné(s)
-                </span>
-
-                <span class="sel-label">Appliquer aux sélectionnés :</span>
-
-                <div class="sel-sep"></div>
-
-                <button type="button" class="lco-btn soft" id="selEnableBtn">
-                    <i class="fas fa-toggle-on"></i> Activer
-                </button>
-                <button type="button" class="lco-btn" id="selDisableBtn">
-                    <i class="fas fa-toggle-off"></i> Désactiver
-                </button>
-
-                <div class="sel-sep"></div>
-
-                <div class="sel-time-wrap">
-                    <label for="selTime"><i class="fas fa-clock"></i> Heure</label>
-                    <input type="time" id="selTime" class="lco-time-sel" step="60">
-                </div>
-                <button type="button" class="lco-btn soft" id="selApplyTimeBtn">
-                    <i class="fas fa-check"></i> Appliquer
-                </button>
-                <button type="button" class="lco-btn danger" id="selClearTimeBtn" title="Vider l'heure des sélectionnés">
-                    <i class="fas fa-eraser"></i>
-                </button>
-
-                <button type="button" class="sel-deselect" id="selDeselectBtn">
-                    <i class="fas fa-times"></i> Désélectionner tout
-                </button>
+            <div class="lco-selection" id="selectionBar">
+                <strong><i class="fas fa-check-square"></i> <span id="selectedCount">0</span> sélectionné(s)</strong>
+                <button type="button" class="lco-btn soft" id="selEnableVehicleBtn">Activer véhicule</button>
+                <button type="button" class="lco-btn" id="selDisableVehicleBtn">Désactiver véhicule</button>
+                <button type="button" class="lco-btn soft" id="selEnableAllTypesBtn">Tous types ON</button>
+                <button type="button" class="lco-btn" id="selDisableAllTypesBtn">Tous types OFF</button>
+                <input type="time" class="lco-input" id="selectionTime" style="width:130px">
+                <button type="button" class="lco-btn soft" id="selApplyTimeBtn">Appliquer heure</button>
+                <button type="button" class="lco-btn danger" id="clearSelectionBtn">Annuler sélection</button>
             </div>
 
-            {{-- Table --}}
             <div class="lco-table-wrap">
                 <table class="lco-table">
                     <thead>
                         <tr>
-                            <th>#</th>
-                            <th>
-                                <input type="checkbox" class="check-all" id="checkAll" title="Tout cocher / décocher">
-                            </th>
-                            <th>Véhicule</th>
-                            <th>GPS</th>
-                            <th>État règle</th>
-                            <th>Coupure auto</th>
-                            <th>Heure</th>
+                            <th style="width:34px"><input type="checkbox" class="lco-check-all" id="checkAll"></th>
+                            <th style="min-width:220px">Véhicule</th>
+                            <th style="width:130px">Règle véhicule</th>
+                            <th style="width:120px">Heure</th>
+                            <th style="width:100px">Grâce</th>
+                            <th style="min-width:440px">Types de contrats / sous-contrats</th>
                         </tr>
                     </thead>
                     <tbody id="cutoffTableBody">
-                        @forelse($vehicles as $index => $vehicle)
+                        @forelse($vehicles as $vehicleIndex => $vehicle)
                             @php
-                                $enabled     = !empty($vehicle['is_enabled']);
+                                $enabled = !empty($vehicle['is_enabled']);
                                 $timeMissing = $enabled && empty($vehicle['cutoff_time']);
+                                $typeRules = collect($vehicle['contract_type_rules'] ?? []);
+                                $enabledTypeCount = $typeRules->where('is_enabled', true)->count();
+                                $searchText = strtolower(trim(implode(' ', [
+                                    $vehicle['immatriculation'] ?? '',
+                                    $vehicle['marque'] ?? '',
+                                    $vehicle['model'] ?? '',
+                                    $vehicle['mac_id_gps'] ?? '',
+                                    $typeRules->pluck('type_contrat_label')->implode(' '),
+                                ])));
                             @endphp
-
-                            <tr
-                                class="lco-row"
-                                data-search="{{ strtolower(trim(($vehicle['immatriculation'] ?? '') . ' ' . ($vehicle['marque'] ?? '') . ' ' . ($vehicle['model'] ?? '') . ' ' . ($vehicle['mac_id_gps'] ?? ''))) }}"
+                            <tr class="lco-row"
+                                data-search="{{ $searchText }}"
                                 data-enabled="{{ $enabled ? '1' : '0' }}"
                                 data-missing-time="{{ $timeMissing ? '1' : '0' }}"
-                            >
-                                <td><span class="lco-num">{{ $index + 1 }}</span></td>
-
+                                data-enabled-type-count="{{ $enabledTypeCount }}">
                                 <td>
-                                    <input type="checkbox" class="row-check" aria-label="Sélectionner">
+                                    <input type="checkbox" class="lco-row-check" aria-label="Sélectionner {{ $vehicle['immatriculation'] ?? '' }}">
                                 </td>
 
                                 <td>
-                                    <div class="veh-cell">
-                                        <p class="veh-title">{{ $vehicle['immatriculation'] ?? '—' }}</p>
-                                        <p class="veh-sub">{{ trim(($vehicle['marque'] ?? '') . ' ' . ($vehicle['model'] ?? '')) ?: '—' }}</p>
+                                    <p class="veh-title">{{ $vehicle['immatriculation'] ?? '—' }}</p>
+                                    <p class="veh-sub">{{ trim(($vehicle['marque'] ?? '') . ' ' . ($vehicle['model'] ?? '')) ?: '—' }}</p>
+                                    <p class="veh-gps">GPS : {{ $vehicle['mac_id_gps'] ?? '—' }}</p>
+                                    <input type="hidden" name="rules[{{ $vehicleIndex }}][vehicle_id]" value="{{ $vehicle['vehicle_id'] }}">
+                                    <input type="hidden" name="rules[{{ $vehicleIndex }}][timezone]" value="{{ $vehicle['timezone'] ?? 'Africa/Douala' }}">
+                                </td>
+
+                                <td>
+                                    <label class="switch">
+                                        <input type="checkbox" class="vehicle-enabled" name="rules[{{ $vehicleIndex }}][is_enabled]" value="1" @checked($enabled)>
+                                        <span class="slider"></span>
+                                    </label>
+                                    <div style="margin-top:.45rem" class="row-status">
+                                        @if($enabled && !$timeMissing)
+                                            <span class="tag ok">Active</span>
+                                        @elseif($enabled && $timeMissing)
+                                            <span class="tag warn">Sans heure</span>
+                                        @else
+                                            <span class="tag off">Inactive</span>
+                                        @endif
                                     </div>
-                                    <input type="hidden" name="rules[{{ $index }}][vehicle_id]" value="{{ $vehicle['vehicle_id'] }}">
-                                    <input type="hidden" name="rules[{{ $index }}][timezone]"   value="{{ $vehicle['timezone'] ?? '' }}" class="timezone-hidden">
                                 </td>
 
                                 <td>
-                                    <span style="font-family:var(--font-mono,monospace);font-size:.68rem;color:var(--color-secondary-text,#8b949e)">
-                                        {{ $vehicle['mac_id_gps'] ?? '—' }}
-                                    </span>
-                                </td>
-
-                                <td class="rule-state-cell">
-                                    @if($enabled && !$timeMissing)
-                                        <span class="tag" style="background:rgba(22,163,74,.12);color:#16a34a">
-                                            <span class="dot" style="background:#16a34a"></span>Active et complète
-                                        </span>
-                                    @elseif($enabled && $timeMissing)
-                                        <span class="tag" style="background:rgba(217,119,6,.12);color:#d97706">
-                                            <span class="dot" style="background:#d97706"></span>Active sans heure
-                                        </span>
-                                    @else
-                                        <span class="tag" style="background:rgba(107,114,128,.12);color:#6b7280">
-                                            <span class="dot" style="background:#6b7280"></span>Inactive
-                                        </span>
-                                    @endif
+                                    <input type="time" class="mini-input vehicle-time" name="rules[{{ $vehicleIndex }}][cutoff_time]" value="{{ $vehicle['cutoff_time'] ?? '' }}" step="60">
                                 </td>
 
                                 <td>
-                                    <label class="rule-switch">
-                                        <input
-                                            type="checkbox"
-                                            name="rules[{{ $index }}][is_enabled]"
-                                            value="1"
-                                            class="enable-checkbox"
-                                            {{ $enabled ? 'checked' : '' }}
-                                        >
-                                        <span class="rule-slider"></span>
+                                    <input type="number" class="mini-input vehicle-grace" name="rules[{{ $vehicleIndex }}][grace_days]" value="{{ $vehicle['grace_days'] ?? 0 }}" min="0" max="365">
+                                    <label class="lco-checkline" style="padding:.25rem 0 0; font-size:.62rem;">
+                                        <input type="checkbox" name="rules[{{ $vehicleIndex }}][only_when_stopped]" value="1" @checked($vehicle['only_when_stopped'] ?? true)>
+                                        À l’arrêt
                                     </label>
                                 </td>
 
                                 <td>
-                                    <input
-                                        type="time"
-                                        name="rules[{{ $index }}][cutoff_time]"
-                                        value="{{ $vehicle['cutoff_time'] ?? '' }}"
-                                        class="lco-time-inline time-input"
-                                        step="60"
-                                    >
+                                    @if($contractTypes->isEmpty())
+                                        <div class="empty" style="padding:1rem">Aucun type disponible.</div>
+                                    @else
+                                        <div class="type-grid">
+                                            @foreach($typeRules as $typeIndex => $rule)
+                                                @php
+                                                    $typeEnabled = !empty($rule['is_enabled']);
+                                                    $isMain = !empty($rule['is_main']);
+                                                @endphp
+                                                <div class="type-card {{ $typeEnabled ? 'enabled' : '' }}">
+                                                    <div class="type-card-head">
+                                                        <div class="type-name">
+                                                            {{ $rule['type_contrat_label'] ?? 'Type' }}
+                                                            <small>{{ $isMain ? 'principal' : 'sous-contrat' }}</small>
+                                                        </div>
+                                                        <label class="switch">
+                                                            <input type="checkbox" class="type-enabled" name="rules[{{ $vehicleIndex }}][contract_types][{{ $typeIndex }}][is_enabled]" value="1" @checked($typeEnabled)>
+                                                            <span class="slider"></span>
+                                                        </label>
+                                                    </div>
+
+                                                    <input type="hidden" name="rules[{{ $vehicleIndex }}][contract_types][{{ $typeIndex }}][type_contrat_id]" value="{{ $rule['type_contrat_id'] }}">
+                                                    <input type="hidden" name="rules[{{ $vehicleIndex }}][contract_types][{{ $typeIndex }}][type_contrat_label]" value="{{ $rule['type_contrat_label'] }}">
+                                                    <input type="hidden" name="rules[{{ $vehicleIndex }}][contract_types][{{ $typeIndex }}][only_when_stopped]" value="{{ !empty($rule['only_when_stopped']) ? '1' : '0' }}">
+                                                    <input type="hidden" name="rules[{{ $vehicleIndex }}][contract_types][{{ $typeIndex }}][notify_before_cutoff]" value="{{ !empty($rule['notify_before_cutoff']) ? '1' : '0' }}">
+
+                                                    <div class="type-options">
+                                                        <div class="mini-field">
+                                                            <label>Heure</label>
+                                                            <input type="time" class="mini-input type-time" name="rules[{{ $vehicleIndex }}][contract_types][{{ $typeIndex }}][cutoff_time]" value="{{ $rule['cutoff_time'] ?? $vehicle['cutoff_time'] ?? '' }}" step="60">
+                                                        </div>
+                                                        <div class="mini-field">
+                                                            <label>Grâce</label>
+                                                            <input type="number" class="mini-input type-grace" name="rules[{{ $vehicleIndex }}][contract_types][{{ $typeIndex }}][grace_days]" value="{{ $rule['grace_days'] ?? $vehicle['grace_days'] ?? 0 }}" min="0" max="365">
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            @endforeach
+                                        </div>
+                                    @endif
                                 </td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="7">
-                                    <div class="lco-empty">
-                                        <i class="fas fa-car"></i>
-                                        <div style="margin-top:.6rem">Aucun véhicule trouvé pour ce partenaire.</div>
-                                    </div>
-                                </td>
+                                <td colspan="6"><div class="empty"><i class="fas fa-car"></i><br>Aucun véhicule trouvé pour ce partenaire.</div></td>
                             </tr>
                         @endforelse
                     </tbody>
                 </table>
             </div>
 
-            {{-- Footer --}}
             <div class="lco-footer">
-                <p class="hint">
-                    <i class="fas fa-exclamation-triangle"></i>
-                    Vérifiez les véhicules <strong>actifs sans heure</strong> avant d'enregistrer.
-                </p>
-                <div class="lco-footer-actions">
-                    <button type="reset" class="lco-btn">
-                        <i class="fas fa-rotate-left"></i> Réinitialiser
-                    </button>
-                    <button type="submit" class="lco-btn primary">
-                        <i class="fas fa-save"></i> Enregistrer les règles
-                    </button>
+                <p><i class="fas fa-info-circle"></i> Une coupure n’est possible que si la règle véhicule est active, que le type du contrat impayé est actif, et qu’une heure de coupure est définie.</p>
+                <div class="lco-actions">
+                    <button type="reset" class="lco-btn"><i class="fas fa-rotate-left"></i> Réinitialiser</button>
+                    <button type="submit" class="lco-btn primary"><i class="fas fa-save"></i> Enregistrer les règles</button>
                 </div>
             </div>
-
         </form>
-    </div>
-
+    </section>
 </div>
+@endsection
 
+@push('scripts')
 <script>
-(() => {
-    'use strict';
-
-    const rows            = Array.from(document.querySelectorAll('.lco-row'));
-    const searchInput     = document.getElementById('vehicleSearch');
-    const searchClear     = document.getElementById('vehicleSearchClear');
-    const checkAll        = document.getElementById('checkAll');
-    const selBar          = document.getElementById('selBar');
-    const selCountEl      = document.getElementById('selCount');
-
-    // Global (visibles)
-    const enableAllBtn    = document.getElementById('enableAllBtn');
-    const disableAllBtn   = document.getElementById('disableAllBtn');
-    const applyTimeAllBtn = document.getElementById('applyTimeAllBtn');
-    const clearTimeBtn    = document.getElementById('clearVisibleTimeBtn');
-    const bulkTime        = document.getElementById('bulkTime');
-
-    // Selection
-    const selEnableBtn    = document.getElementById('selEnableBtn');
-    const selDisableBtn   = document.getElementById('selDisableBtn');
-    const selApplyTimeBtn = document.getElementById('selApplyTimeBtn');
-    const selClearTimeBtn = document.getElementById('selClearTimeBtn');
-    const selDeselectBtn  = document.getElementById('selDeselectBtn');
-    const selTime         = document.getElementById('selTime');
-
-    const visibleCount    = document.getElementById('visibleCount');
-
+document.addEventListener('DOMContentLoaded', () => {
+    const rows = Array.from(document.querySelectorAll('.lco-row'));
+    const search = document.getElementById('vehicleSearch');
+    const visibleCount = document.getElementById('visibleCount');
+    const checkAll = document.getElementById('checkAll');
+    const selectionBar = document.getElementById('selectionBar');
+    const selectedCount = document.getElementById('selectedCount');
     let activeFilter = 'all';
 
-    /* ── Helpers ─────────────────────────────────────────── */
-    const getVisibleRows  = () => rows.filter(r => r.style.display !== 'none');
-    const getSelectedRows = () => rows.filter(r => r.querySelector('.row-check')?.checked);
-    const markDirty       = row => row.classList.add('is-dirty');
+    const visibleRows = () => rows.filter(row => !row.classList.contains('hidden'));
+    const selectedRows = () => rows.filter(row => row.querySelector('.lco-row-check')?.checked);
 
-    const refreshRowState = row => {
-        const cb   = row.querySelector('.enable-checkbox');
-        const ti   = row.querySelector('.time-input');
-        const cell = row.querySelector('.rule-state-cell');
+    function refreshRow(row) {
+        const vehicleEnabled = row.querySelector('.vehicle-enabled')?.checked || false;
+        const vehicleTime = row.querySelector('.vehicle-time')?.value || '';
+        const activeTypes = Array.from(row.querySelectorAll('.type-enabled')).filter(input => input.checked).length;
+        const missingTime = vehicleEnabled && !vehicleTime;
+        const status = row.querySelector('.row-status');
 
-        const enabled     = !!cb?.checked;
-        const timeMissing = enabled && !ti?.value;
+        row.dataset.enabled = vehicleEnabled ? '1' : '0';
+        row.dataset.missingTime = missingTime ? '1' : '0';
+        row.dataset.enabledTypeCount = String(activeTypes);
 
-        row.dataset.enabled     = enabled     ? '1' : '0';
-        row.dataset.missingTime = timeMissing ? '1' : '0';
+        row.querySelectorAll('.type-card').forEach(card => {
+            const cb = card.querySelector('.type-enabled');
+            card.classList.toggle('enabled', !!cb?.checked);
+        });
 
-        if (!cell) return;
-        if (enabled && !timeMissing) {
-            cell.innerHTML = `<span class="tag" style="background:rgba(22,163,74,.12);color:#16a34a"><span class="dot" style="background:#16a34a"></span>Active et complète</span>`;
-        } else if (enabled && timeMissing) {
-            cell.innerHTML = `<span class="tag" style="background:rgba(217,119,6,.12);color:#d97706"><span class="dot" style="background:#d97706"></span>Active sans heure</span>`;
-        } else {
-            cell.innerHTML = `<span class="tag" style="background:rgba(107,114,128,.12);color:#6b7280"><span class="dot" style="background:#6b7280"></span>Inactive</span>`;
+        if (status) {
+            if (vehicleEnabled && !missingTime) status.innerHTML = '<span class="tag ok">Active</span>';
+            else if (vehicleEnabled && missingTime) status.innerHTML = '<span class="tag warn">Sans heure</span>';
+            else status.innerHTML = '<span class="tag off">Inactive</span>';
         }
-    };
 
-    const updateKpis = () => {
-        const enabled = rows.filter(r => r.dataset.enabled     === '1').length;
-        const missing = rows.filter(r => r.dataset.missingTime === '1').length;
-        const kE = document.getElementById('kpiEnabledVehicles');
-        const kM = document.getElementById('kpiMissingTime');
-        if (kE) kE.textContent = enabled;
-        if (kM) {
-            kM.textContent = missing;
-            kM.style.color = missing > 0 ? 'var(--color-warning,#d97706)' : 'var(--color-primary)';
-        }
-    };
+        row.classList.add('dirty');
+        refreshKpis();
+    }
 
-    /* ── Selection bar ──────────────────────────────────── */
-    const updateSelBar = () => {
-        const selected = getSelectedRows();
-        const n = selected.length;
+    function refreshKpis() {
+        const enabledVehicles = rows.filter(r => r.dataset.enabled === '1').length;
+        const missingTime = rows.filter(r => r.dataset.missingTime === '1').length;
+        const activeTypes = rows.reduce((sum, r) => sum + Number(r.dataset.enabledTypeCount || 0), 0);
 
-        selBar.classList.toggle('show', n > 0);
-        if (selCountEl) selCountEl.textContent = n;
+        const ev = document.getElementById('kpiEnabledVehicles');
+        const mt = document.getElementById('kpiMissingTime');
+        const at = document.getElementById('kpiActiveTypes');
 
-        // État indeterminate du check-all
-        const visRows    = getVisibleRows();
-        const visChecked = visRows.filter(r => r.querySelector('.row-check')?.checked).length;
-        if (checkAll) {
-            checkAll.indeterminate = visChecked > 0 && visChecked < visRows.length;
-            checkAll.checked       = visRows.length > 0 && visChecked === visRows.length;
-        }
-    };
+        if (ev) ev.textContent = enabledVehicles;
+        if (mt) mt.textContent = missingTime;
+        if (at) at.textContent = activeTypes;
+    }
 
-    const setRowSelected = (row, val) => {
-        const cb = row.querySelector('.row-check');
-        if (cb) cb.checked = val;
-        row.classList.toggle('is-selected', val);
-    };
-
-    const deselectAll = () => {
-        rows.forEach(r => setRowSelected(r, false));
-        updateSelBar();
-    };
-
-    /* ── Filters ────────────────────────────────────────── */
-    const applyFilters = () => {
-        const q = (searchInput?.value || '').trim().toLowerCase();
+    function applyFilters() {
+        const q = (search?.value || '').trim().toLowerCase();
 
         rows.forEach(row => {
-            const text    = row.dataset.search  || '';
+            const matchesSearch = !q || (row.dataset.search || '').includes(q);
             const enabled = row.dataset.enabled === '1';
-            const missing = row.dataset.missingTime === '1';
+            const missingTime = row.dataset.missingTime === '1';
+            const hasTypeEnabled = Number(row.dataset.enabledTypeCount || 0) > 0;
 
-            let ok = true;
-            if (q && !text.includes(q))                      ok = false;
-            if (activeFilter === 'enabled'      && !enabled) ok = false;
-            if (activeFilter === 'disabled'     &&  enabled) ok = false;
-            if (activeFilter === 'missing-time' && !missing)  ok = false;
+            let ok = matchesSearch;
+            if (activeFilter === 'enabled') ok = ok && enabled;
+            if (activeFilter === 'disabled') ok = ok && !enabled;
+            if (activeFilter === 'missing-time') ok = ok && missingTime;
+            if (activeFilter === 'has-type-enabled') ok = ok && hasTypeEnabled;
 
-            row.style.display = ok ? '' : 'none';
+            row.classList.toggle('hidden', !ok);
         });
 
-        if (visibleCount) visibleCount.textContent = getVisibleRows().length;
-        searchClear?.classList.toggle('show', !!(searchInput?.value));
-        updateSelBar();
-    };
+        if (visibleCount) visibleCount.textContent = visibleRows().length;
+        refreshSelectionBar();
+    }
 
-    /* ── Apply fn to a set of rows ──────────────────────── */
-    const applyToRows = (targetRows, fn) => {
+    function refreshSelectionBar() {
+        const selected = selectedRows();
+        if (selectionBar) selectionBar.classList.toggle('show', selected.length > 0);
+        if (selectedCount) selectedCount.textContent = selected.length;
+
+        const vis = visibleRows();
+        const visSelected = vis.filter(row => row.querySelector('.lco-row-check')?.checked).length;
+
+        if (checkAll) {
+            checkAll.checked = vis.length > 0 && visSelected === vis.length;
+            checkAll.indeterminate = visSelected > 0 && visSelected < vis.length;
+        }
+
+        rows.forEach(row => row.classList.toggle('selected', !!row.querySelector('.lco-row-check')?.checked));
+    }
+
+    function mutateRows(targetRows, callback) {
         targetRows.forEach(row => {
-            fn(row);
-            refreshRowState(row);
-            markDirty(row);
+            callback(row);
+            refreshRow(row);
         });
-        updateKpis();
         applyFilters();
-    };
+    }
 
-    /* ── Search ─────────────────────────────────────────── */
-    searchInput?.addEventListener('input', applyFilters);
-    searchClear?.addEventListener('click', () => {
-        if (searchInput) searchInput.value = '';
-        applyFilters();
-    });
+    function setVehicleEnabled(row, enabled) {
+        const cb = row.querySelector('.vehicle-enabled');
+        if (cb) cb.checked = enabled;
+    }
 
-    /* ── Quick filters ──────────────────────────────────── */
-    document.querySelectorAll('#quickFilters .lco-f').forEach(el => {
-        el.addEventListener('click', () => {
-            document.querySelectorAll('#quickFilters .lco-f').forEach(x => x.classList.remove('active'));
-            el.classList.add('active');
-            activeFilter = el.dataset.filter || 'all';
+    function setAllTypes(row, enabled) {
+        row.querySelectorAll('.type-enabled').forEach(input => input.checked = enabled);
+    }
+
+    function setTimes(row, time) {
+        if (!time) return;
+        const vehicleTime = row.querySelector('.vehicle-time');
+        if (vehicleTime) vehicleTime.value = time;
+        row.querySelectorAll('.type-time').forEach(input => input.value = time);
+    }
+
+    search?.addEventListener('input', applyFilters);
+
+    document.querySelectorAll('#quickFilters .lco-pill').forEach(button => {
+        button.addEventListener('click', () => {
+            document.querySelectorAll('#quickFilters .lco-pill').forEach(item => item.classList.remove('active'));
+            button.classList.add('active');
+            activeFilter = button.dataset.filter || 'all';
             applyFilters();
         });
     });
 
-    /* ── Check-all ──────────────────────────────────────── */
     checkAll?.addEventListener('change', () => {
-        getVisibleRows().forEach(r => setRowSelected(r, checkAll.checked));
-        updateSelBar();
+        visibleRows().forEach(row => {
+            const cb = row.querySelector('.lco-row-check');
+            if (cb) cb.checked = checkAll.checked;
+        });
+        refreshSelectionBar();
     });
 
-    /* ── Per-row checkbox ───────────────────────────────── */
     rows.forEach(row => {
-        row.querySelector('.row-check')?.addEventListener('change', e => {
-            row.classList.toggle('is-selected', e.target.checked);
-            updateSelBar();
+        row.querySelector('.lco-row-check')?.addEventListener('change', refreshSelectionBar);
+        row.querySelectorAll('input').forEach(input => {
+            if (!input.classList.contains('lco-row-check')) {
+                input.addEventListener('change', () => { refreshRow(row); applyFilters(); });
+                input.addEventListener('input', () => { refreshRow(row); applyFilters(); });
+            }
         });
     });
 
-    /* ── GLOBAL bulk actions (tous les visibles) ─────────── */
-    enableAllBtn?.addEventListener('click', () =>
-        applyToRows(getVisibleRows(), row => { const cb = row.querySelector('.enable-checkbox'); if (cb) cb.checked = true; })
-    );
-    disableAllBtn?.addEventListener('click', () =>
-        applyToRows(getVisibleRows(), row => { const cb = row.querySelector('.enable-checkbox'); if (cb) cb.checked = false; })
-    );
-    applyTimeAllBtn?.addEventListener('click', () => {
-        if (!bulkTime?.value) { alert("Choisissez d'abord une heure dans le champ ci-dessus."); return; }
-        applyToRows(getVisibleRows(), row => { const i = row.querySelector('.time-input'); if (i) i.value = bulkTime.value; });
+    document.getElementById('enableVisibleBtn')?.addEventListener('click', () => mutateRows(visibleRows(), row => setVehicleEnabled(row, true)));
+    document.getElementById('disableVisibleBtn')?.addEventListener('click', () => mutateRows(visibleRows(), row => setVehicleEnabled(row, false)));
+    document.getElementById('enableAllTypesVisibleBtn')?.addEventListener('click', () => mutateRows(visibleRows(), row => setAllTypes(row, true)));
+    document.getElementById('disableAllTypesVisibleBtn')?.addEventListener('click', () => mutateRows(visibleRows(), row => setAllTypes(row, false)));
+    document.getElementById('applyTimeVisibleBtn')?.addEventListener('click', () => {
+        const time = document.getElementById('bulkTime')?.value;
+        if (!time) return alert('Choisissez une heure à appliquer.');
+        mutateRows(visibleRows(), row => setTimes(row, time));
     });
-    clearTimeBtn?.addEventListener('click', () =>
-        applyToRows(getVisibleRows(), row => { const i = row.querySelector('.time-input'); if (i) i.value = ''; })
-    );
 
-    /* ── SELECTION bulk actions ──────────────────────────── */
-    selEnableBtn?.addEventListener('click', () =>
-        applyToRows(getSelectedRows(), row => { const cb = row.querySelector('.enable-checkbox'); if (cb) cb.checked = true; })
-    );
-    selDisableBtn?.addEventListener('click', () =>
-        applyToRows(getSelectedRows(), row => { const cb = row.querySelector('.enable-checkbox'); if (cb) cb.checked = false; })
-    );
-    selApplyTimeBtn?.addEventListener('click', () => {
-        if (!selTime?.value) { alert("Choisissez d'abord une heure dans la barre de sélection."); return; }
-        applyToRows(getSelectedRows(), row => { const i = row.querySelector('.time-input'); if (i) i.value = selTime.value; });
+    document.getElementById('selEnableVehicleBtn')?.addEventListener('click', () => mutateRows(selectedRows(), row => setVehicleEnabled(row, true)));
+    document.getElementById('selDisableVehicleBtn')?.addEventListener('click', () => mutateRows(selectedRows(), row => setVehicleEnabled(row, false)));
+    document.getElementById('selEnableAllTypesBtn')?.addEventListener('click', () => mutateRows(selectedRows(), row => setAllTypes(row, true)));
+    document.getElementById('selDisableAllTypesBtn')?.addEventListener('click', () => mutateRows(selectedRows(), row => setAllTypes(row, false)));
+    document.getElementById('selApplyTimeBtn')?.addEventListener('click', () => {
+        const time = document.getElementById('selectionTime')?.value;
+        if (!time) return alert('Choisissez une heure à appliquer.');
+        mutateRows(selectedRows(), row => setTimes(row, time));
     });
-    selClearTimeBtn?.addEventListener('click', () =>
-        applyToRows(getSelectedRows(), row => { const i = row.querySelector('.time-input'); if (i) i.value = ''; })
-    );
-    selDeselectBtn?.addEventListener('click', deselectAll);
-
-    /* ── Per-row input tracking ─────────────────────────── */
-    rows.forEach(row => {
-        row.querySelectorAll('input:not(.row-check)').forEach(input => {
-            const handler = () => { refreshRowState(row); markDirty(row); updateKpis(); applyFilters(); };
-            input.addEventListener('change', handler);
-            input.addEventListener('input',  handler);
+    document.getElementById('clearSelectionBtn')?.addEventListener('click', () => {
+        rows.forEach(row => {
+            const cb = row.querySelector('.lco-row-check');
+            if (cb) cb.checked = false;
         });
+        refreshSelectionBar();
     });
 
-    /* ── Init ───────────────────────────────────────────── */
+    rows.forEach(refreshRow);
     applyFilters();
-    updateKpis();
-    updateSelBar();
-})();
+});
 </script>
-@endsection
+@endpush

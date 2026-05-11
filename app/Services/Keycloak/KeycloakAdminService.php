@@ -16,6 +16,21 @@ class KeycloakAdminService
 
     protected array $clientUuidCache = [];
 
+
+    /**
+ * Vide le token admin Keycloak gardé en mémoire pendant l'exécution courante.
+ *
+ * Utilisé par les cron jobs Lease quand l'API Recouvrement répond 401/403.
+ * Le service pourra ensuite redemander un nouveau token admin et rejouer
+ * la requête une seule fois.
+ */
+public function clearAdminToken(): void
+{
+    $this->adminToken = null;
+}
+
+
+
     public function getAdminToken(): string
     {
         if ($this->adminToken) {
@@ -103,6 +118,10 @@ class KeycloakAdminService
         $existing = $this->findUserByUsername($username);
 
         if ($existing) {
+            if (! empty($existing['id'])) {
+                $this->updateUserFromLocalUser($user);
+            }
+
             return [
                 'id' => $existing['id'],
                 'username' => $existing['username'] ?? $username,
@@ -124,11 +143,7 @@ class KeycloakAdminService
                     'temporary' => $temporaryPassword,
                 ],
             ],
-            'attributes' => [
-                'local_user_id' => [(string) $user->id],
-                'user_unique_id' => [(string) ($user->user_unique_id ?? '')],
-                'phone' => [(string) ($user->phone ?? '')],
-            ],
+            'attributes' => $this->buildUserAttributes($user),
         ];
 
         if ($temporaryPassword) {
@@ -358,13 +373,76 @@ class KeycloakAdminService
         }
 
         return match ($role->slug) {
-            'admin' => 'ADMIN',
-            'call_center' => 'CALL_CENTER',
-            'gestionnaire_plateforme' => 'GESTIONNAIRE_PLATEFORME',
-            'utilisateur_principale' => 'UTILISATEUR_PRINCIPALE',
-            'utilisateur_secondaire' => 'UTILISATEUR_SECONDAIRE',
+            'admin' => 'admin',
+            'call_center' => 'call_center',
+            'gestionnaire_plateforme' => 'gestionnaire_plateforme',
+            'utilisateur_principale' => 'utilisateur_principale',
+            'utilisateur_secondaire' => 'utilisateur_secondaire',
             default => null,
         };
+    }
+
+    public function updateUserFromLocalUser(User $user): void
+    {
+        if (! $user->keycloak_id) {
+            throw new RuntimeException("Impossible de mettre à jour Keycloak : l'utilisateur local {$user->id} n'a pas de keycloak_id.");
+        }
+
+        $username = $this->resolveUsername($user);
+        $email = $this->sanitizeEmail($user->email);
+
+        $targetRealm = config(
+            'services.keycloak.admin_target_realm',
+            config('services.keycloak.realm')
+        );
+
+        $response = $this->adminHttp($targetRealm)->put(
+            "/users/{$user->keycloak_id}",
+            [
+                'username' => $username,
+                'email' => $email,
+                'firstName' => $user->prenom ?: 'Non renseigné',
+                'lastName' => $user->nom ?: 'Non renseigné',
+                'enabled' => true,
+                'emailVerified' => true,
+                'attributes' => $this->buildUserAttributes($user),
+            ]
+        );
+
+        if (! in_array($response->status(), [204, 200], true)) {
+            throw new RuntimeException(
+                'Mise à jour utilisateur Keycloak échouée: ' . $response->body()
+            );
+        }
+    }
+
+    protected function buildUserAttributes(User $user): array
+    {
+        return [
+            /**
+             * Règle métier :
+             * - partenaire : compte_id = users.id ;
+             * - chauffeur : compte_id = users.partner_id, donc id du partenaire connecté.
+             */
+            'compte_id' => [(string) $this->resolveCompteId($user)],
+            'local_user_id' => [(string) $user->id],
+            'local_partner_id' => [(string) ($user->partner_id ?: '')],
+            'business_type' => [$this->resolveBusinessType($user)],
+            'source_app' => ['tracking'],
+            'local_role' => [(string) ($user->role?->slug ?? '')],
+            'user_unique_id' => [(string) ($user->user_unique_id ?? '')],
+            'phone' => [(string) ($user->phone ?? '')],
+        ];
+    }
+
+    protected function resolveCompteId(User $user): int
+    {
+        return (int) ($user->partner_id ?: $user->id);
+    }
+
+    protected function resolveBusinessType(User $user): string
+    {
+        return empty($user->partner_id) ? 'PARTNER' : 'DRIVER';
     }
 
     protected function resolveUsername(User $user): string
@@ -394,4 +472,15 @@ class KeycloakAdminService
 
         return 'user' . substr(md5((string) microtime(true)), 0, 10) . '@proxymgroup.local';
     }
+
+
+
+
+
+
+
+
+
+
+    
 }

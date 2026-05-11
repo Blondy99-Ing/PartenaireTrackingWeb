@@ -2,8 +2,10 @@
 
 namespace App\Services\Leases;
 
+use App\Exceptions\LeaseApiException;
 use App\Models\LeaseCutoffHistory;
 use App\Models\LeaseCutoffRule;
+use App\Models\LeaseCutoffRuleContractType;
 use App\Models\Voiture;
 use App\Services\Keycloak\KeycloakSessionTokenManager;
 use Illuminate\Auth\AuthenticationException;
@@ -19,13 +21,50 @@ class PartnerLeaseApiService
     /**
      * Endpoint API recouvrement : GET /contrats/
      *
-     * Sert à récupérer les contrats et à enrichir l'affichage local.
+     * Rôle :
+     * Récupère les contrats depuis recouvrement et applique les filtres envoyés
+     * par la console Tracking.
+     *
+     * Contexte :
+     * La documentation recouvrement indique que /contrats/ accepte notamment :
+     * - search ;
+     * - statut, statut__in ;
+     * - frequence, frequence__in ;
+     * - type_contrat_id ;
+     * - dates ;
+     * - montant_restant_min / montant_restant_max.
+     *
+     * Cette méthode garde Tracking comme simple consommateur :
+     * Recouvrement reste la source de vérité des contrats.
      */
-    public function fetchContracts(): array
+    public function fetchContracts(array $filters = []): array
     {
-        Log::info('[LEASE_API_FETCH_CONTRACTS_START]');
+        $query = collect($filters)
+            ->only([
+                'search',
+                'statut',
+                'statut__in',
+                'frequence',
+                'frequence__in',
+                'date_debut_start',
+                'date_debut_end',
+                'date_fin_start',
+                'date_fin_end',
+                'prochaine_echeance_start',
+                'prochaine_echeance_end',
+                'montant_restant_min',
+                'montant_restant_max',
+                'type_contrat_id',
+                'page',
+            ])
+            ->filter(fn ($value) => $value !== null && $value !== '')
+            ->all();
 
-        $json = $this->get('/contrats/');
+        Log::info('[LEASE_API_FETCH_CONTRACTS_START]', [
+            'query' => $query,
+        ]);
+
+        $json = $this->get('/contrats/', $query);
         $rows = $this->unwrapApiRows($json);
 
         Log::info('[LEASE_API_FETCH_CONTRACTS_ROWS]', [
@@ -105,94 +144,228 @@ class PartnerLeaseApiService
     }
 
     /**
+     * Endpoint API recouvrement : GET /type-contrats/
+     *
+     * Rôle :
+     * Récupère les types de contrats réels du recouvrement afin de remplacer
+     * les types codés en dur dans la vue.
+     *
+     * est_principal = true : contrat parent, généralement le véhicule.
+     * est_principal = false : sous-contrat, par exemple téléphone, parasol,
+     * crédit ou kit de sécurité.
+     */
+/**
+ * Récupère dynamiquement les types de contrats depuis recouvrement.
+ *
+ * Contexte :
+ * La vue ne doit pas contenir de types statiques.
+ * Les types doivent venir de l'API recouvrement.
+ *
+ * Important :
+ * L'endpoint peut être absent, vide ou filtré selon le compte.
+ * On ne doit donc pas faire planter toute la page.
+ *
+ * Comportement :
+ * - si l'API répond 200 : on retourne les types ;
+ * - si l'API répond 404 : on retourne une liste vide ;
+ * - si autre erreur : on laisse remonter l'erreur.
+ */
+public function fetchContractTypes(): array
+{
+    logger()->info('[LEASE_API_FETCH_CONTRACT_TYPES_START]');
+
+    try {
+        $response = $this->get('/type-contrats/');
+
+        $rows = $this->extractRows($response);
+
+        logger()->info('[LEASE_API_FETCH_CONTRACT_TYPES_DONE]', [
+            'types_count' => count($rows),
+            'sample_ids' => collect($rows)->pluck('id')->take(5)->values()->all(),
+        ]);
+
+        return collect($rows)
+            ->filter(fn ($row) => is_array($row))
+            ->map(function (array $row) {
+                return [
+                    'id' => $row['id'] ?? $row['type_contrat'] ?? $row['type_contrat_id'] ?? null,
+                    'label' => $row['nom'] ?? $row['label'] ?? $row['libelle'] ?? $row['name'] ?? null,
+                    'code' => $row['code'] ?? $row['slug'] ?? null,
+                    'description' => $row['description'] ?? null,
+                    'is_main' => $row['is_main'] ?? $row['est_principal'] ?? $row['principal'] ?? false,
+                    'raw' => $row,
+                ];
+            })
+            ->filter(fn ($row) => ! empty($row['id']) && ! empty($row['label']))
+            ->values()
+            ->all();
+
+    } catch (\RuntimeException $e) {
+        /**
+         * Cas connu :
+         * L'API recouvrement n'expose pas encore /type-contrats/.
+         * On ne bloque pas toute la page.
+         */
+        if (str_contains($e->getMessage(), 'GET /type-contrats/')
+            && str_contains($e->getMessage(), '[404]')) {
+            logger()->warning('[LEASE_API_CONTRACT_TYPES_ENDPOINT_MISSING]', [
+                'endpoint' => '/type-contrats/',
+                'message' => 'Endpoint absent côté recouvrement. La création de contrat sera désactivée tant que les types ne sont pas disponibles.',
+            ]);
+
+            return [];
+        }
+
+        throw $e;
+    }
+}
+
+    /**
+     * Crée un type de contrat ou de sous-contrat côté recouvrement.
+     *
+     * Source de vérité : recouvrement.
+     * Tracking ne crée pas de type local ; il récupère ensuite les types avec
+     * GET /type-contrats/ et stocke uniquement les règles de coupure associées.
+     */
+    public function createContractType(array $payload): array
+    {
+        $apiPayload = [
+            'libelle' => trim((string) ($payload['libelle'] ?? '')),
+            'code' => mb_strtoupper(trim((string) ($payload['code'] ?? '')), 'UTF-8'),
+            'est_principal' => filter_var($payload['est_principal'] ?? false, FILTER_VALIDATE_BOOLEAN),
+        ];
+
+        if ($apiPayload['libelle'] === '') {
+            throw new RuntimeException('Le libellé du type de contrat est obligatoire.');
+        }
+
+        if ($apiPayload['code'] === '') {
+            $apiPayload['code'] = mb_strtoupper(
+                preg_replace('/[^A-Z0-9]+/i', '_', $apiPayload['libelle']),
+                'UTF-8'
+            );
+        }
+
+        Log::info('[LEASE_API_CREATE_CONTRACT_TYPE_START]', [
+            'payload' => $apiPayload,
+        ]);
+
+        $response = $this->post('/type-contrats/', $apiPayload);
+
+        Log::info('[LEASE_API_CREATE_CONTRACT_TYPE_DONE]', [
+            'type_id' => $response['id'] ?? null,
+            'libelle' => $response['libelle'] ?? $apiPayload['libelle'],
+            'code' => $response['code'] ?? $apiPayload['code'],
+        ]);
+
+        return $response;
+    }
+
+
+
+
+/**
+ * Extrait une liste de lignes depuis une réponse API.
+ *
+ * Compatible avec plusieurs formats :
+ * - [...]
+ * - {"results": [...]}
+ * - {"data": [...]}
+ * - {"items": [...]}
+ */
+private function extractRows(mixed $response): array
+{
+    if (is_array($response)) {
+        if (array_is_list($response)) {
+            return $response;
+        }
+
+        foreach (['results', 'data', 'items', 'rows'] as $key) {
+            if (isset($response[$key]) && is_array($response[$key])) {
+                return $response[$key];
+            }
+        }
+    }
+
+    return [];
+}
+
+    /**
      * Récupère les véhicules locaux du partenaire connecté.
      *
      * Sert au select "immatriculation" dans le formulaire contrat.
      */
-    public function fetchPartnerVehiclesForContracts(): array
-    {
-        $partnerId = $this->resolvePartnerId();
+ public function fetchPartnerVehiclesForContracts(): array
+{
+    $user = auth()->user();
+    $partnerId = (int) ($user->partner_id ?: $user->id);
 
-        Log::info('[LEASE_LOCAL_FETCH_PARTNER_VEHICLES_START]', [
-            'partner_id' => $partnerId,
-        ]);
+    return \App\Models\Voiture::query()
+        ->select([
+            'voitures.id',
+            'voitures.immatriculation',
+            'voitures.marque',
+            'voitures.model',
+            'voitures.mac_id_gps',
 
-        $vehicles = Voiture::query()
-            ->select([
-                'voitures.id',
-                'voitures.immatriculation',
-                'voitures.marque',
-                'voitures.model',
-                'voitures.mac_id_gps',
-            ])
-            ->join(
-                'association_user_voitures',
-                'association_user_voitures.voiture_id',
-                '=',
-                'voitures.id'
-            )
-            ->where('association_user_voitures.user_id', $partnerId)
-            ->orderBy('voitures.immatriculation')
-            ->get()
-            ->map(function ($vehicle) {
-                $immat = trim((string) $vehicle->immatriculation);
-                $marque = trim((string) $vehicle->marque);
-                $model = trim((string) $vehicle->model);
+            /**
+             * Adapte ici si ton champ VIN a un autre nom :
+             * - vin
+             * - numero_chassis
+             * - chassis
+             */
+            'voitures.vin',
+        ])
+        ->join('association_user_voitures', 'association_user_voitures.voiture_id', '=', 'voitures.id')
+        ->where('association_user_voitures.user_id', $partnerId)
+        ->orderBy('voitures.immatriculation')
+        ->get()
+        ->map(function ($vehicle) {
+            $labelParts = array_filter([
+                $vehicle->immatriculation,
+                trim(($vehicle->marque ?? '') . ' ' . ($vehicle->model ?? '')),
+            ]);
 
-                $details = trim($marque . ' ' . $model);
-
-                return [
-                    'id' => (int) $vehicle->id,
-                    'immatriculation' => $immat,
-                    'label' => $details !== ''
-                        ? "{$immat} — {$details}"
-                        : $immat,
-                    'mac_id_gps' => $vehicle->mac_id_gps,
-                ];
-            })
-            ->filter(fn ($row) => $row['immatriculation'] !== '')
-            ->values()
-            ->all();
-
-        Log::info('[LEASE_LOCAL_FETCH_PARTNER_VEHICLES_DONE]', [
-            'partner_id' => $partnerId,
-            'vehicles_count' => count($vehicles),
-            'sample_immats' => collect($vehicles)->pluck('immatriculation')->take(5)->values()->all(),
-        ]);
-
-        return $vehicles;
-    }
+            return [
+                'id' => (int) $vehicle->id,
+                'vehicle_id' => (int) $vehicle->id,
+                'immatriculation' => (string) ($vehicle->immatriculation ?? ''),
+                'vin' => (string) ($vehicle->vin ?? ''),
+                'marque' => (string) ($vehicle->marque ?? ''),
+                'model' => (string) ($vehicle->model ?? ''),
+                'mac_id_gps' => (string) ($vehicle->mac_id_gps ?? ''),
+                'label' => implode(' — ', $labelParts),
+            ];
+        })
+        ->values()
+        ->all();
+}
 
     /**
      * Endpoint API recouvrement : POST /contrats/
      *
-     * Format attendu :
-     * {
-     *   "chauffeur": 43,
-     *   "montant_total": "1500000",
-     *   "immatriculation": "PROXYM MERC1",
-     *   "montant_par_paiement": "25000",
-     *   "frequence": "HEBDOMADAIRE",
-     *   "date_debut": "2026-04-20",
-     *   "date_fin": "2027-04-20",
-     *   "prochaine_echeance": "2026-04-20"
-     * }
+     * Rôle :
+     * Crée un contrat principal et ses sous-contrats dans recouvrement.
+     *
+     * Contexte :
+     * La documentation actuelle accepte :
+     * - type_contrat ;
+     * - immatriculation ;
+     * - vin ;
+     * - specificites ;
+     * - sous_contrats[] optionnel.
+     *
+     * Important :
+     * Les règles de coupure ne sont pas envoyées ici. Elles restent dans
+     * Tracking via lease_cutoff_rules et lease_cutoff_rule_contract_types.
      */
     public function createContract(array $payload): array
     {
-        $apiPayload = [
-            'chauffeur' => (int) $payload['chauffeur'],
-            'montant_total' => (string) $payload['montant_total'],
-            'immatriculation' => (string) $payload['immatriculation'],
-            'montant_par_paiement' => (string) $payload['montant_par_paiement'],
-            'frequence' => mb_strtoupper((string) $payload['frequence'], 'UTF-8'),
-            'date_debut' => (string) $payload['date_debut'],
-            'date_fin' => (string) $payload['date_fin'],
-            'prochaine_echeance' => (string) $payload['prochaine_echeance'],
-        ];
+        $apiPayload = $this->buildContractPayload($payload, includeStatus: false, includeRemaining: false);
 
         Log::info('[LEASE_API_CREATE_CONTRACT_START]', [
             'payload' => $apiPayload,
+            'sub_contracts_count' => count($apiPayload['sous_contrats'] ?? []),
         ]);
 
         $response = $this->post('/contrats/', $apiPayload);
@@ -206,33 +379,91 @@ class PartnerLeaseApiService
     }
 
     /**
+     * Endpoint API recouvrement : PUT /contrats/{id}/
+     *
+     * Rôle :
+     * Met à jour complètement un contrat ou un sous-contrat existant.
+     *
+     * Pourquoi PUT et non PATCH ?
+     * La documentation fournie décrit la modification comme une mise à jour
+     * complète via PUT /contrats/{id}/.
+     */
+    public function updateContract(int $contractId, array $payload): array
+    {
+        if ($contractId <= 0) {
+            throw new RuntimeException('ID contrat invalide pour la modification.');
+        }
+
+        $apiPayload = $this->buildContractPayload($payload, includeStatus: true, includeRemaining: true);
+
+        Log::info('[LEASE_API_UPDATE_CONTRACT_START]', [
+            'contract_id' => $contractId,
+            'payload' => $apiPayload,
+        ]);
+
+        $response = $this->put("/contrats/{$contractId}/", $apiPayload);
+
+        Log::info('[LEASE_API_UPDATE_CONTRACT_DONE]', [
+            'contract_id' => $contractId,
+            'response_shape' => $this->describeArrayShape($response),
+            'response_id' => data_get($response, 'id') ?? data_get($response, 'data.id'),
+        ]);
+
+        return $response;
+    }
+
+    /**
+     * Endpoint API recouvrement : DELETE /contrats/{id}/
+     *
+     * Rôle :
+     * Supprime un contrat côté recouvrement. À utiliser avec prudence.
+     * Tracking devra aussi supprimer/désactiver le lien local correspondant.
+     */
+    public function deleteContract(int $contractId): void
+    {
+        if ($contractId <= 0) {
+            throw new RuntimeException('ID contrat invalide pour la suppression.');
+        }
+
+        Log::warning('[LEASE_API_DELETE_CONTRACT_START]', [
+            'contract_id' => $contractId,
+        ]);
+
+        $this->delete("/contrats/{$contractId}/");
+
+        Log::warning('[LEASE_API_DELETE_CONTRACT_DONE]', [
+            'contract_id' => $contractId,
+        ]);
+    }
+
+    /**
      * Endpoint API recouvrement : GET /leases/
      *
      * Source principale de la page paiements.
      *
-     * Cette méthode enrichit chaque lease avec GET /paiements/.
-     *
-     * Mapping :
-     * - leases.id = paiements.lease
-     *
-     * /leases/ donne :
-     * - date_echeance
-     * - montant_attendu
-     * - montant_paye
-     * - reste_a_payer
-     * - statut PAYE / NON_PAYE
-     *
-     * /paiements/ donne :
-     * - methode
-     * - reference
-     * - transaction_id
-     * - statut paiement réel
-     * - date_paiement
-     * - enregistre_par
+     * Cette méthode applique les filtres documentés par l'API, puis enrichit
+     * chaque échéance avec :
+     * - son contrat ou sous-contrat recouvrement ;
+     * - son type de contrat ;
+     * - la règle de coupure Tracking applicable au véhicule ET au type.
      */
-    public function fetchLeases(?string $status = null, array $contracts = []): array
+    public function fetchLeases(?string $status = null, array $contracts = [], array $filters = []): array
     {
-        $query = [];
+        $query = collect($filters)
+            ->only([
+                'search',
+                'statut',
+                'statut__in',
+                'date_echeance',
+                'date_echeance_start',
+                'date_echeance_end',
+                'created_at',
+                'start_date',
+                'end_date',
+                'page',
+            ])
+            ->filter(fn ($value) => $value !== null && $value !== '')
+            ->all();
 
         if ($status) {
             $apiStatus = $this->mapUiStatusToApiStatus($status);
@@ -259,12 +490,6 @@ class PartnerLeaseApiService
                 : [],
         ]);
 
-        /**
-         * Nouvelle source d'enrichissement.
-         *
-         * Si /paiements/ échoue, on ne bloque pas l'affichage des leases.
-         * On garde /leases/ comme source principale.
-         */
         try {
             $payments = $this->fetchPayments();
         } catch (\Throwable $e) {
@@ -277,28 +502,19 @@ class PartnerLeaseApiService
             $payments = [];
         }
 
-       $paymentMetaByLeaseId = $this->getPaymentMetaByLeaseId($payments);
-        $contractsById = collect($contracts)->keyBy('source_contrat_id');
+        $paymentMetaByLeaseId = $this->getPaymentMetaByLeaseId($payments);
 
-        /**
-         * Configuration de coupure par véhicule :
-         * règle activée + heure prévue.
-         */
+        $contractsById = collect($contracts)
+            ->filter(fn ($row) => is_array($row))
+            ->keyBy(fn (array $row) => (int) ($row['source_contrat_id'] ?? $row['id'] ?? 0));
+
         $cutoffMetaByImmat = $this->getPartnerCutoffMetaByImmat();
-
-        /**
-         * Historique de pardon.
-         */
         $forgivenessMetaByLeaseId = $this->getForgivenessMetaByLeaseId();
-
-        /**
-         * Historique réel de coupure par lease.
-         */
         $cutoffStatusMetaByLeaseId = $this->getCutoffStatusMetaByLeaseId();
 
         $leases = collect($rows)
             ->filter(fn ($row) => is_array($row))
-           ->map(function (array $row) use (
+            ->map(function (array $row) use (
                 $contractsById,
                 $cutoffMetaByImmat,
                 $forgivenessMetaByLeaseId,
@@ -318,14 +534,14 @@ class PartnerLeaseApiService
 
                 $contract = is_array($linkedContract) ? $linkedContract : null;
 
-                $immat = mb_strtoupper(trim((string) (
+                $immat = $this->normalizeImmatriculation((string) (
                     $row['immatriculation']
                     ?? $row['vehicule']
                     ?? $row['vehicle']
                     ?? data_get($row, 'contrat.immatriculation')
                     ?? $contract['vehicule']
                     ?? ''
-                )));
+                ));
 
                 $cutoffMeta = $immat !== ''
                     ? ($cutoffMetaByImmat[$immat] ?? null)
@@ -333,25 +549,13 @@ class PartnerLeaseApiService
 
                 $leaseId = (int) ($row['id'] ?? 0);
 
-                $forgivenessMeta = $leaseId > 0
-                    ? ($forgivenessMetaByLeaseId[$leaseId] ?? null)
-                    : null;
-
-                $paymentMeta = $leaseId > 0
-                    ? ($paymentMetaByLeaseId[$leaseId] ?? null)
-                    : null;
-
-                $cutoffStatusMeta = $leaseId > 0
-                    ? ($cutoffStatusMetaByLeaseId[$leaseId] ?? null)
-                    : null;
-
-               return $this->normalizeLease(
+                return $this->normalizeLease(
                     row: $row,
                     contract: $contract,
                     cutoffMeta: $cutoffMeta,
-                    forgivenessMeta: $forgivenessMeta,
-                    paymentMeta: $paymentMeta,
-                    cutoffStatusMeta: $cutoffStatusMeta
+                    forgivenessMeta: $leaseId > 0 ? ($forgivenessMetaByLeaseId[$leaseId] ?? null) : null,
+                    paymentMeta: $leaseId > 0 ? ($paymentMetaByLeaseId[$leaseId] ?? null) : null,
+                    cutoffStatusMeta: $leaseId > 0 ? ($cutoffStatusMetaByLeaseId[$leaseId] ?? null) : null
                 );
             })
             ->values()
@@ -363,7 +567,7 @@ class PartnerLeaseApiService
             'payments_linked_count' => count($paymentMetaByLeaseId),
             'sample_ids' => collect($leases)->pluck('id')->take(5)->values()->all(),
             'sample_statuses' => collect($leases)->pluck('statut')->take(10)->values()->all(),
-            'sample_payment_methods' => collect($leases)->pluck('methode')->take(10)->values()->all(),
+            'sample_contract_types' => collect($leases)->pluck('type_contrat_label')->take(10)->values()->all(),
         ]);
 
         return $leases;
@@ -422,28 +626,17 @@ class PartnerLeaseApiService
     /**
      * Endpoint API recouvrement : POST /paiements/
      *
-     * Format attendu :
+     * Documentation :
      * {
-     *   "lease": 14,
-     *   "montant": 2500
+     *   "lease_id": 97,
+     *   "montant": "100"
      * }
      */
     public function registerCashPayment(array $payload): array
     {
-        /**
-         * Important :
-         * L’API recouvrement attend officiellement :
-         * {
-         *   "lease": 14,
-         *   "montant": 2500
-         * }
-         *
-         * On ne rajoute pas recorded_by dans le POST pour ne pas casser l’API.
-         * L’enregistreur doit être identifié côté recouvrement via le token Keycloak.
-         */
         $apiPayload = [
-            'lease' => (int) $payload['lease_id'],
-            'montant' => (float) $payload['montant'],
+            'lease_id' => (int) $payload['lease_id'],
+            'montant' => (string) $payload['montant'],
         ];
 
         Log::info('[LEASE_API_REGISTER_CASH_PAYMENT_START]', [
@@ -455,10 +648,42 @@ class PartnerLeaseApiService
         $response = $this->post('/paiements/', $apiPayload);
 
         Log::info('[LEASE_API_REGISTER_CASH_PAYMENT_DONE]', [
-            'lease_id' => $apiPayload['lease'],
+            'lease_id' => $apiPayload['lease_id'],
             'montant' => $apiPayload['montant'],
             'recorded_by' => $payload['recorded_by'] ?? null,
             'recorded_by_name' => $payload['recorded_by_name'] ?? null,
+            'response_shape' => $this->describeArrayShape($response),
+        ]);
+
+        return $response;
+    }
+
+    /**
+     * Endpoint API recouvrement : POST /initier-paiement/
+     * Paiement mobile multi-leases.
+     */
+    public function initiateMobilePayment(array $lines, string $phoneNumber): array
+    {
+        $apiPayload = [
+            'lignes' => collect($lines)
+                ->map(fn (array $line) => [
+                    'lease_id' => (int) $line['lease_id'],
+                    'montant' => (string) $line['montant'],
+                ])
+                ->values()
+                ->all(),
+            'phone_number' => trim($phoneNumber),
+        ];
+
+        Log::info('[LEASE_API_INITIATE_MOBILE_PAYMENT_START]', [
+            'lines_count' => count($apiPayload['lignes']),
+            'lease_ids' => collect($apiPayload['lignes'])->pluck('lease_id')->values()->all(),
+            'phone_preview' => substr($apiPayload['phone_number'], 0, 3) . '***',
+        ]);
+
+        $response = $this->post('/initier-paiement/', $apiPayload);
+
+        Log::info('[LEASE_API_INITIATE_MOBILE_PAYMENT_DONE]', [
             'response_shape' => $this->describeArrayShape($response),
         ]);
 
@@ -481,7 +706,7 @@ class PartnerLeaseApiService
             ->where('partner_id', $partnerId)
             ->where('is_enabled', true)
             ->whereNotNull('cutoff_time')
-            ->get(['vehicle_id', 'cutoff_time']);
+            ->get(['id', 'vehicle_id', 'cutoff_time']);
 
         $globalEnabled = $activeRules->isNotEmpty();
 
@@ -508,12 +733,18 @@ class PartnerLeaseApiService
             ->values()
             ->all();
 
+        $activeTypeRulesCount = LeaseCutoffRuleContractType::query()
+            ->whereIn('rule_id', $activeRules->pluck('id')->filter()->values()->all())
+            ->where('is_enabled', true)
+            ->count();
+
         $hub = [
             'global_enabled' => $globalEnabled,
             'global_time' => $mostCommonTime,
             'next_cutoff_time' => $upcomingTimes[0] ?? null,
             'upcoming_cutoff_times' => $upcomingTimes,
             'active_rules_count' => $activeRules->count(),
+            'active_type_rules_count' => $activeTypeRulesCount,
             'eligible_unpaid_count' => $eligibleUnpaid->count(),
         ];
 
@@ -549,28 +780,48 @@ class PartnerLeaseApiService
             ->unique()
             ->values();
 
-        DB::transaction(function () use ($vehicleIds, $partnerId, $userId, $enabled, $cutoffTime) {
-            foreach ($vehicleIds as $vehicleId) {
-                $existingRule = LeaseCutoffRule::query()
-                    ->where('partner_id', $partnerId)
-                    ->where('vehicle_id', $vehicleId)
-                    ->first();
+        /**
+         * Le toggle global doit rester simple pour le gestionnaire :
+         * - activé => tous les types de contrats connus peuvent couper ;
+         * - désactivé => aucun contrat/sous-contrat ne peut couper.
+         * Les écrans fins peuvent ensuite désactiver un type précis par véhicule.
+         */
+        $contractTypes = collect($this->fetchContractTypes())
+            ->filter(fn (array $type) => ! empty($type['id']))
+            ->values();
 
-                if ($existingRule) {
-                    $existingRule->update([
-                        'is_enabled' => $enabled,
-                        'cutoff_time' => $enabled ? $cutoffTime : null,
-                        'updated_by' => $userId,
-                    ]);
-                } else {
-                    LeaseCutoffRule::query()->create([
+        DB::transaction(function () use ($vehicleIds, $partnerId, $userId, $enabled, $cutoffTime, $contractTypes) {
+            foreach ($vehicleIds as $vehicleId) {
+                $rule = LeaseCutoffRule::query()->updateOrCreate(
+                    [
                         'partner_id' => $partnerId,
                         'vehicle_id' => $vehicleId,
+                    ],
+                    [
                         'is_enabled' => $enabled,
                         'cutoff_time' => $enabled ? $cutoffTime : null,
-                        'created_by' => $userId,
                         'updated_by' => $userId,
-                    ]);
+                        'created_by' => $userId,
+                    ]
+                );
+
+                foreach ($contractTypes as $type) {
+                    LeaseCutoffRuleContractType::query()->updateOrCreate(
+                        [
+                            'rule_id' => $rule->id,
+                            'type_contrat_id' => (int) $type['id'],
+                        ],
+                        [
+                            'partner_id' => $partnerId,
+                            'vehicle_id' => $vehicleId,
+                            'type_contrat_label' => (string) ($type['label'] ?? $type['libelle'] ?? ('Type #' . $type['id'])),
+                            'is_enabled' => $enabled,
+                            'cutoff_time' => $enabled ? $cutoffTime : null,
+                            'only_when_stopped' => true,
+                            'notify_before_cutoff' => false,
+                            'grace_days' => 0,
+                        ]
+                    );
                 }
             }
         });
@@ -578,6 +829,7 @@ class PartnerLeaseApiService
         Log::info('[LEASE_CUTOFF_GLOBAL_APPLY_RULES_SAVED]', [
             'partner_id' => $partnerId,
             'vehicles_count' => $vehicleIds->count(),
+            'contract_types_count' => $contractTypes->count(),
         ]);
 
         $contracts = $this->fetchContracts();
@@ -594,40 +846,79 @@ class PartnerLeaseApiService
 
     /**
      * Récupère les métadonnées de coupure locale par immatriculation.
+     *
+     * Nouvelle règle métier : la coupure dépend de la règle véhicule ET de la
+     * règle du type de contrat. Sans règle active pour le type impayé,
+     * Tracking ne coupe pas.
      */
     protected function getPartnerCutoffMetaByImmat(): array
     {
         $partnerId = $this->resolvePartnerId();
 
-        $rows = Voiture::query()
+        $vehicles = Voiture::query()
             ->select([
                 'voitures.id',
                 'voitures.immatriculation',
+                'lease_cutoff_rules.id as rule_id',
                 'lease_cutoff_rules.is_enabled',
                 'lease_cutoff_rules.cutoff_time',
+                'lease_cutoff_rules.grace_days',
+                'lease_cutoff_rules.only_when_stopped',
+                'lease_cutoff_rules.notify_before_cutoff',
             ])
-            ->join(
-                'association_user_voitures',
-                'association_user_voitures.voiture_id',
-                '=',
-                'voitures.id'
-            )
+            ->join('association_user_voitures', 'association_user_voitures.voiture_id', '=', 'voitures.id')
             ->leftJoin('lease_cutoff_rules', function ($join) use ($partnerId) {
                 $join->on('lease_cutoff_rules.vehicle_id', '=', 'voitures.id')
                     ->where('lease_cutoff_rules.partner_id', '=', $partnerId);
             })
             ->where('association_user_voitures.user_id', $partnerId)
+            ->get();
+
+        $ruleIds = $vehicles
+            ->pluck('rule_id')
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+
+        $typeRulesByRuleId = LeaseCutoffRuleContractType::query()
+            ->whereIn('rule_id', $ruleIds)
             ->get()
-            ->mapWithKeys(function ($row) {
-                $immat = mb_strtoupper(trim((string) $row->immatriculation));
+            ->groupBy('rule_id')
+            ->map(function ($rows) {
+                return $rows->mapWithKeys(function (LeaseCutoffRuleContractType $row) {
+                    return [
+                        (int) $row->type_contrat_id => [
+                            'type_contrat_id' => (int) $row->type_contrat_id,
+                            'type_contrat_label' => (string) ($row->type_contrat_label ?? ('Type #' . $row->type_contrat_id)),
+                            'is_enabled' => (bool) $row->is_enabled,
+                            'grace_days' => $row->grace_days,
+                            'cutoff_time' => $row->cutoff_time ? substr((string) $row->cutoff_time, 0, 5) : null,
+                            'only_when_stopped' => $row->only_when_stopped,
+                            'notify_before_cutoff' => $row->notify_before_cutoff,
+                        ],
+                    ];
+                })->all();
+            })
+            ->all();
+
+        $rows = $vehicles
+            ->mapWithKeys(function ($row) use ($typeRulesByRuleId) {
+                $immat = $this->normalizeImmatriculation((string) $row->immatriculation);
 
                 return [
                     $immat => [
                         'vehicle_id' => (int) $row->id,
+                        'rule_id' => $row->rule_id ? (int) $row->rule_id : null,
                         'coupure_auto' => (bool) ($row->is_enabled ?? false),
-                        'heure_coupure' => $row->cutoff_time
-                            ? substr((string) $row->cutoff_time, 0, 5)
-                            : null,
+                        'heure_coupure' => $row->cutoff_time ? substr((string) $row->cutoff_time, 0, 5) : null,
+                        'grace_days' => (int) ($row->grace_days ?? 0),
+                        'only_when_stopped' => (bool) ($row->only_when_stopped ?? true),
+                        'notify_before_cutoff' => (bool) ($row->notify_before_cutoff ?? false),
+                        'type_rules' => $row->rule_id
+                            ? ($typeRulesByRuleId[(int) $row->rule_id] ?? [])
+                            : [],
                     ],
                 ];
             })
@@ -642,7 +933,7 @@ class PartnerLeaseApiService
         return $rows;
     }
 
- 
+
     /**
  * Récupère la dernière information locale de pardon pour chaque lease.
  *
@@ -747,6 +1038,12 @@ protected function getCutoffStatusMetaByLeaseId(): array
             'lease_id',
             'vehicle_id',
             'contract_id',
+            'parent_contract_id',
+            'type_contrat_id',
+            'type_contrat_label',
+            'contract_kind',
+            'trigger_label',
+            'trigger_payload',
             'status',
             'reason',
             'scheduled_for',
@@ -768,6 +1065,12 @@ protected function getCutoffStatusMetaByLeaseId(): array
                     'lease_id' => (int) $row->lease_id,
                     'vehicle_id' => $row->vehicle_id,
                     'contract_id' => $row->contract_id,
+                    'parent_contract_id' => $row->parent_contract_id,
+                    'type_contrat_id' => $row->type_contrat_id,
+                    'type_contrat_label' => $row->type_contrat_label,
+                    'contract_kind' => $row->contract_kind,
+                    'trigger_label' => $row->trigger_label,
+                    'trigger_payload' => $row->trigger_payload,
 
                     'status' => $status,
                     'label' => $this->cutoffStatusLabel($status),
@@ -942,9 +1245,7 @@ protected function cutoffStatusUiType(?string $status): string
                 );
             }
 
-            throw new RuntimeException(
-                "Échec de l'appel API lease GET {$endpoint} [{$response->status()}] : " . $response->body()
-            );
+            $this->throwLeaseApiException('GET', $endpoint, $url, $response);
         }
 
         $json = $response->json();
@@ -959,6 +1260,199 @@ protected function cutoffStatusUiType(?string $status): string
     /**
      * Appel POST générique vers recouvrement.
      */
+    protected function patch(string $endpoint, array $payload = []): array
+    {
+        $baseUrl = rtrim((string) config('services.partner_lease_api.base_url'), '/');
+        $timeout = (int) config('services.partner_lease_api.timeout', 20);
+
+        if ($baseUrl === '') {
+            throw new RuntimeException("PARTNER_LEASE_API_BASE_URL est vide ou non chargé.");
+        }
+
+        $url = $baseUrl . $endpoint;
+
+        $tokenManager = app(KeycloakSessionTokenManager::class);
+        $trackingToken = $tokenManager->getValidAccessToken(60);
+
+        Log::info('[LEASE_API_PATCH_REQUEST]', [
+            'url' => $url,
+            'payload' => $payload,
+            'has_token' => true,
+            'token_preview' => substr($trackingToken, 0, 16) . '...',
+        ]);
+
+        $response = Http::timeout($timeout)
+            ->acceptJson()
+            ->asJson()
+            ->withToken($trackingToken)
+            ->patch($url, $payload);
+
+        if ($response->status() === 401) {
+            Log::warning('[LEASE_API_PATCH_401_REFRESH_RETRY]', [
+                'url' => $url,
+                'endpoint' => $endpoint,
+            ]);
+
+            $trackingToken = $tokenManager->forceRefresh('api_lease_patch_401');
+
+            $response = Http::timeout($timeout)
+                ->acceptJson()
+                ->asJson()
+                ->withToken($trackingToken)
+                ->patch($url, $payload);
+        }
+
+        Log::info('[LEASE_API_PATCH_RESPONSE]', [
+            'url' => $url,
+            'status' => $response->status(),
+            'successful' => $response->successful(),
+            'body_preview' => mb_substr($response->body(), 0, 1200),
+        ]);
+
+        if (! $response->successful()) {
+            if ($response->status() === 401) {
+                throw new AuthenticationException(
+                    "Session Keycloak expirée pour PATCH {$endpoint}."
+                );
+            }
+
+            $this->throwLeaseApiException('PATCH', $endpoint, $url, $response);
+        }
+
+        $json = $response->json();
+
+        return is_array($json) ? $json : [];
+    }
+
+    /**
+     * Appel PUT générique vers recouvrement.
+     *
+     * Utilisé pour la mise à jour complète d’un contrat selon la documentation.
+     */
+    protected function put(string $endpoint, array $payload = []): array
+    {
+        $baseUrl = rtrim((string) config('services.partner_lease_api.base_url'), '/');
+        $timeout = (int) config('services.partner_lease_api.timeout', 20);
+
+        if ($baseUrl === '') {
+            throw new RuntimeException("PARTNER_LEASE_API_BASE_URL est vide ou non chargé.");
+        }
+
+        $url = $baseUrl . $endpoint;
+
+        $tokenManager = app(KeycloakSessionTokenManager::class);
+        $trackingToken = $tokenManager->getValidAccessToken(60);
+
+        Log::info('[LEASE_API_PUT_REQUEST]', [
+            'url' => $url,
+            'payload' => $payload,
+            'has_token' => true,
+            'token_preview' => substr($trackingToken, 0, 16) . '...',
+        ]);
+
+        $response = Http::timeout($timeout)
+            ->acceptJson()
+            ->asJson()
+            ->withToken($trackingToken)
+            ->put($url, $payload);
+
+        if ($response->status() === 401) {
+            Log::warning('[LEASE_API_PUT_401_REFRESH_RETRY]', [
+                'url' => $url,
+                'endpoint' => $endpoint,
+            ]);
+
+            $trackingToken = $tokenManager->forceRefresh('api_lease_put_401');
+
+            $response = Http::timeout($timeout)
+                ->acceptJson()
+                ->asJson()
+                ->withToken($trackingToken)
+                ->put($url, $payload);
+        }
+
+        Log::info('[LEASE_API_PUT_RESPONSE]', [
+            'url' => $url,
+            'status' => $response->status(),
+            'successful' => $response->successful(),
+            'body_preview' => mb_substr($response->body(), 0, 1200),
+        ]);
+
+        if (! $response->successful()) {
+            if ($response->status() === 401) {
+                throw new AuthenticationException(
+                    "Session Keycloak expirée pour PUT {$endpoint}."
+                );
+            }
+
+            $this->throwLeaseApiException('PUT', $endpoint, $url, $response);
+        }
+
+        $json = $response->json();
+
+        return is_array($json) ? $json : [];
+    }
+
+    /**
+     * Appel DELETE générique vers recouvrement.
+     */
+    protected function delete(string $endpoint): void
+    {
+        $baseUrl = rtrim((string) config('services.partner_lease_api.base_url'), '/');
+        $timeout = (int) config('services.partner_lease_api.timeout', 20);
+
+        if ($baseUrl === '') {
+            throw new RuntimeException("PARTNER_LEASE_API_BASE_URL est vide ou non chargé.");
+        }
+
+        $url = $baseUrl . $endpoint;
+
+        $tokenManager = app(KeycloakSessionTokenManager::class);
+        $trackingToken = $tokenManager->getValidAccessToken(60);
+
+        Log::warning('[LEASE_API_DELETE_REQUEST]', [
+            'url' => $url,
+            'has_token' => true,
+            'token_preview' => substr($trackingToken, 0, 16) . '...',
+        ]);
+
+        $response = Http::timeout($timeout)
+            ->acceptJson()
+            ->withToken($trackingToken)
+            ->delete($url);
+
+        if ($response->status() === 401) {
+            Log::warning('[LEASE_API_DELETE_401_REFRESH_RETRY]', [
+                'url' => $url,
+                'endpoint' => $endpoint,
+            ]);
+
+            $trackingToken = $tokenManager->forceRefresh('api_lease_delete_401');
+
+            $response = Http::timeout($timeout)
+                ->acceptJson()
+                ->withToken($trackingToken)
+                ->delete($url);
+        }
+
+        Log::warning('[LEASE_API_DELETE_RESPONSE]', [
+            'url' => $url,
+            'status' => $response->status(),
+            'successful' => $response->successful(),
+            'body_preview' => mb_substr($response->body(), 0, 1200),
+        ]);
+
+        if (! $response->successful() && $response->status() !== 204) {
+            if ($response->status() === 401) {
+                throw new AuthenticationException(
+                    "Session Keycloak expirée pour DELETE {$endpoint}."
+                );
+            }
+
+            $this->throwLeaseApiException('DELETE', $endpoint, $url, $response);
+        }
+    }
+
     protected function post(string $endpoint, array $payload = []): array
     {
         $baseUrl = rtrim((string) config('services.partner_lease_api.base_url'), '/');
@@ -1015,14 +1509,35 @@ protected function cutoffStatusUiType(?string $status): string
                 );
             }
 
-            throw new RuntimeException(
-                "Échec POST API lease {$endpoint} [{$response->status()}] : " . $response->body()
-            );
+            $this->throwLeaseApiException('POST', $endpoint, $url, $response);
         }
 
         $json = $response->json();
 
         return is_array($json) ? $json : [];
+    }
+
+    /**
+     * Transforme une réponse HTTP non réussie en exception métier.
+     *
+     * Le body complet est conservé dans les logs développeur, mais le client ne
+     * verra qu'un message personnalisé via le contrôleur.
+     */
+    protected function throwLeaseApiException(string $method, string $endpoint, string $url, $response): never
+    {
+        $exception = LeaseApiException::fromResponse($method, $endpoint, $response);
+
+        Log::error('[LEASE_API_CALL_FAILED]', [
+            'request_id' => $exception->requestId,
+            'method' => $method,
+            'endpoint' => $endpoint,
+            'url' => $url,
+            'status' => $exception->status,
+            'api_message' => $exception->apiMessage,
+            'body_preview' => $exception->bodyPreview,
+        ]);
+
+        throw $exception;
     }
 
     /**
@@ -1070,58 +1585,76 @@ protected function cutoffStatusUiType(?string $status): string
     }
 
     /**
-     * Normalise un contrat API vers la structure attendue par les vues existantes.
+     * Normalise un contrat API vers la structure attendue par la console contrat.
+     *
+     * Rôle :
+     * La vue ne doit pas dépendre directement de tous les formats possibles de
+     * recouvrement. Cette méthode convertit la réponse API en structure stable.
+     *
+     * Elle conserve aussi raw pour ne jamais perdre les données originales.
      */
     protected function normalizeContract(array $row): array
     {
         $total = (float) ($row['montant_total'] ?? 0);
-        $remaining = (float) ($row['montant_restant'] ?? 0);
+        $remaining = (float) ($row['montant_restant'] ?? max(0, $total));
         $paid = max(0, $total - $remaining);
 
-        $status = match (strtoupper((string) ($row['statut'] ?? ''))) {
-            'ACTIF' => 'actif',
-            'RETARD' => 'retard',
-            'TERMINE' => 'termine',
-            'SUSPENDU' => 'suspendu',
-            default => 'actif',
-        };
+        $typeId = (int) ($row['type_contrat'] ?? data_get($row, 'type_contrat.id') ?? 1);
+        $typeLabel = (string) (
+            data_get($row, 'type_contrat.libelle')
+            ?? data_get($row, 'type_contrat.label')
+            ?? $row['type_contrat_label']
+            ?? 'Véhicule'
+        );
 
-        $frequenceApi = (string) ($row['frequence'] ?? '');
-        $frequenceNormalized = mb_strtoupper(trim($frequenceApi), 'UTF-8');
-
-        $frequence = match ($frequenceNormalized) {
-            'JOURNALIER', 'QUOTIDIEN' => 'JOURNALIER',
-            'HEBDOMADAIRE' => 'HEBDOMADAIRE',
-            'MENSUEL' => 'MENSUEL',
-            default => 'HEBDOMADAIRE',
-        };
+        $subContracts = collect(
+            $row['sous_contrats']
+            ?? $row['sousContrats']
+            ?? $row['sub_contracts']
+            ?? []
+        )
+            ->filter(fn ($sub) => is_array($sub))
+            ->map(fn (array $sub) => $this->normalizeSubContract($sub, (int) ($row['id'] ?? 0)))
+            ->values()
+            ->all();
 
         $createdAt = $this->parseDateTime($row['created_at'] ?? null);
 
         return [
             'id' => (int) ($row['id'] ?? 0),
             'source_contrat_id' => (int) ($row['id'] ?? 0),
-            'ref' => 'CTR-' . str_pad((string) ($row['id'] ?? 0), 5, '0', STR_PAD_LEFT),
+            'source_parent_contract_id' => $row['parent'] ?? data_get($row, 'parent.id'),
+            'ref' => (string) ($row['reference'] ?? $row['ref'] ?? ('CTR-' . str_pad((string) ($row['id'] ?? 0), 5, '0', STR_PAD_LEFT))),
 
             'chauffeur' => (string) (
                 $row['chauffeur_nom_complet']
+                ?? data_get($row, 'chauffeur.nom_complet')
                 ?? $row['nom_complet']
                 ?? '—'
             ),
-            'chauffeur_id' => (string) ($row['chauffeur'] ?? ''),
+            'chauffeur_id' => (int) ($row['chauffeur'] ?? data_get($row, 'chauffeur.id') ?? 0),
 
             'phone_ch' => (string) (
                 $row['chauffeur_phone']
                 ?? $row['telephone_chauffeur']
+                ?? data_get($row, 'chauffeur.phone')
                 ?? $row['phone_ch']
-                ?? $row['phone']
-                ?? $row['telephone']
                 ?? ''
             ),
 
             'vehicule' => (string) ($row['immatriculation'] ?? '—'),
-            'vehicule_id' => (string) ($row['immatriculation'] ?? ''),
-            'marque' => '—',
+            'vehicule_id' => $row['vehicule_id'] ?? data_get($row, 'vehicule.id'),
+            'vehicle_id' => $row['vehicle_id']
+                ?? $row['vehicule_id']
+                ?? data_get($row, 'vehicle.id')
+                ?? data_get($row, 'vehicule.id')
+                ?? null,
+            'vin' => (string) ($row['vin'] ?? ''),
+            'marque' => (string) data_get($row, 'specificites.marque', '—'),
+
+            'type_contrat' => $typeId,
+            'type_contrat_label' => $typeLabel,
+            'type_label' => $typeLabel,
 
             'partenaire' => Auth::user()?->full_name
                 ?? Auth::user()?->nom
@@ -1133,27 +1666,167 @@ protected function cutoffStatusUiType(?string $status): string
             'versement' => (float) ($row['montant_par_paiement'] ?? 0),
             'apport_initial' => 0,
 
-            'frequence' => $frequence,
-            'frequence_label_api' => $frequenceApi,
+            'frequence' => $this->normalizeFrequencyFromApi($row['frequence'] ?? ''),
+            'frequence_label_api' => (string) ($row['frequence'] ?? ''),
 
             'date_debut' => $row['date_debut'] ?? $createdAt?->toDateString(),
             'date_fin_prevue' => $row['date_fin'] ?? null,
+            'date_fin' => $row['date_fin'] ?? null,
             'premiere_echeance' => $row['prochaine_echeance'] ?? null,
             'prochaine_echeance' => $row['prochaine_echeance'] ?? null,
             'heure_limite' => '18:00',
 
-            'statut' => $status,
+            'statut' => $this->normalizeContractStatusFromApi($row['statut'] ?? $row['status'] ?? ''),
             'pardon_auto' => false,
             'nb_paiements' => $this->estimatePaymentCount(
                 $paid,
                 (float) ($row['montant_par_paiement'] ?? 0)
             ),
 
-            'notes' => 'Contrat synchronisé depuis l’API lease.',
-            'enregistre_par_nom_complet' => (string) ($row['enregistre_par_nom_complet'] ?? '—'),
+            'specificites' => $row['specificites'] ?? null,
+            'sous_contrats' => $subContracts,
+            'sub_contracts' => $subContracts,
+
+            'notes' => 'Contrat synchronisé depuis l’API recouvrement.',
+            'enregistre_par_nom_complet' => (string) ($row['enregistre_par_nom_complet'] ?? data_get($row, 'enregistre_par.nom_complet') ?? '—'),
 
             'raw' => $row,
         ];
+    }
+
+    /**
+     * Normalise un sous-contrat recouvrement pour la vue et le lien local.
+     */
+    protected function normalizeSubContract(array $row, ?int $parentContractId = null): array
+    {
+        $total = (float) ($row['montant_total'] ?? 0);
+        $remaining = (float) ($row['montant_restant'] ?? max(0, $total));
+        $paid = max(0, $total - $remaining);
+
+        $typeId = (int) ($row['type_contrat'] ?? data_get($row, 'type_contrat.id') ?? 0);
+        $typeLabel = (string) (
+            data_get($row, 'type_contrat.libelle')
+            ?? data_get($row, 'type_contrat.label')
+            ?? $row['type_contrat_label']
+            ?? 'Sous-contrat'
+        );
+
+        return [
+            'id' => (int) ($row['id'] ?? 0),
+            'source_contract_id' => (int) ($row['id'] ?? 0),
+            'source_parent_contract_id' => $row['parent'] ?? $parentContractId,
+            'type_contrat' => $typeId,
+            'type_contrat_id' => $typeId,
+            'type_label' => $typeLabel,
+            'type_contrat_label' => $typeLabel,
+            'montant_total' => $total,
+            'montant_restant' => $remaining,
+            'total_paye' => $paid,
+            'montant_par_paiement' => (float) ($row['montant_par_paiement'] ?? 0),
+            'frequence' => $this->normalizeFrequencyFromApi($row['frequence'] ?? ''),
+            'date_debut' => $row['date_debut'] ?? null,
+            'date_fin' => $row['date_fin'] ?? null,
+            'prochaine_echeance' => $row['prochaine_echeance'] ?? null,
+            'statut' => $this->normalizeContractStatusFromApi($row['statut'] ?? $row['status'] ?? ''),
+            'specificites' => $row['specificites'] ?? null,
+            'raw' => $row,
+        ];
+    }
+
+    /**
+     * Normalise une ligne type de contrat.
+     */
+    protected function normalizeContractType(array $row): array
+    {
+        return [
+            'id' => (int) ($row['id'] ?? 0),
+            'libelle' => (string) ($row['libelle'] ?? $row['label'] ?? $row['name'] ?? ''),
+            'label' => (string) ($row['libelle'] ?? $row['label'] ?? $row['name'] ?? ''),
+            'code' => (string) ($row['code'] ?? ''),
+            'est_principal' => (bool) ($row['est_principal'] ?? false),
+            'raw' => $row,
+        ];
+    }
+
+    /**
+     * Construit le payload conforme à l’API recouvrement pour POST/PUT contrat.
+     */
+    protected function buildContractPayload(array $payload, bool $includeStatus = false, bool $includeRemaining = false): array
+    {
+        $apiPayload = [
+            'chauffeur' => (int) $payload['chauffeur'],
+            'type_contrat' => (int) ($payload['type_contrat'] ?? 1),
+            'immatriculation' => (string) $payload['immatriculation'],
+            'vin' => (string) ($payload['vin'] ?? ''),
+            'montant_total' => (string) $payload['montant_total'],
+            'montant_par_paiement' => (string) $payload['montant_par_paiement'],
+            'frequence' => mb_strtoupper((string) $payload['frequence'], 'UTF-8'),
+            'date_debut' => (string) $payload['date_debut'],
+            'date_fin' => (string) $payload['date_fin'],
+            'prochaine_echeance' => (string) $payload['prochaine_echeance'],
+            'specificites' => $payload['specificites'] ?? new \stdClass(),
+        ];
+
+        if (array_key_exists('parent', $payload)) {
+            $apiPayload['parent'] = $payload['parent'] !== '' ? $payload['parent'] : null;
+        }
+
+        if (! empty($payload['nom_complet'])) {
+            $apiPayload['nom_complet'] = (string) $payload['nom_complet'];
+        }
+
+        if ($includeRemaining && array_key_exists('montant_restant', $payload)) {
+            $apiPayload['montant_restant'] = (string) $payload['montant_restant'];
+        }
+
+        if ($includeStatus && ! empty($payload['statut'])) {
+            $apiPayload['statut'] = mb_strtoupper((string) $payload['statut'], 'UTF-8');
+        }
+
+        $subContracts = collect($payload['sous_contrats'] ?? [])
+            ->filter(fn ($row) => is_array($row))
+            ->map(function (array $row) {
+                return [
+                    'type_contrat' => (int) $row['type_contrat'],
+                    'montant_total' => (string) $row['montant_total'],
+                    'montant_par_paiement' => (string) $row['montant_par_paiement'],
+                    'frequence' => mb_strtoupper((string) $row['frequence'], 'UTF-8'),
+                    'date_debut' => (string) $row['date_debut'],
+                    'date_fin' => (string) $row['date_fin'],
+                    'prochaine_echeance' => (string) $row['prochaine_echeance'],
+                    'specificites' => $row['specificites'] ?? new \stdClass(),
+                ];
+            })
+            ->values()
+            ->all();
+
+        if (! empty($subContracts)) {
+            $apiPayload['sous_contrats'] = $subContracts;
+        }
+
+        return $apiPayload;
+    }
+
+    protected function normalizeContractStatusFromApi(?string $status): string
+    {
+        return match (mb_strtoupper((string) $status, 'UTF-8')) {
+            'ACTIF' => 'actif',
+            'SUSPENDU' => 'suspendu',
+            'SOLDE' => 'solde',
+            'CONTENTIEUX' => 'contentieux',
+            'RETARD' => 'retard',
+            default => 'actif',
+        };
+    }
+
+    protected function normalizeFrequencyFromApi(?string $frequency): string
+    {
+        return match (mb_strtoupper(trim((string) $frequency), 'UTF-8')) {
+            'JOURNALIER', 'QUOTIDIEN' => 'JOURNALIER',
+            'HEBDOMADAIRE' => 'HEBDOMADAIRE',
+            'MENSUEL' => 'MENSUEL',
+            default => 'JOURNALIER',
+        };
     }
 
     /**
@@ -1162,13 +1835,26 @@ protected function cutoffStatusUiType(?string $status): string
     protected function normalizePayment(array $row): array
     {
         $status = mb_strtoupper((string) ($row['statut'] ?? $row['status'] ?? ''), 'UTF-8');
+        $rawMethod = (string) ($row['methode'] ?? $row['method'] ?? $row['mode_paiement'] ?? '');
+        $methodFamily = $this->normalizePaymentMethodFamily($rawMethod);
 
         return [
             'id' => (int) ($row['id'] ?? 0),
             'lease_id' => (int) ($row['lease'] ?? $row['lease_id'] ?? 0),
 
             'montant' => (float) ($row['montant'] ?? 0),
-            'methode' => (string) ($row['methode'] ?? $row['method'] ?? $row['mode_paiement'] ?? ''),
+
+            /**
+             * La vue ne présente que deux familles métier :
+             * - CASH ;
+             * - MOBILE_MONEY.
+             * Les valeurs techniques comme MOBILE, MTN, ORANGE, MOMO restent
+             * conservées dans methode_raw pour le debug développeur.
+             */
+            'methode' => $methodFamily,
+            'methode_label' => $methodFamily ? $this->paymentMethodLabel($methodFamily) : null,
+            'methode_raw' => $rawMethod,
+
             'reference' => (string) ($row['reference'] ?? ''),
             'transaction_id' => (string) ($row['transaction_id'] ?? ''),
             'statut' => $status,
@@ -1220,6 +1906,46 @@ protected function cutoffStatusUiType(?string $status): string
         ]);
 
         return $indexed;
+    }
+
+    /**
+     * Regroupe toutes les valeurs techniques de recouvrement en deux familles
+     * lisibles pour l'utilisateur : CASH ou MOBILE_MONEY.
+     */
+    protected function normalizePaymentMethodFamily(mixed $method): ?string
+    {
+        $value = mb_strtoupper(trim((string) $method), 'UTF-8');
+
+        if ($value === '') {
+            return null;
+        }
+
+        if (str_contains($value, 'CASH') || str_contains($value, 'ESPECE') || str_contains($value, 'ESPÈCE')) {
+            return 'CASH';
+        }
+
+        if (
+            str_contains($value, 'MOBILE')
+            || str_contains($value, 'MOMO')
+            || str_contains($value, 'MTN')
+            || str_contains($value, 'ORANGE')
+            || str_contains($value, 'OM')
+            || str_contains($value, 'MAVIANCE')
+        ) {
+            return 'MOBILE_MONEY';
+        }
+
+        return $value;
+    }
+
+    protected function paymentMethodLabel(?string $methodFamily): ?string
+    {
+        return match ($methodFamily) {
+            'CASH' => 'Cash',
+            'MOBILE_MONEY' => 'Mobile Money',
+            null, '' => null,
+            default => $methodFamily,
+        };
     }
 
     /**
@@ -1301,6 +2027,30 @@ protected function cutoffStatusUiType(?string $status): string
 
         $leaseId = (int) ($row['id'] ?? 0);
 
+        $contractTypeId = (int) (
+            $row['type_contrat_id']
+            ?? $row['type_contrat']
+            ?? data_get($row, 'contrat.type_contrat')
+            ?? $contract['type_contrat']
+            ?? 0
+        );
+
+        $contractTypeLabel = (string) (
+            $row['type_contrat_label']
+            ?? data_get($row, 'contrat.type_contrat_label')
+            ?? data_get($row, 'contrat.type_contrat.libelle')
+            ?? $contract['type_contrat_label']
+            ?? $contract['type_label']
+            ?? ($contractTypeId > 0 ? ('Type #' . $contractTypeId) : 'Contrat')
+        );
+
+        $parentContractId = $row['parent']
+            ?? data_get($row, 'contrat.parent')
+            ?? $contract['source_parent_contract_id']
+            ?? null;
+
+        $contractKind = $parentContractId ? 'SUB' : 'MAIN';
+
         $immat = (string) (
             $row['immatriculation']
             ?? $row['vehicule']
@@ -1350,23 +2100,55 @@ protected function cutoffStatusUiType(?string $status): string
             ?? max(0, $expected - $paid)
         );
 
-        $coupureAuto = $status === 'unpaid'
-            ? (bool) ($cutoffMeta['coupure_auto'] ?? false)
+        $baseCutoffEnabled = (bool) ($cutoffMeta['coupure_auto'] ?? false);
+        $typeRules = is_array($cutoffMeta['type_rules'] ?? null)
+            ? $cutoffMeta['type_rules']
+            : [];
+
+        $typeRule = $contractTypeId > 0
+            ? ($typeRules[$contractTypeId] ?? null)
+            : null;
+
+        $typeRuleEnabled = $typeRule !== null
+            ? (bool) ($typeRule['is_enabled'] ?? false)
             : false;
 
-        $heureCoupure = $status === 'unpaid'
-            ? ($cutoffMeta['heure_coupure'] ?? null)
-            : null;
+        $effectiveCutoffTime = $typeRule['cutoff_time']
+            ?? $cutoffMeta['heure_coupure']
+            ?? null;
+
+        $coupureAuto = $status === 'unpaid'
+            && $baseCutoffEnabled
+            && $typeRuleEnabled
+            && ! empty($effectiveCutoffTime);
+
+        $heureCoupure = $coupureAuto ? $effectiveCutoffTime : null;
+
+        $cutoffEligibilityReason = match (true) {
+            $status !== 'unpaid' => 'Échéance réglée, pardonnée ou non impayée.',
+            ! $baseCutoffEnabled => 'La coupure est désactivée pour ce véhicule.',
+            $typeRule === null => 'La coupure est désactivée pour ce type de contrat sur ce véhicule.',
+            ! $typeRuleEnabled => 'La coupure est désactivée pour ce type de contrat sur ce véhicule.',
+            empty($effectiveCutoffTime) => 'Heure de coupure absente malgré la règle active.',
+            default => sprintf(
+                'Éligible : le type %s peut déclencher la coupure du véhicule à %s.',
+                $contractTypeLabel ?: ('#' . $contractTypeId),
+                substr((string) $effectiveCutoffTime, 0, 5)
+            ),
+        };
 
         /**
          * Données venant prioritairement de /paiements/.
          */
-        $paymentMethod = $paymentMeta['methode']
+        $paymentMethodRaw = $paymentMeta['methode_raw']
+            ?? $paymentMeta['methode']
             ?? $row['methode']
             ?? $row['method']
             ?? $row['mode_paiement']
             ?? $row['payment_method']
             ?? null;
+
+        $paymentMethodFamily = $this->normalizePaymentMethodFamily($paymentMethodRaw);
 
         $paymentRecordedBy = $paymentMeta['enregistre_par']
             ?? $row['enregistre_par']
@@ -1393,6 +2175,10 @@ protected function cutoffStatusUiType(?string $status): string
             'id' => $leaseId,
             'source_lease_id' => $leaseId,
             'source_contrat_id' => $contractId,
+            'parent_contract_id' => $parentContractId ? (int) $parentContractId : null,
+            'contract_kind' => $contractKind,
+            'type_contrat_id' => $contractTypeId,
+            'type_contrat_label' => $contractTypeLabel,
 
             /**
              * Date affichée dans le tableau = date d’échéance du lease.
@@ -1401,6 +2187,7 @@ protected function cutoffStatusUiType(?string $status): string
             'date_echeance' => $dateEcheance,
 
             'vehicule' => $immat,
+            'vehicle_id' => (int) ($cutoffMeta['vehicle_id'] ?? 0) ?: null,
             'chauffeur' => $chauffeur,
 
             'phone' => (string) (
@@ -1413,6 +2200,8 @@ protected function cutoffStatusUiType(?string $status): string
             ),
 
             'agence' => '—',
+            'contrat_type' => $contractTypeLabel,
+            'contrat_kind' => $contractKind,
 
             'partenaire' => Auth::user()?->full_name
                 ?? Auth::user()?->nom
@@ -1436,7 +2225,9 @@ protected function cutoffStatusUiType(?string $status): string
              * Méthode :
              * source prioritaire = /paiements/.methode.
              */
-            'methode' => $paymentMethod ?: null,
+            'methode' => $paymentMethodFamily ?: null,
+            'methode_label' => $paymentMethodFamily ? $this->paymentMethodLabel($paymentMethodFamily) : null,
+            'methode_raw' => $paymentMethodRaw,
 
             /**
              * Champs détaillés paiement.
@@ -1467,6 +2258,12 @@ protected function cutoffStatusUiType(?string $status): string
              */
             'coupure_auto' => $coupureAuto,
             'heure_coupure' => $heureCoupure,
+            'vehicle_cutoff_enabled' => $baseCutoffEnabled,
+            'cutoff_rule_id' => $cutoffMeta['rule_id'] ?? null,
+            'type_cutoff_enabled' => $typeRuleEnabled,
+            'cutoff_type_rule_configured' => $typeRule !== null,
+            'cutoff_type_rule_label' => $typeRule['type_contrat_label'] ?? $contractTypeLabel,
+            'cutoff_eligibility_reason' => $cutoffEligibilityReason,
 
             'coupure_status' => $cutoffStatusMeta['status'] ?? null,
             'coupure_label' => $cutoffStatusMeta['label'] ?? (
@@ -1479,11 +2276,13 @@ protected function cutoffStatusUiType(?string $status): string
                     ? 'info'
                     : 'muted'
             ),
-            'coupure_reason' => $cutoffStatusMeta['reason'] ?? null,
+            'coupure_reason' => $cutoffStatusMeta['reason'] ?? $cutoffEligibilityReason,
             'coupure_history_id' => $cutoffStatusMeta['history_id'] ?? null,
             'coupure_scheduled_for' => $cutoffStatusMeta['scheduled_for'] ?? null,
             'coupure_detected_at' => $cutoffStatusMeta['detected_at'] ?? null,
             'coupure_executed_at' => $cutoffStatusMeta['cutoff_executed_at'] ?? null,
+            'coupure_trigger_label' => $cutoffStatusMeta['trigger_label'] ?? null,
+            'coupure_trigger_payload' => $cutoffStatusMeta['trigger_payload'] ?? null,
 
             /**
              * Compatibilité ancienne vue :
@@ -1542,6 +2341,17 @@ protected function cutoffStatusUiType(?string $status): string
         }
 
         return $now->diffInMinutes($target);
+    }
+
+    /**
+     * Normalise les immatriculations pour matcher Tracking ↔ Recouvrement.
+     */
+    protected function normalizeImmatriculation(?string $value): string
+    {
+        return mb_strtoupper(
+            preg_replace('/\s+/', '', trim((string) $value)),
+            'UTF-8'
+        );
     }
 
     /**
