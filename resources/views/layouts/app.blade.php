@@ -1824,6 +1824,17 @@
                                 Historique Coupure
                             </a>
                         </li>
+                        <li role="none">
+                            <a href="{{ route('leases.dashboard') }}"
+                            role="menuitem"
+                            class="{{ request()->routeIs('leases.dashboard') ? 'active' : '' }}"
+                            aria-current="{{ request()->routeIs('leases.dashboard') ? 'page' : 'false' }}">
+                                <span class="nav-icon" aria-hidden="true">
+                                    <i class="fa-solid fa-gauge-high"></i>
+                                </span>
+                                Dashboard Lease
+                            </a>
+                        </li>
 
                 </li>
             </ul>

@@ -20,6 +20,7 @@ use App\Http\Controllers\Leases\LeaseController;
 use App\Http\Controllers\Leases\ContratLeaseController;
 use App\Http\Controllers\Leases\LeaseCutoffRuleController;
 use App\Http\Controllers\Leases\LeaseCutoffHistoryController;
+use App\Http\Controllers\Leases\DashbaordLeaseController;
 use App\Http\Controllers\Partner\PartnerDriverController;
 
 
@@ -155,6 +156,9 @@ Route::post('lease/cutoff-rules/type-contrats', [LeaseCutoffRuleController::clas
 // histirique de coupure automatique
 Route::get('lease/cutoff-history', [LeaseCutoffHistoryController::class, 'index'])
     ->name('lease.cutoff-history.index');
+//dashbaord lease
+Route::get('/leases/dashboard', [DashbaordLeaseController::class, 'index'])
+        ->name('leases.dashboard');
 
 
 
