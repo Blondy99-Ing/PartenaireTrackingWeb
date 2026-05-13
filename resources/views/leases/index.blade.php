@@ -1100,23 +1100,27 @@ input:checked + .fl-slider:before {
                 <div class="hub-sep"></div>
 
                 <div class="hub-section" id="nextCutSection">
-                    <span class="hub-label">Prochaine coupure</span>
+                    <span class="hub-label">Prochaine action</span>
                     <span class="hub-value highlight" id="nextCutTimeDisplay">
-                        {{ $cutoffHub['next_cutoff_time'] ?? '—' }}
+                        @if(!empty($firstWaitingQueue))
+                            {{ !empty($firstWaitingQueue['next_check_at']) ? 'Recheck '.$firstWaitingQueue['next_check_at'] : 'En attente' }}
+                        @else
+                            {{ $cutoffHub['next_cutoff_time'] ?? '—' }}
+                        @endif
                     </span>
                 </div>
 
                 <div class="hub-sep" id="countdownSep"></div>
 
                 <div class="hub-section countdown-box" id="countdownBox">
-                    <span class="hub-label">Chrono</span>
+                    <span class="hub-label">Chrono / attente</span>
                     <span class="hub-timer" id="globalTimer">00:00:00</span>
                 </div>
 
                 <div class="hub-sep"></div>
 
                 <div class="hub-inline-control">
-                    <span class="hub-label">Heure appliquée en masse</span>
+                    <span class="hub-label">Heure à appliquer</span>
                     <input type="time" id="globalCutoffTime" value="{{ $cutoffHub['global_time'] ?? '' }}">
                 </div>
 
@@ -1140,7 +1144,7 @@ input:checked + .fl-slider:before {
                     <span class="hub-label">État sécurité</span>
                     <span class="hub-upcoming" id="upcomingCutoffPreview">
                         @if(!empty($firstWaitingQueue))
-                            {{ $firstWaitingQueue['immatriculation'] ?? 'Véhicule' }} — {{ $firstWaitingQueue['status'] ?? 'En attente' }}{{ !empty($firstWaitingQueue['next_check_at']) ? ' à '.$firstWaitingQueue['next_check_at'] : '' }}
+                            {{ $firstWaitingQueue['immatriculation'] ?? 'Véhicule' }} — {{ $firstWaitingQueue['reason'] ?? ($firstWaitingQueue['status_label'] ?? 'En attente') }}
                         @else
                             {{ !empty($cutoffHub['upcoming_cutoff_times']) ? implode(' • ', array_slice($cutoffHub['upcoming_cutoff_times'], 0, 3)) : 'Aucune attente' }}
                         @endif
@@ -1148,8 +1152,6 @@ input:checked + .fl-slider:before {
                 </div>
             </div>
         </div>
-    </div>
-
     <div class="lease-toolbar" id="leaseToolbar">
         <div class="lease-search-wrap">
             <i class="fas fa-search"></i>
@@ -1318,7 +1320,7 @@ input:checked + .fl-slider:before {
         <select class="filter-pill-btn" id="contractTypeFilter" onchange="window.setQuickSelectFilter('type_contrat', this.value)" title="Filtrer par type de contrat">
             <option value="all">Tous les types</option>
             @foreach($contractTypes as $type)
-                <option value="{{ $type['id'] ?? '' }}">{{ $type['label'] ?? $type['libelle'] ?? ('Type #' . ($type['id'] ?? '')) }}</option>
+                <option value="{{ $type['id'] ?? '' }}">{{ $type['label'] ?? $type['libelle'] ?? 'Contrat' }}</option>
             @endforeach
         </select>
 
@@ -1358,7 +1360,7 @@ input:checked + .fl-slider:before {
                         <th>Statut</th>
                         <th>Coupure</th>
                         <th>H. coupure</th>
-                        <th>H. enreg.</th>
+                        <th>Heure paiement</th>
                         <th style="text-align:right;">Actions</th>
                     </tr>
                 </thead>
@@ -1667,9 +1669,9 @@ input:checked + .fl-slider:before {
         if (waitingQueues.length > 0) {
             const first = waitingQueues[0];
             const immat = first.immatriculation || 'Véhicule';
-            const status = first.status || 'En attente';
-            const next = first.next_check_at ? ` à ${first.next_check_at}` : '';
-            el.textContent = `${immat} — ${status}${next}`;
+            const reason = first.reason || first.status_label || 'En attente sécurité';
+            const next = first.next_check_at ? ` · recheck ${first.next_check_at}` : '';
+            el.textContent = `${immat} — ${reason}${next}`;
             return;
         }
 
@@ -1704,11 +1706,6 @@ input:checked + .fl-slider:before {
             ? HUB_DATA.waiting_queues
             : [];
 
-        /**
-         * Si une queue est déjà en attente sécurité, l'information utile n'est
-         * plus le prochain horaire théorique, mais le blocage réel : GPS offline,
-         * véhicule en mouvement ou commande déjà envoyée.
-         */
         if (waitingQueues.length > 0) {
             const first = waitingQueues[0];
 
@@ -1719,7 +1716,7 @@ input:checked + .fl-slider:before {
             }
 
             if (timerDisplay) {
-                timerDisplay.textContent = first.status || 'WAITING';
+                timerDisplay.textContent = first.status_label || 'En attente';
             }
 
             return;
@@ -1767,10 +1764,10 @@ input:checked + .fl-slider:before {
 
         const h = String(Math.floor(diff / 3600000)).padStart(2, '0');
         const m = String(Math.floor((diff % 3600000) / 60000)).padStart(2, '0');
-        const s = String(Math.floor((diff % 60000) / 1000)).padStart(2, '0');
+        const sec = String(Math.floor((diff % 60000) / 1000)).padStart(2, '0');
 
         if (timerDisplay) {
-            timerDisplay.textContent = `${h}:${m}:${s}`;
+            timerDisplay.textContent = `${h}:${m}:${sec}`;
         }
     }
 
@@ -1780,7 +1777,7 @@ input:checked + .fl-slider:before {
 
     function cutoffBadge(row) {
         const status = normalizeCutoffStatus(row);
-        const label = row.coupure_label || (row.coupure_auto ? 'Planifiée' : 'Aucune coupure');
+        const label = row.coupure_label || (row.coupure_auto ? 'Planifiée' : 'Aucune règle active');
         const type = row.coupure_ui_type || (row.coupure_auto ? 'info' : 'muted');
 
         const className = {
@@ -1806,7 +1803,6 @@ input:checked + .fl-slider:before {
         }[status] || (row.coupure_auto ? 'fa-clock' : 'fa-minus-circle');
 
         const detail = row.coupure_executed_at
-            || row.coupure_detected_at
             || row.coupure_scheduled_for
             || row.heure_coupure
             || '';
@@ -1820,8 +1816,7 @@ input:checked + .fl-slider:before {
                     ${esc(label)}
                 </span>
                 ${detail ? `<div class="cut-detail">${esc(detail)}</div>` : ''}
-                ${row.coupure_trigger_label ? `<div class="cut-detail" title="${esc(row.coupure_trigger_label)}">${esc(row.coupure_trigger_label).slice(0, 42)}${String(row.coupure_trigger_label).length > 42 ? '…' : ''}</div>` : ''}
-                ${reason ? `<div class="cut-detail" title="${esc(reason)}">${esc(reason).slice(0, 42)}${String(reason).length > 42 ? '…' : ''}</div>` : ''}
+                ${reason ? `<div class="cut-detail" title="${esc(reason)}">${esc(reason).slice(0, 54)}${String(reason).length > 54 ? '…' : ''}</div>` : ''}
             </div>
         `;
     }
@@ -1877,8 +1872,8 @@ input:checked + .fl-slider:before {
 
             if (window.showToast) {
                 window.showToast(
-                    'Paramétrage enregistré',
-                    payload.message || 'Règles spécifiques mises à jour.',
+                    'Configuration enregistrée',
+                    payload.message || 'Mise à jour réussie.',
                     'success'
                 );
             }
@@ -1988,7 +1983,6 @@ input:checked + .fl-slider:before {
                 (r.chauffeur || '').toLowerCase().includes(q) ||
                 (r.type_contrat_label || '').toLowerCase().includes(q) ||
                 (r.contrat_type || '').toLowerCase().includes(q) ||
-                (r.contrat_ref || '').toLowerCase().includes(q) ||
                 (r.agence || '').toLowerCase().includes(q) ||
                 (r.partenaire || '').toLowerCase().includes(q) ||
                 (r.phone || '').includes(q) ||
@@ -2146,10 +2140,8 @@ input:checked + .fl-slider:before {
                     <td><span class="immat-badge">${esc(r.vehicule)}</span></td>
 
                     <td style="white-space:nowrap;">
-                        <div style="font-weight:800;font-size:.75rem;">${esc(r.type_contrat_label || r.contrat_type || '—')}</div>
+                        <div style="font-weight:800;font-size:.75rem;">${esc(r.type_contrat_label || r.contrat_type || 'Contrat')}</div>
                         <div style="font-size:.62rem;color:var(--color-secondary-text);">${r.contract_kind === 'SUB' ? 'Sous-contrat' : 'Contrat principal'}</div>
-                        <div style="font-size:.6rem;color:var(--color-secondary-text);">${esc(r.contrat_ref || '')}</div>
-                        ${r.parent_contract_id ? `<div style="font-size:.58rem;color:var(--color-secondary-text);">Parent #${esc(r.parent_contract_id)}</div>` : ''}
                     </td>
 
                     <td style="white-space:nowrap;">
@@ -2186,7 +2178,7 @@ input:checked + .fl-slider:before {
 
                     <td><span class="time-cell">${esc(cutoffTimeCell(r))}</span></td>
 
-                    <td><span class="time-cell">${esc(r.heure_enreg) || '—'}</span></td>
+                    <td><span class="time-cell">${esc(r.heure_paiement || r.heure_enreg) || '—'}</span></td>
 
                     <td>
                         <div style="display:flex;align-items:center;justify-content:flex-end;gap:.2rem;">

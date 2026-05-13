@@ -18,10 +18,12 @@ class LeaseController extends Controller
      * Page paiements lease.
      *
      * Cohérence métier :
-     * - /leases/ reste la source des échéances ;
-     * - la coupure automatique dépend uniquement des règles spécifiques
-     *   existantes sur les contrats/sous-contrats réels ;
-     * - la vue affiche aussi les queues en attente de sécurité GPS.
+     * - /leases/ est la source des échéances à payer ;
+     * - /contrats/ permet de savoir si l'échéance concerne le contrat parent
+     *   ou un sous-contrat et de connaître son type ;
+     * - Tracking applique uniquement les règles spécifiques existantes sur
+     *   les contrats/sous-contrats réels ;
+     * - la vue affiche les attentes sécurité GPS avant le chrono théorique.
      */
     public function index(Request $request, PartnerLeaseApiService $leaseApiService): View
     {
@@ -121,8 +123,9 @@ class LeaseController extends Controller
     /**
      * Activation/désactivation en masse des règles spécifiques existantes.
      *
-     * Cette action ne crée aucune règle et ne doit jamais créer de règle pour
-     * un sous-contrat non associé.
+     * Important : cette action ne crée aucune règle et ne doit jamais créer de
+     * règle pour un sous-contrat non associé. Elle agit uniquement sur les
+     * lignes déjà présentes dans lease_cutoff_contract_rules.
      */
     public function updateGlobalCutoff(Request $request, PartnerLeaseApiService $leaseApiService): JsonResponse
     {
@@ -145,11 +148,6 @@ class LeaseController extends Controller
                 'cutoff_time' => $data['cutoff_time'] ?? null,
             ]);
 
-            /**
-             * Cette action globale ne crée aucune règle.
-             * Elle active/désactive uniquement les règles déjà liées à des
-             * contrats/sous-contrats réels du partenaire.
-             */
             $result = $leaseApiService->applyGlobalCutoffRule(
                 enabled: (bool) $data['enabled'],
                 cutoffTime: $data['cutoff_time'] ?? null,
