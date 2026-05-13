@@ -345,9 +345,19 @@ class LeaseCutoffPlannerService
             return Carbon::parse($dateEcheance, $timezone)->toDateString();
         }
 
-        $offset = $offsetDays ?? (int) env('LEASE_CUTOFF_DUE_DATE_OFFSET_DAYS', 1);
+        /**
+         * Règle métier actuelle : le cron quotidien ne regarde que la date du jour.
+         * Les échéances d'hier restent consultables dans l'historique d'hier, mais
+         * elles ne sont plus planifiées automatiquement aujourd'hui.
+         *
+         * $offsetDays est conservé uniquement pour compatibilité interne éventuelle,
+         * mais la commande Artisan standard passe toujours une date explicite.
+         */
+        if ($offsetDays !== null) {
+            return Carbon::now($timezone)->subDays(max(0, $offsetDays))->toDateString();
+        }
 
-        return Carbon::now($timezone)->subDays(max(0, $offset))->toDateString();
+        return Carbon::now($timezone)->toDateString();
     }
 
     private function resolveExactContractLink(int $sourceContractId): ?LeaseContractLink

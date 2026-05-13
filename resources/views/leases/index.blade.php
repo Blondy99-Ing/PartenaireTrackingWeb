@@ -948,24 +948,225 @@ input:checked + .fl-slider:before {
         font-size: .9rem;
     }
 }
+
+/* =========================================================
+   Corrections ergonomie Lease : hub chrono + filtres
+   - Hub sur une seule grille propre, pas collé au titre.
+   - Chrono lisible avec état sécurité.
+   - Filtres regroupés dans une barre stable et responsive.
+   ========================================================= */
+.lease-header {
+    display: grid !important;
+    grid-template-columns: minmax(260px, 0.7fr) minmax(520px, 1.6fr);
+    align-items: stretch !important;
+    gap: .85rem !important;
+    margin-bottom: .8rem !important;
+}
+.lease-header-left {
+    background: var(--color-card);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--r-lg);
+    padding: .75rem .9rem;
+    box-shadow: var(--shadow-sm);
+    min-height: 86px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+.status-hub-wrapper {
+    width: 100% !important;
+    min-width: 0 !important;
+    justify-content: stretch !important;
+    align-items: stretch !important;
+}
+.status-hub-card {
+    width: 100% !important;
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(120px, 1fr)) minmax(150px, 1fr) minmax(130px, auto) minmax(130px, auto) minmax(210px, 1.25fr);
+    gap: .55rem !important;
+    align-items: stretch !important;
+    padding: .65rem !important;
+    overflow: visible !important;
+}
+.status-hub-card .hub-sep { display: none !important; }
+.hub-section,
+.hub-inline-control,
+.hub-action {
+    min-width: 0;
+    background: var(--color-bg-subtle);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--r-md);
+    padding: .52rem .62rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+.hub-section.countdown-box {
+    background: var(--color-error-bg);
+    border-color: rgba(220,38,38,.20);
+}
+.hub-section.waiting-state {
+    background: var(--color-warning-bg);
+    border-color: rgba(217,119,6,.22);
+}
+.hub-label {
+    margin-bottom: .12rem;
+    line-height: 1.15;
+}
+.hub-value,
+.hub-timer,
+.hub-upcoming {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.hub-value.success { color: var(--color-success); }
+.hub-value.neutral { color: var(--color-secondary-text); }
+.hub-value.warning { color: var(--color-warning); }
+.hub-timer {
+    font-size: 1.05rem !important;
+    line-height: 1.1;
+    white-space: nowrap;
+}
+.hub-upcoming {
+    display: block;
+    white-space: normal !important;
+    line-height: 1.25;
+    max-height: 2.6em;
+}
+.hub-inline-control input[type="time"] {
+    width: 100%;
+    min-width: 0;
+}
+.hub-action {
+    align-items: center;
+    text-align: center;
+}
+.hub-action .btn-primary {
+    width: 100%;
+    justify-content: center;
+    min-height: 34px;
+    padding-left: .75rem;
+    padding-right: .75rem;
+}
+.toggle-container {
+    align-items: center !important;
+    justify-content: center;
+}
+
+.lease-toolbar {
+    position: relative;
+    z-index: 8;
+    display: grid !important;
+    grid-template-columns: minmax(260px, 1.4fr) repeat(3, minmax(120px, auto)) minmax(160px, auto) minmax(150px, auto) minmax(120px, auto);
+    align-items: center !important;
+    gap: .5rem !important;
+    background: var(--color-card);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--r-lg);
+    padding: .6rem;
+    box-shadow: var(--shadow-sm);
+    margin-bottom: .6rem !important;
+    overflow: visible !important;
+}
+.lease-toolbar .toolbar-sep { display: none !important; }
+.lease-search-wrap {
+    max-width: none !important;
+    width: 100%;
+    min-width: 0 !important;
+}
+.lease-search-wrap input,
+.filter-pill-btn,
+.lease-toolbar select.filter-pill-btn {
+    min-height: 36px;
+}
+.filter-pill-wrap {
+    position: relative;
+    min-width: 0;
+}
+.filter-pill-btn {
+    width: 100%;
+    justify-content: center;
+}
+.filter-dropdown-menu {
+    z-index: 9999 !important;
+    overflow: visible !important;
+}
+#wrap-date .filter-dropdown-menu {
+    min-width: 280px !important;
+}
+.fdrop-date-range {
+    flex-direction: column;
+    align-items: stretch !important;
+}
+.fdrop-date-range span { display: none; }
+.active-filters-strip {
+    min-height: 0;
+    margin-top: -.2rem;
+}
+
+.contract-cell-main {
+    display: flex;
+    flex-direction: column;
+    gap: .12rem;
+    min-width: 120px;
+}
+.contract-cell-title {
+    font-weight: 800;
+    font-size: .76rem;
+    color: var(--color-text);
+    max-width: 165px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.contract-cell-sub {
+    font-size: .62rem;
+    color: var(--color-secondary-text);
+}
+.cut-detail.user-message {
+    max-width: 220px;
+    white-space: normal;
+}
+
+@media (max-width: 1500px) {
+    .lease-header {
+        grid-template-columns: 1fr !important;
+    }
+    .status-hub-card {
+        grid-template-columns: repeat(4, minmax(130px, 1fr)) !important;
+    }
+}
+@media (max-width: 1100px) {
+    .lease-toolbar {
+        grid-template-columns: minmax(240px, 1fr) repeat(3, minmax(115px, auto)) !important;
+    }
+    .lease-toolbar select.filter-pill-btn,
+    #btnResetFilters {
+        grid-column: span 1;
+    }
+}
+@media (max-width: 767px) {
+    .lease-header-left { min-height: auto; }
+    .status-hub-card,
+    .lease-toolbar {
+        grid-template-columns: 1fr !important;
+    }
+    .filter-dropdown-menu {
+        position: static !important;
+        transform: none !important;
+        margin-top: .35rem;
+        width: 100%;
+    }
+    .filter-dropdown-menu:not(.open) { display: none; }
+    .filter-dropdown-menu.open { display: block; }
+}
+
 </style>
 @endpush
 
 @section('content')
 
-@if(!empty($pageError))
-    <div class="alert alert-danger" style="margin-bottom:.75rem;">
-        {{ $pageError }}
-    </div>
-@endif
-
-@if(!empty($pageWarnings))
-    @foreach($pageWarnings as $warning)
-        <div class="alert alert-warning" style="margin-bottom:.75rem;">
-            {{ $warning }}
-        </div>
-    @endforeach
-@endif
 
 @php
     $lease_data = $lease_data ?? [];
@@ -1079,16 +1280,12 @@ input:checked + .fl-slider:before {
                     <span class="hub-value" id="currentDateDisplay">{{ now()->format('d/m/Y') }}</span>
                 </div>
 
-                <div class="hub-sep"></div>
-
                 <div class="hub-section">
                     <span class="hub-label">Règles actives</span>
                     <span class="hub-value {{ !empty($cutoffHub['rules_enabled']) ? 'success' : 'neutral' }}" id="specificRulesCount">
-                        {{ (int) ($cutoffHub['rules_enabled'] ?? 0) }}/{{ (int) ($cutoffHub['rules_total'] ?? 0) }}
+                        {{ (int) ($cutoffHub['rules_enabled'] ?? $cutoffHub['active_rules_count'] ?? 0) }}/{{ (int) ($cutoffHub['rules_total'] ?? 0) }}
                     </span>
                 </div>
-
-                <div class="hub-sep"></div>
 
                 <div class="hub-section">
                     <span class="hub-label">Impayés éligibles</span>
@@ -1097,27 +1294,21 @@ input:checked + .fl-slider:before {
                     </span>
                 </div>
 
-                <div class="hub-sep"></div>
-
-                <div class="hub-section" id="nextCutSection">
+                <div class="hub-section {{ !empty($firstWaitingQueue) ? 'waiting-state' : '' }}" id="nextCutSection">
                     <span class="hub-label">Prochaine action</span>
-                    <span class="hub-value highlight" id="nextCutTimeDisplay">
+                    <span class="hub-value {{ !empty($firstWaitingQueue) ? 'warning' : 'highlight' }}" id="nextCutTimeDisplay">
                         @if(!empty($firstWaitingQueue))
-                            {{ !empty($firstWaitingQueue['next_check_at']) ? 'Recheck '.$firstWaitingQueue['next_check_at'] : 'En attente' }}
+                            {{ !empty($firstWaitingQueue['next_check_at']) ? 'Vérification '.$firstWaitingQueue['next_check_at'] : 'En attente' }}
                         @else
                             {{ $cutoffHub['next_cutoff_time'] ?? '—' }}
                         @endif
                     </span>
                 </div>
 
-                <div class="hub-sep" id="countdownSep"></div>
-
                 <div class="hub-section countdown-box" id="countdownBox">
-                    <span class="hub-label">Chrono / attente</span>
+                    <span class="hub-label">Chrono</span>
                     <span class="hub-timer" id="globalTimer">00:00:00</span>
                 </div>
-
-                <div class="hub-sep"></div>
 
                 <div class="hub-inline-control">
                     <span class="hub-label">Heure à appliquer</span>
@@ -1140,18 +1331,11 @@ input:checked + .fl-slider:before {
                     </button>
                 </div>
 
-                <div class="hub-section" style="min-width:210px;">
-                    <span class="hub-label">État sécurité</span>
-                    <span class="hub-upcoming" id="upcomingCutoffPreview">
-                        @if(!empty($firstWaitingQueue))
-                            {{ $firstWaitingQueue['immatriculation'] ?? 'Véhicule' }} — {{ $firstWaitingQueue['reason'] ?? ($firstWaitingQueue['status_label'] ?? 'En attente') }}
-                        @else
-                            {{ !empty($cutoffHub['upcoming_cutoff_times']) ? implode(' • ', array_slice($cutoffHub['upcoming_cutoff_times'], 0, 3)) : 'Aucune attente' }}
-                        @endif
-                    </span>
-                </div>
+                
             </div>
         </div>
+    </div>
+
     <div class="lease-toolbar" id="leaseToolbar">
         <div class="lease-search-wrap">
             <i class="fas fa-search"></i>
@@ -1320,7 +1504,7 @@ input:checked + .fl-slider:before {
         <select class="filter-pill-btn" id="contractTypeFilter" onchange="window.setQuickSelectFilter('type_contrat', this.value)" title="Filtrer par type de contrat">
             <option value="all">Tous les types</option>
             @foreach($contractTypes as $type)
-                <option value="{{ $type['id'] ?? '' }}">{{ $type['label'] ?? $type['libelle'] ?? 'Contrat' }}</option>
+                <option value="{{ $type['id'] ?? '' }}">{{ $type['label'] ?? $type['libelle'] ?? 'Type non renseigné' }}</option>
             @endforeach
         </select>
 
@@ -1655,42 +1839,40 @@ input:checked + .fl-slider:before {
         return sorted[0] || null;
     }
 
+    function firstWaitingQueue() {
+        const list = Array.isArray(HUB_DATA.waiting_queues) ? HUB_DATA.waiting_queues : [];
+        return list.length ? list[0] : null;
+    }
+
+    function waitingReasonLabel(queue) {
+        const reason = String(queue?.reason || queue?.status_label || queue?.status || '').trim();
+        if (!reason) return 'En attente sécurité';
+        if (reason.length <= 95) return reason;
+        return reason.slice(0, 92) + '…';
+    }
+
     function renderUpcomingPreview() {
         const el = document.getElementById('upcomingCutoffPreview');
+        if (!el) return;
 
-        if (!el) {
-            return;
-        }
-
-        const waitingQueues = Array.isArray(HUB_DATA.waiting_queues)
-            ? HUB_DATA.waiting_queues
-            : [];
-
-        if (waitingQueues.length > 0) {
-            const first = waitingQueues[0];
-            const immat = first.immatriculation || 'Véhicule';
-            const reason = first.reason || first.status_label || 'En attente sécurité';
-            const next = first.next_check_at ? ` · recheck ${first.next_check_at}` : '';
-            el.textContent = `${immat} — ${reason}${next}`;
+        const waiting = firstWaitingQueue();
+        if (waiting) {
+            const immat = waiting.immatriculation || 'Véhicule';
+            const next = waiting.next_check_at ? ` · prochaine vérification ${String(waiting.next_check_at).slice(0, 5)}` : '';
+            el.textContent = `${immat} — ${waitingReasonLabel(waiting)}${next}`;
             return;
         }
 
         const list = normalizeUpcomingTimes();
-        el.textContent = list.length ? list.slice(0, 4).join(' • ') : 'Aucune attente';
+        el.textContent = list.length ? `Coupures prévues : ${list.slice(0, 4).join(' • ')}` : 'Aucune coupure active';
     }
 
     function rotateUpcomingTimeIfNeeded() {
         const next = HUB_DATA.next_cutoff_time || getNextUpcomingTime();
-
-        if (!next) {
-            return;
-        }
+        if (!next) return;
 
         const target = buildTargetDate(next);
-
-        if (!target) {
-            return;
-        }
+        if (!target) return;
 
         if (target.getTime() <= Date.now()) {
             const list = normalizeUpcomingTimes();
@@ -1698,25 +1880,29 @@ input:checked + .fl-slider:before {
         }
     }
 
+    function formatDuration(ms) {
+        const safeMs = Math.max(0, ms || 0);
+        const h = String(Math.floor(safeMs / 3600000)).padStart(2, '0');
+        const m = String(Math.floor((safeMs % 3600000) / 60000)).padStart(2, '0');
+        const s = String(Math.floor((safeMs % 60000) / 1000)).padStart(2, '0');
+        return `${h}:${m}:${s}`;
+    }
+
     function runHubCountdown() {
         const nextCutTimeDisplay = document.getElementById('nextCutTimeDisplay');
         const timerDisplay = document.getElementById('globalTimer');
+        const waiting = firstWaitingQueue();
 
-        const waitingQueues = Array.isArray(HUB_DATA.waiting_queues)
-            ? HUB_DATA.waiting_queues
-            : [];
-
-        if (waitingQueues.length > 0) {
-            const first = waitingQueues[0];
+        if (waiting) {
+            const recheckTime = waiting.next_check_at ? String(waiting.next_check_at).slice(0, 5) : null;
+            const target = recheckTime ? buildTargetDate(recheckTime) : null;
 
             if (nextCutTimeDisplay) {
-                nextCutTimeDisplay.textContent = first.next_check_at
-                    ? `Recheck ${first.next_check_at}`
-                    : 'En attente';
+                nextCutTimeDisplay.textContent = recheckTime ? `Vérification ${recheckTime}` : 'En attente sécurité';
             }
 
             if (timerDisplay) {
-                timerDisplay.textContent = first.status_label || 'En attente';
+                timerDisplay.textContent = target ? formatDuration(target.getTime() - Date.now()) : 'EN ATTENTE';
             }
 
             return;
@@ -1725,59 +1911,73 @@ input:checked + .fl-slider:before {
         rotateUpcomingTimeIfNeeded();
 
         const nextTime = HUB_DATA.next_cutoff_time || getNextUpcomingTime();
-
         if (!nextTime) {
-            if (nextCutTimeDisplay) {
-                nextCutTimeDisplay.textContent = '—';
-            }
-
-            if (timerDisplay) {
-                timerDisplay.textContent = '00:00:00';
-            }
-
+            if (nextCutTimeDisplay) nextCutTimeDisplay.textContent = '—';
+            if (timerDisplay) timerDisplay.textContent = '00:00:00';
             return;
         }
 
         const target = buildTargetDate(nextTime);
-
         if (!target) {
-            if (timerDisplay) {
-                timerDisplay.textContent = '00:00:00';
-            }
-
+            if (timerDisplay) timerDisplay.textContent = '00:00:00';
             return;
         }
 
         const diff = target.getTime() - Date.now();
-
-        if (nextCutTimeDisplay) {
-            nextCutTimeDisplay.textContent = nextTime;
-        }
-
-        if (diff <= 0) {
-            if (timerDisplay) {
-                timerDisplay.textContent = '00:00:00';
-            }
-
-            return;
-        }
-
-        const h = String(Math.floor(diff / 3600000)).padStart(2, '0');
-        const m = String(Math.floor((diff % 3600000) / 60000)).padStart(2, '0');
-        const sec = String(Math.floor((diff % 60000) / 1000)).padStart(2, '0');
-
-        if (timerDisplay) {
-            timerDisplay.textContent = `${h}:${m}:${sec}`;
-        }
+        if (nextCutTimeDisplay) nextCutTimeDisplay.textContent = nextTime;
+        if (timerDisplay) timerDisplay.textContent = formatDuration(diff);
     }
 
     function normalizeCutoffStatus(row) {
         return String(row.coupure_status || '').toUpperCase();
     }
 
+    function cleanContractLabel(row) {
+        const candidates = [
+            row.type_contrat_libelle,
+            row.type_contrat_label,
+            row.contrat_type,
+            row.contract_type_label,
+        ];
+
+        for (const candidate of candidates) {
+            const value = String(candidate || '').trim();
+            if (!value) continue;
+            if (/^type\s*#?\d+$/i.test(value)) continue;
+            if (/^contrat\s*#?\d+$/i.test(value)) continue;
+            return value;
+        }
+
+        return row.contract_kind === 'SUB' ? 'Sous-contrat' : 'Contrat principal';
+    }
+
+    function contractKindLabel(row) {
+        return row.contract_kind === 'SUB' ? 'Sous-contrat' : 'Contrat principal';
+    }
+
+    function userCutoffReason(row) {
+        const status = normalizeCutoffStatus(row);
+
+        if (status === 'CUT_OFF') return 'Moteur coupé confirmé';
+        if (status === 'WAITING_STOP') return 'Coupure reportée : sécurité GPS ou véhicule non prêt';
+        if (status === 'COMMAND_SENT') return 'Commande envoyée, confirmation en attente';
+        if (status === 'PENDING') return 'Coupure planifiée';
+        if (status === 'FAILED') return 'Échec de coupure';
+        if (status === 'CANCELLED_PAID') return 'Coupure annulée : paiement régularisé';
+        if (status === 'CANCELLED_FORGIVEN_BEFORE_CUT') return 'Coupure annulée : pardon accordé';
+        if (row.coupure_auto) return row.heure_coupure ? `Planifiée à ${row.heure_coupure}` : 'Coupure planifiée';
+        if (row.cutoff_eligibility_reason) return row.cutoff_eligibility_reason;
+        return 'Aucune règle active';
+    }
+
+    function paymentTime(row) {
+        if (row.statut !== 'paid') return '—';
+        return row.heure_paiement || row.payment_time || row.paid_time || row.heure_enreg || '—';
+    }
+
     function cutoffBadge(row) {
         const status = normalizeCutoffStatus(row);
-        const label = row.coupure_label || (row.coupure_auto ? 'Planifiée' : 'Aucune règle active');
+        const label = row.coupure_label || (row.coupure_auto ? 'Planifiée' : 'Aucune coupure');
         const type = row.coupure_ui_type || (row.coupure_auto ? 'info' : 'muted');
 
         const className = {
@@ -1803,20 +2003,21 @@ input:checked + .fl-slider:before {
         }[status] || (row.coupure_auto ? 'fa-clock' : 'fa-minus-circle');
 
         const detail = row.coupure_executed_at
+            || row.coupure_detected_at
             || row.coupure_scheduled_for
             || row.heure_coupure
             || '';
 
-        const reason = row.coupure_reason || row.forgiveness_reason || '';
+        const userReason = userCutoffReason(row);
 
         return `
             <div>
-                <span class="cut-badge ${className}" title="${esc(reason || label)}">
+                <span class="cut-badge ${className}" title="${esc(userReason || label)}">
                     <i class="fas ${icon}"></i>
                     ${esc(label)}
                 </span>
                 ${detail ? `<div class="cut-detail">${esc(detail)}</div>` : ''}
-                ${reason ? `<div class="cut-detail" title="${esc(reason)}">${esc(reason).slice(0, 54)}${String(reason).length > 54 ? '…' : ''}</div>` : ''}
+                ${userReason ? `<div class="cut-detail user-message" title="${esc(userReason)}">${esc(userReason)}</div>` : ''}
             </div>
         `;
     }
@@ -1872,8 +2073,8 @@ input:checked + .fl-slider:before {
 
             if (window.showToast) {
                 window.showToast(
-                    'Configuration enregistrée',
-                    payload.message || 'Mise à jour réussie.',
+                    'Paramétrage enregistré',
+                    payload.message || 'Règles spécifiques mises à jour.',
                     'success'
                 );
             }
@@ -1981,8 +2182,8 @@ input:checked + .fl-slider:before {
             data = data.filter(r =>
                 (r.vehicule || '').toLowerCase().includes(q) ||
                 (r.chauffeur || '').toLowerCase().includes(q) ||
-                (r.type_contrat_label || '').toLowerCase().includes(q) ||
-                (r.contrat_type || '').toLowerCase().includes(q) ||
+                cleanContractLabel(r).toLowerCase().includes(q) ||
+                contractKindLabel(r).toLowerCase().includes(q) ||
                 (r.agence || '').toLowerCase().includes(q) ||
                 (r.partenaire || '').toLowerCase().includes(q) ||
                 (r.phone || '').includes(q) ||
@@ -2140,8 +2341,10 @@ input:checked + .fl-slider:before {
                     <td><span class="immat-badge">${esc(r.vehicule)}</span></td>
 
                     <td style="white-space:nowrap;">
-                        <div style="font-weight:800;font-size:.75rem;">${esc(r.type_contrat_label || r.contrat_type || 'Contrat')}</div>
-                        <div style="font-size:.62rem;color:var(--color-secondary-text);">${r.contract_kind === 'SUB' ? 'Sous-contrat' : 'Contrat principal'}</div>
+                        <div class="contract-cell-main">
+                            <div class="contract-cell-title" title="${esc(cleanContractLabel(r))}">${esc(cleanContractLabel(r))}</div>
+                            <div class="contract-cell-sub">${esc(contractKindLabel(r))}</div>
+                        </div>
                     </td>
 
                     <td style="white-space:nowrap;">
@@ -2178,7 +2381,7 @@ input:checked + .fl-slider:before {
 
                     <td><span class="time-cell">${esc(cutoffTimeCell(r))}</span></td>
 
-                    <td><span class="time-cell">${esc(r.heure_paiement || r.heure_enreg) || '—'}</span></td>
+                    <td><span class="time-cell">${esc(paymentTime(r))}</span></td>
 
                     <td>
                         <div style="display:flex;align-items:center;justify-content:flex-end;gap:.2rem;">

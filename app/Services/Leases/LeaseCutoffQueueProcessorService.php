@@ -32,15 +32,20 @@ class LeaseCutoffQueueProcessorService
     ) {
     }
 
-    public function process(): array
+    public function process(?string $dateEcheance = null): array
     {
-        Log::info('[LEASE_CUTOFF_PROCESS] Début du traitement de queue');
+        $targetDate = $this->resolveProcessingDueDate($dateEcheance);
+
+        Log::info('[LEASE_CUTOFF_PROCESS] Début du traitement de queue du jour', [
+            'target_date_echeance' => $targetDate,
+        ]);
 
         $activeStatuses = ['PENDING', 'WAITING_STOP', 'COMMAND_SENT'];
 
         $items = LeaseCutoffQueue::query()
             ->with(['vehicle', 'history', 'rule', 'contractRule', 'contractLink'])
             ->whereIn('status', $activeStatuses)
+            ->whereDate('lease_date_echeance', $targetDate)
             ->where(function ($q) {
                 $q->whereNull('next_check_at')
                     ->orWhere('next_check_at', '<=', now());
@@ -48,7 +53,8 @@ class LeaseCutoffQueueProcessorService
             ->orderBy('scheduled_for')
             ->get();
 
-        Log::info('[LEASE_CUTOFF_PROCESS] Queues sélectionnées', [
+        Log::info('[LEASE_CUTOFF_PROCESS] Queues sélectionnées pour la date du jour', [
+            'target_date_echeance' => $targetDate,
             'items_count' => $items->count(),
             'queue_ids' => $items->pluck('id')->values()->all(),
         ]);
@@ -321,15 +327,32 @@ class LeaseCutoffQueueProcessorService
             }
         }
 
-        Log::info('[LEASE_CUTOFF_PROCESS] Fin du traitement de queue', compact('processed', 'waiting', 'cancelled', 'failed'));
+        Log::info('[LEASE_CUTOFF_PROCESS] Fin du traitement de queue', array_merge(['target_date_echeance' => $targetDate], compact('processed', 'waiting', 'cancelled', 'failed')));
 
         return [
             'success' => true,
+            'target_date_echeance' => $targetDate,
             'processed' => $processed,
             'waiting' => $waiting,
             'cancelled' => $cancelled,
             'failed' => $failed,
         ];
+    }
+
+    private function resolveProcessingDueDate(?string $dateEcheance): string
+    {
+        $timezone = config('app.timezone', 'Africa/Douala');
+
+        if ($dateEcheance && trim($dateEcheance) !== '') {
+            return Carbon::parse($dateEcheance, $timezone)->toDateString();
+        }
+
+        /**
+         * Par défaut, le processor ne traite que la date métier du jour.
+         * Une queue d'hier reste visible dans l'historique d'hier, mais elle ne
+         * doit pas être reprise automatiquement aujourd'hui.
+         */
+        return Carbon::now($timezone)->toDateString();
     }
 
     private function resolveActiveContractRule(LeaseCutoffQueue $item): ?LeaseCutoffContractRule

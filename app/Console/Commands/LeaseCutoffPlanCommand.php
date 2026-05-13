@@ -7,39 +7,42 @@ use Carbon\Carbon;
 use Illuminate\Console\Command;
 
 /**
- * Planifie les coupures lease.
+ * Planifie les coupures lease pour une seule date d'échéance.
  *
- * Cette commande ne coupe jamais un véhicule. Elle lit les leases NON_PAYE,
- * vérifie les règles spécifiques par contrat/sous-contrat réel et crée la queue.
+ * Règle métier :
+ * - par défaut, la commande traite uniquement les leases NON_PAYE du jour courant ;
+ * - hier reste dans l'historique d'hier et n'est pas retraité automatiquement ;
+ * - demain sera traité demain ;
+ * - une autre date ne doit être traitée que manuellement avec --date=YYYY-MM-DD.
+ *
+ * Cette commande ne coupe jamais un véhicule. Elle crée seulement une ligne de queue
+ * lorsque toutes les conditions métier sont réunies.
  */
 class LeaseCutoffPlanCommand extends Command
 {
     protected $signature = 'lease:cutoff:plan
-        {--date= : Date d’échéance à traiter au format YYYY-MM-DD. Exemple : 2026-05-10}';
+        {--date= : Date d’échéance à traiter au format YYYY-MM-DD. Par défaut : aujourd’hui}';
 
-    protected $description = 'Planifie les coupures des leases NON_PAYE uniquement si une règle spécifique contrat/sous-contrat est active';
+    protected $description = 'Planifie les coupures des leases NON_PAYE du jour uniquement, sauf date explicite';
 
     public function handle(LeaseCutoffPlannerService $service): int
     {
-        $date = $this->option('date');
+        $timezone = config('app.timezone', 'Africa/Douala');
+        $optionDate = $this->option('date');
 
-        if ($date) {
-            try {
-                $date = Carbon::parse($date)->toDateString();
-            } catch (\Throwable) {
-                $this->error('Date invalide. Format attendu : YYYY-MM-DD.');
-                return self::FAILURE;
-            }
+        try {
+            $date = $optionDate
+                ? Carbon::parse($optionDate, $timezone)->toDateString()
+                : Carbon::now($timezone)->toDateString();
+        } catch (\Throwable) {
+            $this->error('Date invalide. Format attendu : YYYY-MM-DD.');
+            return self::FAILURE;
         }
 
         $result = $service->plan($date);
 
         $this->info('Planification terminée.');
-
-        if ($date) {
-            $this->line('Date échéance : ' . $date);
-        }
-
+        $this->line('Date échéance traitée : ' . ($result['target_date_echeance'] ?? $date));
         $this->line('Créés      : ' . ($result['created'] ?? 0));
         $this->line('Réutilisés : ' . ($result['reused'] ?? 0));
         $this->line('Ignorés    : ' . ($result['skipped'] ?? 0));
