@@ -3,6 +3,8 @@
 namespace App\Services\Leases;
 
 use App\Exceptions\LeaseApiException;
+use App\Models\LeaseContractLink;
+use App\Models\LeaseCutoffContractRule;
 use App\Models\LeaseCutoffHistory;
 use App\Models\LeaseCutoffRule;
 use App\Models\LeaseCutoffRuleContractType;
@@ -445,7 +447,7 @@ private function extractRows(mixed $response): array
      * chaque échéance avec :
      * - son contrat ou sous-contrat recouvrement ;
      * - son type de contrat ;
-     * - la règle de coupure Tracking applicable au véhicule ET au type.
+     * - la règle de coupure spécifique liée au contrat/sous-contrat réel.
      */
     public function fetchLeases(?string $status = null, array $contracts = [], array $filters = []): array
     {
@@ -508,7 +510,7 @@ private function extractRows(mixed $response): array
             ->filter(fn ($row) => is_array($row))
             ->keyBy(fn (array $row) => (int) ($row['source_contrat_id'] ?? $row['id'] ?? 0));
 
-        $cutoffMetaByImmat = $this->getPartnerCutoffMetaByImmat();
+        $cutoffMetaByContractId = $this->getPartnerCutoffMetaByContractId();
         $forgivenessMetaByLeaseId = $this->getForgivenessMetaByLeaseId();
         $cutoffStatusMetaByLeaseId = $this->getCutoffStatusMetaByLeaseId();
 
@@ -516,7 +518,7 @@ private function extractRows(mixed $response): array
             ->filter(fn ($row) => is_array($row))
             ->map(function (array $row) use (
                 $contractsById,
-                $cutoffMetaByImmat,
+                $cutoffMetaByContractId,
                 $forgivenessMetaByLeaseId,
                 $paymentMetaByLeaseId,
                 $cutoffStatusMetaByLeaseId
@@ -534,17 +536,12 @@ private function extractRows(mixed $response): array
 
                 $contract = is_array($linkedContract) ? $linkedContract : null;
 
-                $immat = $this->normalizeImmatriculation((string) (
-                    $row['immatriculation']
-                    ?? $row['vehicule']
-                    ?? $row['vehicle']
-                    ?? data_get($row, 'contrat.immatriculation')
-                    ?? $contract['vehicule']
-                    ?? ''
-                ));
-
-                $cutoffMeta = $immat !== ''
-                    ? ($cutoffMetaByImmat[$immat] ?? null)
+                /**
+                 * Nouvelle règle métier : on cherche la règle par contrat ou
+                 * sous-contrat Recouvrement exact, pas par immatriculation.
+                 */
+                $cutoffMeta = $contractId > 0
+                    ? ($cutoffMetaByContractId[$contractId] ?? null)
                     : null;
 
                 $leaseId = (int) ($row['id'] ?? 0);
@@ -694,155 +691,217 @@ private function extractRows(mixed $response): array
      * Construit les indicateurs du bloc coupure automatique sur la page paiements.
      */
     public function buildPaymentCutoffHub(array $leaseData): array
-    {
-        $partnerId = $this->resolvePartnerId();
+{
+    $partnerId = $this->resolvePartnerId();
+    $now = now('Africa/Douala');
 
-        Log::info('[LEASE_CUTOFF_HUB_BUILD_START]', [
-            'partner_id' => $partnerId,
-            'lease_rows_count' => count($leaseData),
-        ]);
+    Log::info('[LEASE_CUTOFF_HUB_BUILD_START]', [
+        'partner_id' => $partnerId,
+        'lease_rows_count' => count($leaseData),
+    ]);
 
-        $activeRules = LeaseCutoffRule::query()
-            ->where('partner_id', $partnerId)
-            ->where('is_enabled', true)
-            ->whereNotNull('cutoff_time')
-            ->get(['id', 'vehicle_id', 'cutoff_time']);
+    /**
+     * Nouvelle logique : le hub de la page Lease lit uniquement les règles
+     * spécifiques déjà créées sur les contrats/sous-contrats réels.
+     * Il ne crée aucune règle et ne revient pas à l'ancienne logique
+     * "véhicule + type général".
+     */
+    $rules = LeaseCutoffContractRule::query()
+        ->where('partner_id', $partnerId)
+        ->whereNotNull('contract_link_id')
+        ->get();
 
-        $globalEnabled = $activeRules->isNotEmpty();
+    $enabledRules = $rules
+        ->filter(fn (LeaseCutoffContractRule $rule) => (bool) $rule->is_enabled)
+        ->values();
 
-        $mostCommonTime = $activeRules
-            ->groupBy(fn ($rule) => substr((string) $rule->cutoff_time, 0, 5))
-            ->sortByDesc(fn ($rows) => count($rows))
-            ->keys()
-            ->first();
+    $rulesWithTime = $enabledRules
+        ->filter(fn (LeaseCutoffContractRule $rule) => ! empty($rule->cutoff_time))
+        ->values();
 
-        $eligibleUnpaid = collect($leaseData)
-            ->filter(fn ($row) =>
-                ($row['statut'] ?? null) === 'unpaid'
-                && ! empty($row['coupure_auto'])
-                && ! empty($row['heure_coupure'])
-            )
-            ->values();
+    $globalEnabled = $enabledRules->isNotEmpty();
 
-        $upcomingTimes = $eligibleUnpaid
-            ->pluck('heure_coupure')
+    $mostCommonTime = $rulesWithTime
+        ->pluck('cutoff_time')
+        ->filter()
+        ->map(fn ($time) => substr((string) $time, 0, 5))
+        ->countBy()
+        ->sortDesc()
+        ->keys()
+        ->first();
+
+    $eligibleUnpaid = collect($leaseData)
+        ->filter(fn ($row) =>
+            ($row['statut'] ?? null) === 'unpaid'
+            && ! empty($row['coupure_auto'])
+            && ! empty($row['heure_coupure'])
+        )
+        ->values();
+
+    $upcomingTimes = $eligibleUnpaid
+        ->pluck('heure_coupure')
+        ->filter()
+        ->map(fn ($time) => substr((string) $time, 0, 5))
+        ->unique()
+        ->sortBy(fn ($time) => $this->minutesUntil($time))
+        ->values()
+        ->all();
+
+    /**
+     * Même si aucun impayé affiché n'est éligible, on montre la prochaine
+     * heure active connue pour que l'utilisateur voie le paramétrage global
+     * des règles spécifiques existantes.
+     */
+    if (empty($upcomingTimes)) {
+        $upcomingTimes = $rulesWithTime
+            ->pluck('cutoff_time')
             ->filter()
             ->map(fn ($time) => substr((string) $time, 0, 5))
             ->unique()
             ->sortBy(fn ($time) => $this->minutesUntil($time))
             ->values()
             ->all();
-
-        $activeTypeRulesCount = LeaseCutoffRuleContractType::query()
-            ->whereIn('rule_id', $activeRules->pluck('id')->filter()->values()->all())
-            ->where('is_enabled', true)
-            ->count();
-
-        $hub = [
-            'global_enabled' => $globalEnabled,
-            'global_time' => $mostCommonTime,
-            'next_cutoff_time' => $upcomingTimes[0] ?? null,
-            'upcoming_cutoff_times' => $upcomingTimes,
-            'active_rules_count' => $activeRules->count(),
-            'active_type_rules_count' => $activeTypeRulesCount,
-            'eligible_unpaid_count' => $eligibleUnpaid->count(),
-        ];
-
-        Log::info('[LEASE_CUTOFF_HUB_BUILD_DONE]', $hub);
-
-        return $hub;
     }
+
+    $waitingQueues = DB::table('lease_cutoff_queue as q')
+        ->leftJoin('voitures as v', 'v.id', '=', 'q.vehicle_id')
+        ->leftJoin('lease_cutoff_histories as h', 'h.id', '=', 'q.history_id')
+        ->where('q.partner_id', $partnerId)
+        ->whereIn('q.status', ['PENDING', 'WAITING_STOP', 'COMMAND_SENT'])
+        ->orderByRaw("CASE WHEN q.next_check_at IS NULL THEN 1 ELSE 0 END")
+        ->orderBy('q.next_check_at')
+        ->orderByDesc('q.updated_at')
+        ->limit(5)
+        ->get([
+            'q.id',
+            'q.status',
+            'q.vehicle_id',
+            'v.immatriculation',
+            'q.lease_id',
+            'q.contract_id',
+            'q.contract_link_id',
+            'q.contract_rule_id',
+            'q.next_check_at',
+            'h.reason',
+            'h.ignition_state',
+        ])
+        ->map(fn ($row) => [
+            'id' => (int) $row->id,
+            'status' => (string) $row->status,
+            'vehicle_id' => (int) $row->vehicle_id,
+            'immatriculation' => (string) ($row->immatriculation ?? '—'),
+            'lease_id' => $row->lease_id ? (int) $row->lease_id : null,
+            'contract_id' => $row->contract_id ? (int) $row->contract_id : null,
+            'contract_link_id' => $row->contract_link_id ? (int) $row->contract_link_id : null,
+            'contract_rule_id' => $row->contract_rule_id ? (int) $row->contract_rule_id : null,
+            'next_check_at' => $row->next_check_at ? Carbon::parse($row->next_check_at)->format('H:i') : null,
+            'reason' => (string) ($row->reason ?? ''),
+            'ignition_state' => (string) ($row->ignition_state ?? ''),
+        ])
+        ->values()
+        ->all();
+
+    $processedToday = LeaseCutoffHistory::query()
+        ->where('partner_id', $partnerId)
+        ->whereIn('status', ['CUT_OFF', 'COMMAND_SENT'])
+        ->whereDate('updated_at', $now->toDateString())
+        ->count();
+
+    $hub = [
+        'global_enabled' => $globalEnabled,
+        'global_time' => $mostCommonTime,
+        'next_cutoff_time' => $upcomingTimes[0] ?? null,
+        'upcoming_cutoff_times' => $upcomingTimes,
+
+        'rules_total' => $rules->count(),
+        'rules_enabled' => $enabledRules->count(),
+        'rules_disabled' => max(0, $rules->count() - $enabledRules->count()),
+
+        /** Compatibilité avec les anciennes variables de la vue. */
+        'active_rules_count' => $enabledRules->count(),
+        'active_type_rules_count' => $enabledRules->count(),
+
+        'eligible_unpaid_count' => $eligibleUnpaid->count(),
+        'waiting_queues_count' => count($waitingQueues),
+        'waiting_queues' => $waitingQueues,
+        'processed_today' => $processedToday,
+    ];
+
+    Log::info('[LEASE_CUTOFF_HUB_BUILD_DONE]', $hub);
+
+    return $hub;
+}
 
     /**
      * Applique une règle globale de coupure sur tous les véhicules locaux du partenaire.
      */
     public function applyGlobalCutoffRule(bool $enabled, ?string $cutoffTime): array
-    {
-        $partnerId = $this->resolvePartnerId();
-        $userId = Auth::id();
+{
+    $partnerId = $this->resolvePartnerId();
+    $userId = Auth::id();
 
-        Log::info('[LEASE_CUTOFF_GLOBAL_APPLY_START]', [
-            'partner_id' => $partnerId,
-            'user_id' => $userId,
-            'enabled' => $enabled,
-            'cutoff_time' => $cutoffTime,
-        ]);
+    Log::info('[LEASE_CUTOFF_GLOBAL_APPLY_START]', [
+        'partner_id' => $partnerId,
+        'user_id' => $userId,
+        'enabled' => $enabled,
+        'cutoff_time' => $cutoffTime,
+    ]);
 
-        $vehicleIds = Voiture::query()
-            ->join(
-                'association_user_voitures',
-                'association_user_voitures.voiture_id',
-                '=',
-                'voitures.id'
-            )
-            ->where('association_user_voitures.user_id', $partnerId)
-            ->pluck('voitures.id')
-            ->unique()
-            ->values();
-
-        /**
-         * Le toggle global doit rester simple pour le gestionnaire :
-         * - activé => tous les types de contrats connus peuvent couper ;
-         * - désactivé => aucun contrat/sous-contrat ne peut couper.
-         * Les écrans fins peuvent ensuite désactiver un type précis par véhicule.
-         */
-        $contractTypes = collect($this->fetchContractTypes())
-            ->filter(fn (array $type) => ! empty($type['id']))
-            ->values();
-
-        DB::transaction(function () use ($vehicleIds, $partnerId, $userId, $enabled, $cutoffTime, $contractTypes) {
-            foreach ($vehicleIds as $vehicleId) {
-                $rule = LeaseCutoffRule::query()->updateOrCreate(
-                    [
-                        'partner_id' => $partnerId,
-                        'vehicle_id' => $vehicleId,
-                    ],
-                    [
-                        'is_enabled' => $enabled,
-                        'cutoff_time' => $enabled ? $cutoffTime : null,
-                        'updated_by' => $userId,
-                        'created_by' => $userId,
-                    ]
-                );
-
-                foreach ($contractTypes as $type) {
-                    LeaseCutoffRuleContractType::query()->updateOrCreate(
-                        [
-                            'rule_id' => $rule->id,
-                            'type_contrat_id' => (int) $type['id'],
-                        ],
-                        [
-                            'partner_id' => $partnerId,
-                            'vehicle_id' => $vehicleId,
-                            'type_contrat_label' => (string) ($type['label'] ?? $type['libelle'] ?? ('Type #' . $type['id'])),
-                            'is_enabled' => $enabled,
-                            'cutoff_time' => $enabled ? $cutoffTime : null,
-                            'only_when_stopped' => true,
-                            'notify_before_cutoff' => false,
-                            'grace_days' => 0,
-                        ]
-                    );
-                }
-            }
-        });
-
-        Log::info('[LEASE_CUTOFF_GLOBAL_APPLY_RULES_SAVED]', [
-            'partner_id' => $partnerId,
-            'vehicles_count' => $vehicleIds->count(),
-            'contract_types_count' => $contractTypes->count(),
-        ]);
-
-        $contracts = $this->fetchContracts();
-        $leaseData = $this->fetchLeases(null, $contracts);
-
-        $result = [
-            'hub' => $this->buildPaymentCutoffHub($leaseData),
-        ];
-
-        Log::info('[LEASE_CUTOFF_GLOBAL_APPLY_DONE]', $result['hub']);
-
-        return $result;
+    if ($enabled && empty($cutoffTime)) {
+        throw new RuntimeException("L'heure de coupure est obligatoire pour activer les règles spécifiques.");
     }
+
+    /**
+     * Action globale = paramétrage en masse des règles spécifiques existantes.
+     * On ne crée aucune règle ici, car une coupure n'est autorisée que si le
+     * contrat/sous-contrat réel possède déjà sa propre règle.
+     */
+    $rulesQuery = LeaseCutoffContractRule::query()
+        ->where('partner_id', $partnerId)
+        ->whereNotNull('contract_link_id');
+
+    $rulesCount = (clone $rulesQuery)->count();
+
+    if ($rulesCount === 0) {
+        throw new RuntimeException(
+            "Aucune règle spécifique n'existe encore pour les contrats/sous-contrats de ce partenaire. " .
+            "Ouvre d'abord la page de paramétrage des règles par contrat."
+        );
+    }
+
+    $updates = [
+        'is_enabled' => $enabled,
+        'updated_at' => now(),
+    ];
+
+    /**
+     * En désactivation, on conserve l'heure afin de pouvoir réactiver plus tard
+     * sans perdre la configuration métier.
+     */
+    if ($enabled) {
+        $updates['cutoff_time'] = $cutoffTime;
+        $updates['grace_days'] = 0;
+    }
+
+    (clone $rulesQuery)->update($updates);
+
+    Log::info('[LEASE_CUTOFF_GLOBAL_APPLY_RULES_UPDATED]', [
+        'partner_id' => $partnerId,
+        'rules_count' => $rulesCount,
+        'enabled' => $enabled,
+    ]);
+
+    $contracts = $this->fetchContracts();
+    $leaseData = $this->fetchLeases(null, $contracts);
+
+    $result = [
+        'hub' => $this->buildPaymentCutoffHub($leaseData),
+    ];
+
+    Log::info('[LEASE_CUTOFF_GLOBAL_APPLY_DONE]', $result['hub']);
+
+    return $result;
+}
 
     /**
      * Récupère les métadonnées de coupure locale par immatriculation.
@@ -851,87 +910,84 @@ private function extractRows(mixed $response): array
      * règle du type de contrat. Sans règle active pour le type impayé,
      * Tracking ne coupe pas.
      */
-    protected function getPartnerCutoffMetaByImmat(): array
-    {
-        $partnerId = $this->resolvePartnerId();
+    protected function getPartnerCutoffMetaByContractId(): array
+{
+    $partnerId = $this->resolvePartnerId();
 
-        $vehicles = Voiture::query()
-            ->select([
-                'voitures.id',
-                'voitures.immatriculation',
-                'lease_cutoff_rules.id as rule_id',
-                'lease_cutoff_rules.is_enabled',
-                'lease_cutoff_rules.cutoff_time',
-                'lease_cutoff_rules.grace_days',
-                'lease_cutoff_rules.only_when_stopped',
-                'lease_cutoff_rules.notify_before_cutoff',
-            ])
-            ->join('association_user_voitures', 'association_user_voitures.voiture_id', '=', 'voitures.id')
-            ->leftJoin('lease_cutoff_rules', function ($join) use ($partnerId) {
-                $join->on('lease_cutoff_rules.vehicle_id', '=', 'voitures.id')
-                    ->where('lease_cutoff_rules.partner_id', '=', $partnerId);
-            })
-            ->where('association_user_voitures.user_id', $partnerId)
-            ->get();
-
-        $ruleIds = $vehicles
-            ->pluck('rule_id')
-            ->filter()
-            ->map(fn ($id) => (int) $id)
-            ->unique()
-            ->values()
-            ->all();
-
-        $typeRulesByRuleId = LeaseCutoffRuleContractType::query()
-            ->whereIn('rule_id', $ruleIds)
-            ->get()
-            ->groupBy('rule_id')
-            ->map(function ($rows) {
-                return $rows->mapWithKeys(function (LeaseCutoffRuleContractType $row) {
-                    return [
-                        (int) $row->type_contrat_id => [
-                            'type_contrat_id' => (int) $row->type_contrat_id,
-                            'type_contrat_label' => (string) ($row->type_contrat_label ?? ('Type #' . $row->type_contrat_id)),
-                            'is_enabled' => (bool) $row->is_enabled,
-                            'grace_days' => $row->grace_days,
-                            'cutoff_time' => $row->cutoff_time ? substr((string) $row->cutoff_time, 0, 5) : null,
-                            'only_when_stopped' => $row->only_when_stopped,
-                            'notify_before_cutoff' => $row->notify_before_cutoff,
-                        ],
-                    ];
-                })->all();
-            })
-            ->all();
-
-        $rows = $vehicles
-            ->mapWithKeys(function ($row) use ($typeRulesByRuleId) {
-                $immat = $this->normalizeImmatriculation((string) $row->immatriculation);
-
-                return [
-                    $immat => [
-                        'vehicle_id' => (int) $row->id,
-                        'rule_id' => $row->rule_id ? (int) $row->rule_id : null,
-                        'coupure_auto' => (bool) ($row->is_enabled ?? false),
-                        'heure_coupure' => $row->cutoff_time ? substr((string) $row->cutoff_time, 0, 5) : null,
-                        'grace_days' => (int) ($row->grace_days ?? 0),
-                        'only_when_stopped' => (bool) ($row->only_when_stopped ?? true),
-                        'notify_before_cutoff' => (bool) ($row->notify_before_cutoff ?? false),
-                        'type_rules' => $row->rule_id
-                            ? ($typeRulesByRuleId[(int) $row->rule_id] ?? [])
-                            : [],
-                    ],
-                ];
-            })
-            ->all();
-
-        Log::debug('[LEASE_CUTOFF_META_BY_IMMAT]', [
-            'partner_id' => $partnerId,
-            'count' => count($rows),
-            'immats' => array_slice(array_keys($rows), 0, 10),
+    /**
+     * La page Lease doit raisonner par contrat/sous-contrat réel.
+     * Le contrat venant de Recouvrement est identifié par source_contract_id.
+     */
+    $rows = LeaseContractLink::query()
+        ->from('lease_contract_links as l')
+        ->leftJoin('lease_cutoff_contract_rules as r', 'r.contract_link_id', '=', 'l.id')
+        ->where('l.partner_id', $partnerId)
+        ->where(function ($query) {
+            $query->whereNull('l.status')
+                ->orWhere('l.status', '!=', 'DELETED');
+        })
+        ->get([
+            'l.id as contract_link_id',
+            'l.partner_id',
+            'l.vehicle_id',
+            'l.driver_id',
+            'l.source_contract_id',
+            'l.source_parent_contract_id',
+            'l.contract_kind',
+            'l.type_contrat_id',
+            'l.type_contrat_label',
+            'l.immatriculation',
+            'r.id as contract_rule_id',
+            'r.is_enabled as rule_is_enabled',
+            'r.cutoff_time',
+            'r.grace_days',
+            'r.only_when_stopped',
+            'r.notify_before_cutoff',
+            'r.timezone',
         ]);
 
-        return $rows;
-    }
+    $meta = $rows
+        ->filter(fn ($row) => ! empty($row->source_contract_id))
+        ->mapWithKeys(function ($row) {
+            $cutoffTime = $row->cutoff_time ? substr((string) $row->cutoff_time, 0, 5) : null;
+            $ruleConfigured = ! empty($row->contract_rule_id);
+            $ruleEnabled = $ruleConfigured && (bool) $row->rule_is_enabled;
+
+            return [
+                (int) $row->source_contract_id => [
+                    'partner_id' => (int) $row->partner_id,
+                    'vehicle_id' => $row->vehicle_id ? (int) $row->vehicle_id : null,
+                    'driver_id' => $row->driver_id ? (int) $row->driver_id : null,
+                    'contract_link_id' => (int) $row->contract_link_id,
+                    'source_contract_id' => (int) $row->source_contract_id,
+                    'source_parent_contract_id' => $row->source_parent_contract_id ? (int) $row->source_parent_contract_id : null,
+                    'contract_kind' => (string) ($row->contract_kind ?: ($row->source_parent_contract_id ? 'SUB' : 'MAIN')),
+                    'type_contrat_id' => $row->type_contrat_id ? (int) $row->type_contrat_id : null,
+                    'type_contrat_label' => (string) ($row->type_contrat_label ?: 'Contrat'),
+                    'immatriculation' => (string) ($row->immatriculation ?? ''),
+
+                    'contract_rule_id' => $ruleConfigured ? (int) $row->contract_rule_id : null,
+                    'rule_configured' => $ruleConfigured,
+                    'rule_enabled' => $ruleEnabled,
+                    'coupure_auto' => $ruleEnabled,
+                    'heure_coupure' => $cutoffTime,
+                    'grace_days' => (int) ($row->grace_days ?? 0),
+                    'only_when_stopped' => (bool) ($row->only_when_stopped ?? true),
+                    'notify_before_cutoff' => (bool) ($row->notify_before_cutoff ?? false),
+                    'timezone' => (string) ($row->timezone ?: 'Africa/Douala'),
+                ],
+            ];
+        })
+        ->all();
+
+    Log::debug('[LEASE_CUTOFF_META_BY_CONTRACT_ID]', [
+        'partner_id' => $partnerId,
+        'count' => count($meta),
+        'contract_ids' => array_slice(array_keys($meta), 0, 20),
+    ]);
+
+    return $meta;
+}
 
 
     /**
@@ -2100,38 +2156,49 @@ protected function cutoffStatusUiType(?string $status): string
             ?? max(0, $expected - $paid)
         );
 
-        $baseCutoffEnabled = (bool) ($cutoffMeta['coupure_auto'] ?? false);
-        $typeRules = is_array($cutoffMeta['type_rules'] ?? null)
-            ? $cutoffMeta['type_rules']
-            : [];
+        /**
+         * Nouvelle règle métier de coupure :
+         * la ligne de lease est éligible uniquement si le contrat ou le
+         * sous-contrat réel possède une règle spécifique active.
+         */
+        $contractLinkId = $cutoffMeta['contract_link_id'] ?? null;
+        $contractRuleId = $cutoffMeta['contract_rule_id'] ?? null;
+        $ruleConfigured = (bool) ($cutoffMeta['rule_configured'] ?? ! empty($contractRuleId));
+        $ruleEnabled = (bool) ($cutoffMeta['rule_enabled'] ?? $cutoffMeta['coupure_auto'] ?? false);
+        $effectiveCutoffTime = $cutoffMeta['heure_coupure'] ?? null;
 
-        $typeRule = $contractTypeId > 0
-            ? ($typeRules[$contractTypeId] ?? null)
-            : null;
+        if (! empty($cutoffMeta['type_contrat_id'])) {
+            $contractTypeId = (int) $cutoffMeta['type_contrat_id'];
+        }
 
-        $typeRuleEnabled = $typeRule !== null
-            ? (bool) ($typeRule['is_enabled'] ?? false)
-            : false;
+        if (! empty($cutoffMeta['type_contrat_label'])) {
+            $contractTypeLabel = (string) $cutoffMeta['type_contrat_label'];
+        }
 
-        $effectiveCutoffTime = $typeRule['cutoff_time']
-            ?? $cutoffMeta['heure_coupure']
-            ?? null;
+        if (! empty($cutoffMeta['source_parent_contract_id'])) {
+            $parentContractId = (int) $cutoffMeta['source_parent_contract_id'];
+        }
+
+        if (! empty($cutoffMeta['contract_kind'])) {
+            $contractKind = (string) $cutoffMeta['contract_kind'];
+        }
 
         $coupureAuto = $status === 'unpaid'
-            && $baseCutoffEnabled
-            && $typeRuleEnabled
+            && $ruleConfigured
+            && $ruleEnabled
             && ! empty($effectiveCutoffTime);
 
-        $heureCoupure = $coupureAuto ? $effectiveCutoffTime : null;
+        $heureCoupure = $coupureAuto ? substr((string) $effectiveCutoffTime, 0, 5) : null;
 
         $cutoffEligibilityReason = match (true) {
             $status !== 'unpaid' => 'Échéance réglée, pardonnée ou non impayée.',
-            ! $baseCutoffEnabled => 'La coupure est désactivée pour ce véhicule.',
-            $typeRule === null => 'La coupure est désactivée pour ce type de contrat sur ce véhicule.',
-            ! $typeRuleEnabled => 'La coupure est désactivée pour ce type de contrat sur ce véhicule.',
-            empty($effectiveCutoffTime) => 'Heure de coupure absente malgré la règle active.',
+            $cutoffMeta === null => 'Aucun lien local contract_link trouvé pour ce contrat/sous-contrat.',
+            ! $ruleConfigured => 'Aucune règle de coupure spécifique n’est configurée pour ce contrat/sous-contrat.',
+            ! $ruleEnabled => 'La règle de coupure spécifique de ce contrat/sous-contrat est désactivée.',
+            empty($effectiveCutoffTime) => 'Heure de coupure absente malgré la règle spécifique active.',
             default => sprintf(
-                'Éligible : le type %s peut déclencher la coupure du véhicule à %s.',
+                'Éligible : la règle spécifique du %s %s autorise la coupure à %s.',
+                $contractKind === 'SUB' ? 'sous-contrat' : 'contrat',
                 $contractTypeLabel ?: ('#' . $contractTypeId),
                 substr((string) $effectiveCutoffTime, 0, 5)
             ),
@@ -2188,6 +2255,8 @@ protected function cutoffStatusUiType(?string $status): string
 
             'vehicule' => $immat,
             'vehicle_id' => (int) ($cutoffMeta['vehicle_id'] ?? 0) ?: null,
+            'contract_link_id' => $contractLinkId ? (int) $contractLinkId : null,
+            'contract_rule_id' => $contractRuleId ? (int) $contractRuleId : null,
             'chauffeur' => $chauffeur,
 
             'phone' => (string) (
@@ -2258,11 +2327,12 @@ protected function cutoffStatusUiType(?string $status): string
              */
             'coupure_auto' => $coupureAuto,
             'heure_coupure' => $heureCoupure,
-            'vehicle_cutoff_enabled' => $baseCutoffEnabled,
-            'cutoff_rule_id' => $cutoffMeta['rule_id'] ?? null,
-            'type_cutoff_enabled' => $typeRuleEnabled,
-            'cutoff_type_rule_configured' => $typeRule !== null,
-            'cutoff_type_rule_label' => $typeRule['type_contrat_label'] ?? $contractTypeLabel,
+            'vehicle_cutoff_enabled' => $ruleEnabled,
+            'cutoff_rule_id' => $contractRuleId,
+            'cutoff_contract_rule_id' => $contractRuleId,
+            'type_cutoff_enabled' => $ruleEnabled,
+            'cutoff_type_rule_configured' => $ruleConfigured,
+            'cutoff_type_rule_label' => $contractTypeLabel,
             'cutoff_eligibility_reason' => $cutoffEligibilityReason,
 
             'coupure_status' => $cutoffStatusMeta['status'] ?? null,

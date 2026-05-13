@@ -18,10 +18,10 @@ class LeaseController extends Controller
      * Page paiements lease.
      *
      * Cohérence métier :
-     * - /leases/ est la source des échéances à payer ;
-     * - /contrats/ permet de savoir si l'échéance concerne le contrat parent
-     *   ou un sous-contrat et de connaître son type ;
-     * - Tracking applique ensuite les règles de coupure véhicule + type contrat.
+     * - /leases/ reste la source des échéances ;
+     * - la coupure automatique dépend uniquement des règles spécifiques
+     *   existantes sur les contrats/sous-contrats réels ;
+     * - la vue affiche aussi les queues en attente de sécurité GPS.
      */
     public function index(Request $request, PartnerLeaseApiService $leaseApiService): View
     {
@@ -85,9 +85,15 @@ class LeaseController extends Controller
                 'global_time' => null,
                 'next_cutoff_time' => null,
                 'upcoming_cutoff_times' => [],
+                'rules_total' => 0,
+                'rules_enabled' => 0,
+                'rules_disabled' => 0,
                 'active_rules_count' => 0,
                 'active_type_rules_count' => 0,
                 'eligible_unpaid_count' => 0,
+                'waiting_queues_count' => 0,
+                'waiting_queues' => [],
+                'processed_today' => 0,
             ];
 
             $pageError = $e instanceof LeaseApiException
@@ -113,7 +119,10 @@ class LeaseController extends Controller
     }
 
     /**
-     * Mise à jour de la règle globale de coupure automatique.
+     * Activation/désactivation en masse des règles spécifiques existantes.
+     *
+     * Cette action ne crée aucune règle et ne doit jamais créer de règle pour
+     * un sous-contrat non associé.
      */
     public function updateGlobalCutoff(Request $request, PartnerLeaseApiService $leaseApiService): JsonResponse
     {
@@ -125,7 +134,7 @@ class LeaseController extends Controller
         if ($data['enabled'] && empty($data['cutoff_time'])) {
             return response()->json([
                 'ok' => false,
-                'message' => "L'heure de coupure est obligatoire lorsque la coupure auto est activée.",
+                'message' => "L'heure de coupure est obligatoire pour activer les règles spécifiques.",
             ], 422);
         }
 
@@ -136,6 +145,11 @@ class LeaseController extends Controller
                 'cutoff_time' => $data['cutoff_time'] ?? null,
             ]);
 
+            /**
+             * Cette action globale ne crée aucune règle.
+             * Elle active/désactive uniquement les règles déjà liées à des
+             * contrats/sous-contrats réels du partenaire.
+             */
             $result = $leaseApiService->applyGlobalCutoffRule(
                 enabled: (bool) $data['enabled'],
                 cutoffTime: $data['cutoff_time'] ?? null,
@@ -148,7 +162,7 @@ class LeaseController extends Controller
 
             return response()->json([
                 'ok' => true,
-                'message' => 'Paramètres globaux de coupure mis à jour.',
+                'message' => 'Règles spécifiques mises à jour en masse.',
                 'hub' => $result['hub'],
             ]);
         } catch (Throwable $e) {
@@ -163,7 +177,7 @@ class LeaseController extends Controller
                 'ok' => false,
                 'message' => app()->environment('local')
                     ? $e->getMessage()
-                    : "Impossible d'enregistrer la configuration globale.",
+                    : "Impossible d'enregistrer le paramétrage en masse des règles spécifiques.",
             ], 500);
         }
     }

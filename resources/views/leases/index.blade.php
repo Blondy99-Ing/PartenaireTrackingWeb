@@ -975,10 +975,18 @@ input:checked + .fl-slider:before {
         'global_time' => null,
         'next_cutoff_time' => null,
         'upcoming_cutoff_times' => [],
+        'rules_total' => 0,
+        'rules_enabled' => 0,
+        'rules_disabled' => 0,
         'active_rules_count' => 0,
         'active_type_rules_count' => 0,
         'eligible_unpaid_count' => 0,
+        'waiting_queues_count' => 0,
+        'waiting_queues' => [],
+        'processed_today' => 0,
     ];
+
+    $firstWaitingQueue = collect($cutoffHub['waiting_queues'] ?? [])->first();
 @endphp
 
 <div class="lease-kpi-bar" id="leaseKpiBar">
@@ -1073,6 +1081,24 @@ input:checked + .fl-slider:before {
 
                 <div class="hub-sep"></div>
 
+                <div class="hub-section">
+                    <span class="hub-label">Règles actives</span>
+                    <span class="hub-value {{ !empty($cutoffHub['rules_enabled']) ? 'success' : 'neutral' }}" id="specificRulesCount">
+                        {{ (int) ($cutoffHub['rules_enabled'] ?? 0) }}/{{ (int) ($cutoffHub['rules_total'] ?? 0) }}
+                    </span>
+                </div>
+
+                <div class="hub-sep"></div>
+
+                <div class="hub-section">
+                    <span class="hub-label">Impayés éligibles</span>
+                    <span class="hub-value highlight" id="eligibleUnpaidCount">
+                        {{ (int) ($cutoffHub['eligible_unpaid_count'] ?? 0) }}
+                    </span>
+                </div>
+
+                <div class="hub-sep"></div>
+
                 <div class="hub-section" id="nextCutSection">
                     <span class="hub-label">Prochaine coupure</span>
                     <span class="hub-value highlight" id="nextCutTimeDisplay">
@@ -1083,21 +1109,21 @@ input:checked + .fl-slider:before {
                 <div class="hub-sep" id="countdownSep"></div>
 
                 <div class="hub-section countdown-box" id="countdownBox">
-                    <span class="hub-label">Échéance</span>
+                    <span class="hub-label">Chrono</span>
                     <span class="hub-timer" id="globalTimer">00:00:00</span>
                 </div>
 
                 <div class="hub-sep"></div>
 
                 <div class="hub-inline-control">
-                    <span class="hub-label">Heure globale</span>
+                    <span class="hub-label">Heure appliquée en masse</span>
                     <input type="time" id="globalCutoffTime" value="{{ $cutoffHub['global_time'] ?? '' }}">
                 </div>
 
                 <div class="hub-action">
                     <div class="toggle-container">
-                        <span class="toggle-text">Coupure Auto</span>
-                        <label class="fl-switch">
+                        <span class="toggle-text">Règles spécifiques</span>
+                        <label class="fl-switch" title="Active ou désactive uniquement les règles spécifiques existantes des contrats/sous-contrats réels.">
                             <input type="checkbox" id="masterAutoCutToggle" {{ !empty($cutoffHub['global_enabled']) ? 'checked' : '' }}>
                             <span class="fl-slider"></span>
                         </label>
@@ -1106,14 +1132,18 @@ input:checked + .fl-slider:before {
 
                 <div class="hub-action">
                     <button class="btn-primary" type="button" id="saveGlobalCutoffBtn" onclick="window.saveGlobalCutoff()">
-                        <i class="fas fa-save"></i> Enregistrer
+                        <i class="fas fa-save"></i> Appliquer
                     </button>
                 </div>
 
-                <div class="hub-section" style="min-width:160px;">
-                    <span class="hub-label">Suivantes</span>
+                <div class="hub-section" style="min-width:210px;">
+                    <span class="hub-label">État sécurité</span>
                     <span class="hub-upcoming" id="upcomingCutoffPreview">
-                        {{ !empty($cutoffHub['upcoming_cutoff_times']) ? implode(' • ', array_slice($cutoffHub['upcoming_cutoff_times'], 0, 3)) : '—' }}
+                        @if(!empty($firstWaitingQueue))
+                            {{ $firstWaitingQueue['immatriculation'] ?? 'Véhicule' }} — {{ $firstWaitingQueue['status'] ?? 'En attente' }}{{ !empty($firstWaitingQueue['next_check_at']) ? ' à '.$firstWaitingQueue['next_check_at'] : '' }}
+                        @else
+                            {{ !empty($cutoffHub['upcoming_cutoff_times']) ? implode(' • ', array_slice($cutoffHub['upcoming_cutoff_times'], 0, 3)) : 'Aucune attente' }}
+                        @endif
                     </span>
                 </div>
             </div>
@@ -1630,8 +1660,21 @@ input:checked + .fl-slider:before {
             return;
         }
 
+        const waitingQueues = Array.isArray(HUB_DATA.waiting_queues)
+            ? HUB_DATA.waiting_queues
+            : [];
+
+        if (waitingQueues.length > 0) {
+            const first = waitingQueues[0];
+            const immat = first.immatriculation || 'Véhicule';
+            const status = first.status || 'En attente';
+            const next = first.next_check_at ? ` à ${first.next_check_at}` : '';
+            el.textContent = `${immat} — ${status}${next}`;
+            return;
+        }
+
         const list = normalizeUpcomingTimes();
-        el.textContent = list.length ? list.slice(0, 4).join(' • ') : '—';
+        el.textContent = list.length ? list.slice(0, 4).join(' • ') : 'Aucune attente';
     }
 
     function rotateUpcomingTimeIfNeeded() {
@@ -1656,6 +1699,31 @@ input:checked + .fl-slider:before {
     function runHubCountdown() {
         const nextCutTimeDisplay = document.getElementById('nextCutTimeDisplay');
         const timerDisplay = document.getElementById('globalTimer');
+
+        const waitingQueues = Array.isArray(HUB_DATA.waiting_queues)
+            ? HUB_DATA.waiting_queues
+            : [];
+
+        /**
+         * Si une queue est déjà en attente sécurité, l'information utile n'est
+         * plus le prochain horaire théorique, mais le blocage réel : GPS offline,
+         * véhicule en mouvement ou commande déjà envoyée.
+         */
+        if (waitingQueues.length > 0) {
+            const first = waitingQueues[0];
+
+            if (nextCutTimeDisplay) {
+                nextCutTimeDisplay.textContent = first.next_check_at
+                    ? `Recheck ${first.next_check_at}`
+                    : 'En attente';
+            }
+
+            if (timerDisplay) {
+                timerDisplay.textContent = first.status || 'WAITING';
+            }
+
+            return;
+        }
 
         rotateUpcomingTimeIfNeeded();
 
@@ -1775,9 +1843,9 @@ input:checked + .fl-slider:before {
 
         if (enabled && !cutoffTime) {
             if (window.showToast) {
-                window.showToast('Heure requise', 'Veuillez définir une heure globale.', 'warning');
+                window.showToast('Heure requise', 'Veuillez définir une heure à appliquer aux règles spécifiques.', 'warning');
             } else {
-                alert('Veuillez définir une heure globale.');
+                alert('Veuillez définir une heure à appliquer aux règles spécifiques.');
             }
 
             return;
@@ -1809,8 +1877,8 @@ input:checked + .fl-slider:before {
 
             if (window.showToast) {
                 window.showToast(
-                    'Configuration enregistrée',
-                    payload.message || 'Mise à jour réussie.',
+                    'Paramétrage enregistré',
+                    payload.message || 'Règles spécifiques mises à jour.',
                     'success'
                 );
             }
