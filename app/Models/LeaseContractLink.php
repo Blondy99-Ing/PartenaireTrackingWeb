@@ -4,25 +4,18 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * Modèle LeaseContractLink.
  *
- * Rôle :
- * Cette table fait le lien entre les contrats/sous-contrats du recouvrement
- * et les entités locales de Tracking.
+ * Rôle : relier les contrats/sous-contrats Recouvrement aux véhicules Tracking.
  *
- * Pourquoi cette table est nécessaire :
- * Recouvrement connaît les contrats, les paiements et les impayés.
- * Tracking connaît les véhicules, le GPS et la coupure.
- *
- * Lorsqu’un sous-contrat est impayé côté recouvrement,
- * Tracking doit pouvoir retrouver :
- * - le véhicule local concerné ;
- * - le partenaire ;
- * - le chauffeur ;
- * - le type de contrat ;
- * - le contrat parent si c’est un sous-contrat.
+ * Règle de coupure clarifiée :
+ * le système ne coupe pas parce qu'un type général existe. Il coupe seulement
+ * si cette ligne précise, contrat MAIN ou sous-contrat SUB, possède une règle
+ * active dans lease_cutoff_contract_rules.
  */
 class LeaseContractLink extends Model
 {
@@ -65,55 +58,59 @@ class LeaseContractLink extends Model
         'last_synced_at' => 'datetime',
     ];
 
-    /**
-     * Partenaire propriétaire du contrat.
-     */
     public function partner(): BelongsTo
     {
         return $this->belongsTo(User::class, 'partner_id');
     }
 
-    /**
-     * Véhicule Tracking concerné par le contrat ou sous-contrat.
-     */
     public function vehicle(): BelongsTo
     {
         return $this->belongsTo(Voiture::class, 'vehicle_id');
     }
 
-    /**
-     * Chauffeur local associé au contrat.
-     */
     public function driver(): BelongsTo
     {
         return $this->belongsTo(User::class, 'driver_id');
     }
 
-    /**
-     * Contrat parent local, quand la ligne représente un sous-contrat.
-     */
     public function parentContract(): BelongsTo
     {
-        return $this->belongsTo(
-            self::class,
-            'source_parent_contract_id',
-            'source_contract_id'
-        );
+        return $this->belongsTo(self::class, 'source_parent_contract_id', 'source_contract_id')
+            ->whereColumn('lease_contract_links.partner_id', 'lease_contract_links.partner_id');
     }
 
-    /**
-     * Indique si cette ligne représente le contrat principal véhicule.
-     */
+    public function subContracts(): HasMany
+    {
+        return $this->hasMany(self::class, 'source_parent_contract_id', 'source_contract_id')
+            ->where('contract_kind', self::KIND_SUB)
+            ->where('status', '!=', 'DELETED');
+    }
+
+    public function cutoffRule(): HasOne
+    {
+        return $this->hasOne(LeaseCutoffContractRule::class, 'contract_link_id');
+    }
+
+    public function activeCutoffRule(): HasOne
+    {
+        return $this->hasOne(LeaseCutoffContractRule::class, 'contract_link_id')
+            ->where('is_enabled', true);
+    }
+
     public function isMainContract(): bool
     {
         return $this->contract_kind === self::KIND_MAIN;
     }
 
-    /**
-     * Indique si cette ligne représente un sous-contrat.
-     */
     public function isSubContract(): bool
     {
         return $this->contract_kind === self::KIND_SUB;
+    }
+
+    public function displayTypeLabel(): string
+    {
+        return trim((string) $this->type_contrat_label) !== ''
+            ? trim((string) $this->type_contrat_label)
+            : 'Contrat #' . $this->source_contract_id;
     }
 }

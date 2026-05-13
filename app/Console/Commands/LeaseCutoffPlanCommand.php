@@ -6,12 +6,18 @@ use App\Services\Leases\LeaseCutoffPlannerService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 
+/**
+ * Planifie les coupures lease.
+ *
+ * Cette commande ne coupe jamais un véhicule. Elle lit les leases NON_PAYE,
+ * vérifie les règles spécifiques par contrat/sous-contrat réel et crée la queue.
+ */
 class LeaseCutoffPlanCommand extends Command
 {
     protected $signature = 'lease:cutoff:plan
         {--date= : Date d’échéance à traiter au format YYYY-MM-DD. Exemple : 2026-05-10}';
 
-    protected $description = 'Détecte les leases NON_PAYE concernés par une règle et alimente la queue de coupure';
+    protected $description = 'Planifie les coupures des leases NON_PAYE uniquement si une règle spécifique contrat/sous-contrat est active';
 
     public function handle(LeaseCutoffPlannerService $service): int
     {
@@ -34,18 +40,19 @@ class LeaseCutoffPlanCommand extends Command
             $this->line('Date échéance : ' . $date);
         }
 
-        $this->line('Créés     : ' . ($result['created'] ?? 0));
+        $this->line('Créés      : ' . ($result['created'] ?? 0));
         $this->line('Réutilisés : ' . ($result['reused'] ?? 0));
-        $this->line('Ignorés   : ' . ($result['skipped'] ?? 0));
+        $this->line('Ignorés    : ' . ($result['skipped'] ?? 0));
 
         $skipReasons = $result['skip_reasons'] ?? [];
-
         if (! empty($skipReasons)) {
             $this->newLine();
             $this->info('Détail des rejets :');
 
             foreach ($skipReasons as $reason => $count) {
-                $this->line("- {$reason} : {$count}");
+                if ((int) $count > 0) {
+                    $this->line("- {$reason} : {$count}");
+                }
             }
         }
 

@@ -5,10 +5,10 @@ namespace App\Http\Requests\Leases;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
- * Valide la matrice de règles de coupure lease.
+ * Validation du paramétrage de coupure par contrats/sous-contrats réels.
  *
- * Le formulaire envoie une ligne par véhicule et, dans chaque ligne, une liste
- * de règles par type de contrat / sous-contrat recouvrement.
+ * Une ligne de formulaire représente un contrat principal et ses sous-contrats
+ * réellement associés. Chaque carte interne envoie un contract_link_id réel.
  */
 class SaveLeaseCutoffRulesRequest extends FormRequest
 {
@@ -21,22 +21,17 @@ class SaveLeaseCutoffRulesRequest extends FormRequest
     {
         return [
             'rules' => ['required', 'array', 'min:1'],
-            'rules.*.vehicle_id' => ['required', 'integer', 'exists:voitures,id'],
-            'rules.*.is_enabled' => ['nullable', 'boolean'],
-            'rules.*.cutoff_time' => ['nullable', 'date_format:H:i'],
-            'rules.*.timezone' => ['nullable', 'string', 'max:64'],
-            'rules.*.grace_days' => ['nullable', 'integer', 'min:0', 'max:365'],
-            'rules.*.only_when_stopped' => ['nullable', 'boolean'],
-            'rules.*.notify_before_cutoff' => ['nullable', 'boolean'],
+            'rules.*.main_contract_link_id' => ['nullable', 'integer', 'exists:lease_contract_links,id'],
+            'rules.*.vehicle_id' => ['nullable', 'integer', 'exists:voitures,id'],
 
-            'rules.*.contract_types' => ['nullable', 'array'],
-            'rules.*.contract_types.*.type_contrat_id' => ['required_with:rules.*.contract_types', 'integer', 'min:1'],
-            'rules.*.contract_types.*.type_contrat_label' => ['nullable', 'string', 'max:150'],
-            'rules.*.contract_types.*.is_enabled' => ['nullable', 'boolean'],
-            'rules.*.contract_types.*.grace_days' => ['nullable', 'integer', 'min:0', 'max:365'],
-            'rules.*.contract_types.*.cutoff_time' => ['nullable', 'date_format:H:i'],
-            'rules.*.contract_types.*.only_when_stopped' => ['nullable', 'boolean'],
-            'rules.*.contract_types.*.notify_before_cutoff' => ['nullable', 'boolean'],
+            'rules.*.contract_rules' => ['required', 'array', 'min:1'],
+            'rules.*.contract_rules.*.contract_link_id' => ['required', 'integer', 'exists:lease_contract_links,id'],
+            'rules.*.contract_rules.*.is_enabled' => ['nullable', 'boolean'],
+            'rules.*.contract_rules.*.cutoff_time' => ['nullable', 'date_format:H:i'],
+            'rules.*.contract_rules.*.timezone' => ['nullable', 'string', 'max:64'],
+            'rules.*.contract_rules.*.grace_days' => ['nullable', 'integer', 'min:0', 'max:365'],
+            'rules.*.contract_rules.*.only_when_stopped' => ['nullable', 'boolean'],
+            'rules.*.contract_rules.*.notify_before_cutoff' => ['nullable', 'boolean'],
         ];
     }
 
@@ -45,34 +40,30 @@ class SaveLeaseCutoffRulesRequest extends FormRequest
         return [
             'rules.required' => 'Aucune règle reçue.',
             'rules.array' => 'Le format des règles est invalide.',
-            'rules.*.vehicle_id.required' => 'Le véhicule est obligatoire.',
-            'rules.*.vehicle_id.exists' => 'Un véhicule transmis est invalide.',
-            'rules.*.cutoff_time.date_format' => 'Le format de l’heure véhicule doit être HH:MM.',
-            'rules.*.contract_types.*.type_contrat_id.required_with' => 'Chaque règle de type doit contenir le type de contrat.',
-            'rules.*.contract_types.*.cutoff_time.date_format' => 'Le format de l’heure d’un type de contrat doit être HH:MM.',
+            'rules.*.contract_rules.required' => 'Chaque contrat doit contenir au moins une règle de contrat ou sous-contrat réel.',
+            'rules.*.contract_rules.*.contract_link_id.required' => 'Une règle transmise ne contient pas son contrat/sous-contrat réel.',
+            'rules.*.contract_rules.*.contract_link_id.exists' => 'Un contrat ou sous-contrat transmis est introuvable.',
+            'rules.*.contract_rules.*.cutoff_time.date_format' => 'Le format de l’heure de coupure doit être HH:MM.',
         ];
     }
 
     /**
-     * Normalise les cases à cocher absentes.
-     * HTML n’envoie pas les checkboxes décochées ; on les force donc à false
-     * pour que la désactivation soit bien enregistrée en base.
+     * HTML n'envoie pas les checkboxes décochées. On les force donc à false
+     * pour que la désactivation en masse soit bien enregistrée.
      */
     protected function prepareForValidation(): void
     {
         $rules = collect($this->input('rules', []))
             ->map(function ($row) {
-                $row['is_enabled'] = filter_var($row['is_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN);
-                $row['only_when_stopped'] = filter_var($row['only_when_stopped'] ?? true, FILTER_VALIDATE_BOOLEAN);
-                $row['notify_before_cutoff'] = filter_var($row['notify_before_cutoff'] ?? false, FILTER_VALIDATE_BOOLEAN);
+                $row['contract_rules'] = collect($row['contract_rules'] ?? [])
+                    ->map(function ($ruleRow) {
+                        $ruleRow['is_enabled'] = filter_var($ruleRow['is_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN);
+                        $ruleRow['only_when_stopped'] = filter_var($ruleRow['only_when_stopped'] ?? true, FILTER_VALIDATE_BOOLEAN);
+                        $ruleRow['notify_before_cutoff'] = filter_var($ruleRow['notify_before_cutoff'] ?? false, FILTER_VALIDATE_BOOLEAN);
+                        $ruleRow['timezone'] = $ruleRow['timezone'] ?? 'Africa/Douala';
+                        $ruleRow['grace_days'] = $ruleRow['grace_days'] ?? 0;
 
-                $row['contract_types'] = collect($row['contract_types'] ?? [])
-                    ->map(function ($typeRow) {
-                        $typeRow['is_enabled'] = filter_var($typeRow['is_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN);
-                        $typeRow['only_when_stopped'] = filter_var($typeRow['only_when_stopped'] ?? true, FILTER_VALIDATE_BOOLEAN);
-                        $typeRow['notify_before_cutoff'] = filter_var($typeRow['notify_before_cutoff'] ?? false, FILTER_VALIDATE_BOOLEAN);
-
-                        return $typeRow;
+                        return $ruleRow;
                     })
                     ->values()
                     ->all();
@@ -82,8 +73,6 @@ class SaveLeaseCutoffRulesRequest extends FormRequest
             ->values()
             ->all();
 
-        $this->merge([
-            'rules' => $rules,
-        ]);
+        $this->merge(['rules' => $rules]);
     }
 }

@@ -3,94 +3,58 @@
 namespace App\Services\Leases;
 
 use App\Models\LeaseContractLink;
+use App\Models\LeaseCutoffContractRule;
 use App\Models\LeaseCutoffHistory;
 use App\Models\LeaseCutoffQueue;
-use App\Models\LeaseCutoffRule;
-use App\Models\LeaseCutoffRuleContractType;
-use App\Models\Voiture;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Planificateur de coupure automatique lease.
+ * Planificateur de coupure automatique Lease.
  *
- * Nouvelle logique métier :
- * 1. Recouvrement fournit les leases NON_PAYE pour une date d'échéance.
- * 2. Chaque lease est un déclencheur autonome.
- * 3. Tracking résout le contrat / sous-contrat, puis le véhicule du contrat parent.
- * 4. Tracking vérifie la règle générale véhicule + la règle du type déclencheur.
- * 5. Tracking crée une queue + un historique lisible.
+ * Cette classe NE COUPE PAS le véhicule. Elle crée seulement une ligne de queue
+ * lorsque toutes les conditions métier sont réunies.
  *
- * Cette classe ne coupe pas le véhicule. Elle prépare seulement une demande sûre
- * qui sera ensuite traitée par LeaseCutoffQueueProcessorService.
+ * Règle métier centrale :
+ * - on récupère les leases NON_PAYE d'une date ;
+ * - on résout le contrat/sous-contrat exact du lease ;
+ * - on cherche la ligne lease_contract_links exacte ;
+ * - on planifie seulement si cette ligne possède une règle spécifique active ;
+ * - aucun type général ou sous-contrat non associé ne peut déclencher une coupure.
  */
 class LeaseCutoffPlannerService
 {
-    /**
-     * Statuts history considérés comme terminaux métier.
-     * Une fois terminal, le même lease_id ne doit plus être replanifié.
-     */
     private const HISTORY_TERMINAL_STATUSES = [
         'CUT_OFF',
         'CANCELLED_PAID',
+        'CANCELLED_RULE_MISSING',
+        'CANCELLED_RULE_DISABLED',
         'CANCELLED_FORGIVEN_BEFORE_CUT',
         'REACTIVATION_REQUESTED_AFTER_FORGIVENESS',
         'REACTIVATED_AFTER_FORGIVENESS',
         'REACTIVATION_FAILED_AFTER_FORGIVENESS',
-    ];
-
-    /**
-     * Statuts queue actifs.
-     */
-    private const QUEUE_ACTIVE_STATUSES = [
-        'PENDING',
-        'WAITING_STOP',
-        'COMMAND_SENT',
-    ];
-
-    /**
-     * Statuts queue clôturés.
-     */
-    private const QUEUE_TERMINAL_STATUSES = [
-        'PROCESSED',
-        'CANCELLED',
         'FAILED',
     ];
+
+    private const QUEUE_ACTIVE_STATUSES = ['PENDING', 'WAITING_STOP', 'COMMAND_SENT'];
+    private const QUEUE_TERMINAL_STATUSES = ['PROCESSED', 'CANCELLED', 'FAILED'];
 
     public function __construct(
         private readonly LeaseApiClientService $leaseApi
     ) {
     }
 
-    /**
-     * Planifie les coupures depuis les leases NON_PAYE d'une date précise.
-     *
-     * @param string|null $dateEcheance Format YYYY-MM-DD. Si null, on utilise env LEASE_CUTOFF_DUE_DATE_OFFSET_DAYS.
-     * @param int|null $offsetDays Nombre de jours à soustraire à aujourd'hui si $dateEcheance est absent.
-     */
     public function plan(?string $dateEcheance = null, ?int $offsetDays = null): array
     {
         $targetDate = $this->resolveTargetDueDate($dateEcheance, $offsetDays);
 
-        Log::info('[LEASE_CUTOFF_PLAN] Début de planification depuis les leases NON_PAYE.', [
+        Log::info('[LEASE_CUTOFF_PLAN] Début planification règles spécifiques contrat.', [
             'target_date_echeance' => $targetDate,
         ]);
 
         $contractsById = $this->leaseApi->fetchContractsIndexedById();
         $nonPaidLeases = $this->leaseApi->fetchNonPaidLeasesForDate($targetDate);
-
-        $rulesByVehicleId = LeaseCutoffRule::query()
-            ->with(['vehicle', 'contractTypeRules'])
-            ->where('is_enabled', true)
-            ->get()
-            ->groupBy('vehicle_id');
-
-        Log::info('[LEASE_CUTOFF_PLAN] Données chargées.', [
-            'contracts_count' => count($contractsById),
-            'non_paid_leases_count' => count($nonPaidLeases),
-            'active_rule_vehicles_count' => $rulesByVehicleId->count(),
-        ]);
 
         $created = 0;
         $reused = 0;
@@ -100,10 +64,9 @@ class LeaseCutoffPlannerService
             'lease_invalid' => 0,
             'lease_not_non_paid' => 0,
             'contract_not_found' => 0,
-            'vehicle_not_resolved' => 0,
-            'vehicle_rule_missing_or_disabled' => 0,
-            'type_id_missing' => 0,
-            'type_rule_missing_or_disabled' => 0,
+            'contract_link_missing' => 0,
+            'vehicle_missing' => 0,
+            'contract_rule_missing_or_disabled' => 0,
             'cutoff_time_missing' => 0,
             'time_not_due' => 0,
             'already_terminal_history' => 0,
@@ -113,7 +76,7 @@ class LeaseCutoffPlannerService
         ];
 
         foreach ($nonPaidLeases as $lease) {
-            if (!is_array($lease)) {
+            if (! is_array($lease)) {
                 $skipped++;
                 $skipReasons['lease_invalid']++;
                 continue;
@@ -121,131 +84,117 @@ class LeaseCutoffPlannerService
 
             $leaseId = $this->leaseApi->extractLeaseId($lease);
             $contractId = $this->leaseApi->extractLeaseContractId($lease);
+            $dueDate = $this->extractLeaseDueDate($lease) ?: $targetDate;
 
             $ctx = [
                 'target_date_echeance' => $targetDate,
                 'lease_id' => $leaseId ?: null,
                 'lease_contract_id' => $contractId ?: null,
+                'lease_due_date' => $dueDate,
                 'lease_status' => $lease['statut'] ?? null,
-                'lease_due_date' => $lease['date_echeance'] ?? null,
-                'lease_reste_a_payer' => $lease['reste_a_payer'] ?? null,
-                'lease_type_label' => $lease['type_contrat_libelle'] ?? null,
+                'reste_a_payer' => $lease['reste_a_payer'] ?? null,
                 'chauffeur' => $lease['chauffeur_nom_complet'] ?? null,
+                'type_contrat_libelle' => $lease['type_contrat_libelle'] ?? null,
             ];
 
             if ($leaseId <= 0 || $contractId <= 0) {
                 $skipped++;
                 $skipReasons['lease_invalid']++;
-                Log::warning('[LEASE_CUTOFF_PLAN] Lease ignoré : ID lease ou contract_id absent.', $ctx);
+                Log::warning('[LEASE_CUTOFF_PLAN] Lease ignoré : lease_id ou contrat_id manquant.', $ctx);
                 continue;
             }
 
-            if (!$this->leaseApi->isNonPaidLeaseRow($lease)) {
+            if (! $this->leaseApi->isNonPaidLeaseRow($lease)) {
                 $skipped++;
                 $skipReasons['lease_not_non_paid']++;
-                Log::info('[LEASE_CUTOFF_PLAN] Lease ignoré : il n’est pas confirmé NON_PAYE.', $ctx);
+                Log::info('[LEASE_CUTOFF_PLAN] Lease ignoré : statut non NON_PAYE.', $ctx);
                 continue;
             }
 
             $contract = $contractsById[$contractId] ?? null;
-            if (!is_array($contract)) {
+            if (! is_array($contract)) {
                 $skipped++;
                 $skipReasons['contract_not_found']++;
-                Log::warning('[LEASE_CUTOFF_PLAN] Lease ignoré : contrat déclencheur introuvable dans GET /contrats/.', $ctx);
+                Log::warning('[LEASE_CUTOFF_PLAN] Lease ignoré : contrat API introuvable.', $ctx);
                 continue;
             }
 
             $contractContext = $this->buildContractContext($contract, $contractsById, $lease);
             $ctx = array_merge($ctx, $contractContext['log']);
 
-            $vehicle = $this->resolveVehicleForTrigger($contractContext);
-            if (!$vehicle) {
+            /**
+             * La ligne exacte est obligatoire.
+             * Si le lease concerne un sous-contrat Téléphone, il faut la ligne du
+             * sous-contrat Téléphone, pas seulement la ligne du contrat Moto parent.
+             */
+            $contractLink = $this->resolveExactContractLink($contractId);
+            if (! $contractLink) {
                 $skipped++;
-                $skipReasons['vehicle_not_resolved']++;
-                Log::warning('[LEASE_CUTOFF_PLAN] Lease ignoré : véhicule Tracking introuvable pour le contrat ou son parent.', $ctx);
+                $skipReasons['contract_link_missing']++;
+                Log::warning('[LEASE_CUTOFF_PLAN] Lease ignoré : aucun LeaseContractLink exact pour ce contrat/sous-contrat.', $ctx);
                 continue;
             }
 
-            $ctx['vehicle_id'] = $vehicle->id;
-            $ctx['vehicle_immatriculation'] = $vehicle->immatriculation ?? null;
-            $ctx['vehicle_mac_id_gps'] = $vehicle->mac_id_gps ?? null;
-
-            /** @var LeaseCutoffRule|null $rule */
-            $rule = $rulesByVehicleId->get((int) $vehicle->id)?->first();
-            if (!$rule || !(bool) $rule->is_enabled) {
+            $vehicle = $contractLink->vehicle;
+            if (! $vehicle) {
                 $skipped++;
-                $skipReasons['vehicle_rule_missing_or_disabled']++;
-                Log::info('[LEASE_CUTOFF_PLAN] Lease ignoré : règle générale véhicule absente ou désactivée.', $ctx);
-                continue;
-            }
-
-            $typeId = $contractContext['type_contrat_id'];
-            $typeLabel = $contractContext['type_contrat_label'];
-
-            if ($typeId <= 0 && $typeLabel === '') {
-                $skipped++;
-                $skipReasons['type_id_missing']++;
-                Log::warning('[LEASE_CUTOFF_PLAN] Lease ignoré : type de contrat déclencheur impossible à identifier.', array_merge($ctx, [
-                    'rule_id' => $rule->id,
+                $skipReasons['vehicle_missing']++;
+                Log::warning('[LEASE_CUTOFF_PLAN] Lease ignoré : véhicule local absent sur le lien contrat.', array_merge($ctx, [
+                    'contract_link_id' => $contractLink->id,
                 ]));
                 continue;
             }
 
-            $typeRule = $this->findTypeRule($rule, $typeId, $typeLabel);
-            if (!$typeRule || !(bool) $typeRule->is_enabled) {
+            $contractRule = $this->resolveActiveContractRule($contractLink);
+            if (! $contractRule) {
                 $skipped++;
-                $skipReasons['type_rule_missing_or_disabled']++;
-                Log::info('[LEASE_CUTOFF_PLAN] Lease ignoré : le type de contrat déclencheur n’est pas autorisé à couper.', array_merge($ctx, [
-                    'rule_id' => $rule->id,
-                    'type_contrat_id' => $typeId ?: null,
-                    'type_contrat_label' => $typeLabel ?: null,
+                $skipReasons['contract_rule_missing_or_disabled']++;
+                Log::info('[LEASE_CUTOFF_PLAN] Lease ignoré : aucune règle active sur le contrat/sous-contrat spécifique.', array_merge($ctx, [
+                    'contract_link_id' => $contractLink->id,
+                    'vehicle_id' => $vehicle->id,
                 ]));
                 continue;
             }
 
-            $effectiveTime = $this->resolveEffectiveCutoffTime($rule, $typeRule);
-            if (!$effectiveTime) {
+            $effectiveTime = $contractRule->effectiveCutoffTime();
+            if (! $effectiveTime) {
                 $skipped++;
                 $skipReasons['cutoff_time_missing']++;
-                Log::warning('[LEASE_CUTOFF_PLAN] Lease ignoré : aucune heure de coupure configurée.', array_merge($ctx, [
-                    'rule_id' => $rule->id,
-                    'type_rule_id' => $typeRule->id,
+                Log::warning('[LEASE_CUTOFF_PLAN] Lease ignoré : règle spécifique active sans heure de coupure.', array_merge($ctx, [
+                    'contract_rule_id' => $contractRule->id,
+                    'contract_link_id' => $contractLink->id,
                 ]));
                 continue;
             }
 
-            $scheduledFor = $this->resolveScheduledDateTimeFromLease($lease, $rule, $typeRule);
-            $ctx['rule_id'] = $rule->id;
-            $ctx['type_rule_id'] = $typeRule->id;
-            $ctx['effective_cutoff_time'] = $effectiveTime;
-            $ctx['effective_grace_days'] = $this->resolveEffectiveGraceDays($rule, $typeRule);
-            $ctx['scheduled_for'] = $scheduledFor->toDateTimeString();
-
-            if (!$this->isDueNow($scheduledFor, $rule)) {
+            $scheduledFor = $this->resolveScheduledDateTimeFromLease($dueDate, $contractRule);
+            if (! $this->isDueNow($scheduledFor, $contractRule)) {
                 $skipped++;
                 $skipReasons['time_not_due']++;
-                Log::info('[LEASE_CUTOFF_PLAN] Lease ignoré : heure/date de coupure pas encore atteinte.', $ctx);
+                Log::info('[LEASE_CUTOFF_PLAN] Lease ignoré : heure/date de coupure pas encore atteinte.', array_merge($ctx, [
+                    'contract_rule_id' => $contractRule->id,
+                    'scheduled_for' => $scheduledFor->toDateTimeString(),
+                ]));
                 continue;
             }
 
-            $contractLink = $this->resolveContractLinkForTrigger($rule, $contractContext);
             $trigger = $this->buildTriggerContext(
                 lease: $lease,
+                dueDate: $dueDate,
+                contractLink: $contractLink,
                 contractContext: $contractContext,
-                vehicle: $vehicle,
-                rule: $rule,
-                typeRule: $typeRule,
+                contractRule: $contractRule,
                 scheduledFor: $scheduledFor
             );
 
             DB::transaction(function () use (
-                $rule,
-                $typeRule,
+                $contractLink,
+                $contractRule,
                 $vehicle,
                 $lease,
                 $leaseId,
                 $contractId,
-                $contractLink,
+                $dueDate,
                 $contractContext,
                 $scheduledFor,
                 $trigger,
@@ -256,25 +205,27 @@ class LeaseCutoffPlannerService
                 $ctx
             ) {
                 $history = LeaseCutoffHistory::query()
-                    ->where('partner_id', $rule->partner_id)
+                    ->where('partner_id', $contractRule->partner_id)
                     ->where('vehicle_id', $vehicle->id)
                     ->where('contract_id', $contractId)
                     ->where('lease_id', $leaseId)
+                    ->whereDate('lease_date_echeance', $dueDate)
                     ->lockForUpdate()
                     ->first();
 
                 $queue = LeaseCutoffQueue::query()
-                    ->where('partner_id', $rule->partner_id)
+                    ->where('partner_id', $contractRule->partner_id)
                     ->where('vehicle_id', $vehicle->id)
                     ->where('contract_id', $contractId)
                     ->where('lease_id', $leaseId)
+                    ->whereDate('lease_date_echeance', $dueDate)
                     ->lockForUpdate()
                     ->first();
 
                 if ($history && in_array($history->status, self::HISTORY_TERMINAL_STATUSES, true)) {
                     $skipped++;
                     $skipReasons['already_terminal_history']++;
-                    Log::info('[LEASE_CUTOFF_PLAN] Événement ignoré : history déjà terminale.', array_merge($ctx, [
+                    Log::info('[LEASE_CUTOFF_PLAN] Ignoré : historique terminal existant.', array_merge($ctx, [
                         'history_id' => $history->id,
                         'history_status' => $history->status,
                     ]));
@@ -284,10 +235,9 @@ class LeaseCutoffPlannerService
                 if ($queue && in_array($queue->status, self::QUEUE_ACTIVE_STATUSES, true)) {
                     $reused++;
                     $skipReasons['already_active_queue']++;
-                    Log::info('[LEASE_CUTOFF_PLAN] Événement réutilisé : queue active déjà existante.', array_merge($ctx, [
+                    Log::info('[LEASE_CUTOFF_PLAN] Réutilisé : queue active existante.', array_merge($ctx, [
                         'queue_id' => $queue->id,
                         'queue_status' => $queue->status,
-                        'history_id' => $queue->history_id,
                     ]));
                     return;
                 }
@@ -295,18 +245,17 @@ class LeaseCutoffPlannerService
                 if ($queue && in_array($queue->status, self::QUEUE_TERMINAL_STATUSES, true)) {
                     $skipped++;
                     $skipReasons['already_terminal_queue']++;
-                    Log::warning('[LEASE_CUTOFF_PLAN] Événement ignoré : queue terminale déjà existante, réactivation automatique interdite.', array_merge($ctx, [
+                    Log::warning('[LEASE_CUTOFF_PLAN] Ignoré : queue terminale existante.', array_merge($ctx, [
                         'queue_id' => $queue->id,
                         'queue_status' => $queue->status,
-                        'history_id' => $queue->history_id,
                     ]));
                     return;
                 }
 
-                if ($history && !in_array($history->status, self::HISTORY_TERMINAL_STATUSES, true)) {
+                if ($history && ! in_array($history->status, self::HISTORY_TERMINAL_STATUSES, true)) {
                     $skipped++;
                     $skipReasons['history_in_progress_without_active_queue']++;
-                    Log::warning('[LEASE_CUTOFF_PLAN] Événement ignoré : history non terminale sans queue active.', array_merge($ctx, [
+                    Log::warning('[LEASE_CUTOFF_PLAN] Ignoré : historique non terminal sans queue active.', array_merge($ctx, [
                         'history_id' => $history->id,
                         'history_status' => $history->status,
                     ]));
@@ -314,18 +263,20 @@ class LeaseCutoffPlannerService
                 }
 
                 $history = LeaseCutoffHistory::create([
-                    'partner_id' => $rule->partner_id,
+                    'partner_id' => $contractRule->partner_id,
                     'vehicle_id' => $vehicle->id,
                     'contract_id' => $contractId,
                     'lease_id' => $leaseId,
-                    'contract_link_id' => $contractLink?->id,
-                    'parent_contract_id' => $contractContext['parent_contract_id'],
-                    'type_contrat_id' => $contractContext['type_contrat_id'] ?: $typeRule->type_contrat_id,
-                    'type_contrat_label' => $contractContext['type_contrat_label'] ?: $typeRule->type_contrat_label,
-                    'contract_kind' => $contractContext['contract_kind'],
+                    'lease_date_echeance' => $dueDate,
+                    'contract_link_id' => $contractLink->id,
+                    'parent_contract_id' => $contractLink->source_parent_contract_id,
+                    'type_contrat_id' => $contractLink->type_contrat_id,
+                    'type_contrat_label' => $contractLink->type_contrat_label,
+                    'contract_kind' => $contractLink->contract_kind,
                     'trigger_label' => $trigger['trigger_label'],
                     'trigger_payload' => $trigger['trigger_payload'],
-                    'rule_id' => $rule->id,
+                    'rule_id' => null,
+                    'contract_rule_id' => $contractRule->id,
                     'scheduled_for' => $scheduledFor,
                     'detected_at' => now(),
                     'status' => 'PENDING',
@@ -334,19 +285,21 @@ class LeaseCutoffPlannerService
                     'notes' => 'Événement créé automatiquement depuis les leases NON_PAYE. Aucune commande GPS n’a encore été envoyée.',
                 ]);
 
-                $queue = LeaseCutoffQueue::create([
-                    'partner_id' => $rule->partner_id,
+                LeaseCutoffQueue::create([
+                    'partner_id' => $contractRule->partner_id,
                     'vehicle_id' => $vehicle->id,
                     'contract_id' => $contractId,
                     'lease_id' => $leaseId,
-                    'contract_link_id' => $contractLink?->id,
-                    'parent_contract_id' => $contractContext['parent_contract_id'],
-                    'type_contrat_id' => $contractContext['type_contrat_id'] ?: $typeRule->type_contrat_id,
-                    'type_contrat_label' => $contractContext['type_contrat_label'] ?: $typeRule->type_contrat_label,
-                    'contract_kind' => $contractContext['contract_kind'],
+                    'lease_date_echeance' => $dueDate,
+                    'contract_link_id' => $contractLink->id,
+                    'parent_contract_id' => $contractLink->source_parent_contract_id,
+                    'type_contrat_id' => $contractLink->type_contrat_id,
+                    'type_contrat_label' => $contractLink->type_contrat_label,
+                    'contract_kind' => $contractLink->contract_kind,
                     'trigger_label' => $trigger['trigger_label'],
                     'trigger_payload' => $trigger['trigger_payload'],
-                    'rule_id' => $rule->id,
+                    'rule_id' => null,
+                    'contract_rule_id' => $contractRule->id,
                     'history_id' => $history->id,
                     'scheduled_for' => $scheduledFor,
                     'status' => 'PENDING',
@@ -357,15 +310,16 @@ class LeaseCutoffPlannerService
 
                 $created++;
 
-                Log::info('[LEASE_CUTOFF_PLAN] Queue + historique créés pour lease NON_PAYE.', array_merge($ctx, [
+                Log::info('[LEASE_CUTOFF_PLAN] Queue + historique créés depuis règle spécifique.', array_merge($ctx, [
                     'history_id' => $history->id,
-                    'queue_id' => $queue->id,
+                    'contract_rule_id' => $contractRule->id,
+                    'contract_link_id' => $contractLink->id,
                     'user_message' => $trigger['reason'],
                 ]));
             });
         }
 
-        Log::info('[LEASE_CUTOFF_PLAN] Fin de planification.', [
+        Log::info('[LEASE_CUTOFF_PLAN] Fin planification.', [
             'target_date_echeance' => $targetDate,
             'created' => $created,
             'reused' => $reused,
@@ -383,13 +337,6 @@ class LeaseCutoffPlannerService
         ];
     }
 
-    /**
-     * Date traitée par le cron.
-     *
-     * Par défaut, on traite J-1 car dans ton exemple les leases du 2026-05-10
-     * sont générés le 2026-05-11 à 02h. Mets LEASE_CUTOFF_DUE_DATE_OFFSET_DAYS=0
-     * si Recouvrement fournit les impayés du jour courant.
-     */
     private function resolveTargetDueDate(?string $dateEcheance, ?int $offsetDays): string
     {
         $timezone = config('app.timezone', 'Africa/Douala');
@@ -403,9 +350,111 @@ class LeaseCutoffPlannerService
         return Carbon::now($timezone)->subDays(max(0, $offset))->toDateString();
     }
 
-    /**
-     * Résout contrat/sous-contrat + parent + type déclencheur.
-     */
+    private function resolveExactContractLink(int $sourceContractId): ?LeaseContractLink
+    {
+        return LeaseContractLink::query()
+            ->with(['vehicle', 'cutoffRule'])
+            ->where('source_contract_id', $sourceContractId)
+            ->where('status', '!=', 'DELETED')
+            ->orderByDesc('updated_at')
+            ->first();
+    }
+
+    private function resolveActiveContractRule(LeaseContractLink $link): ?LeaseCutoffContractRule
+    {
+        return LeaseCutoffContractRule::query()
+            ->where('contract_link_id', $link->id)
+            ->where('partner_id', $link->partner_id)
+            ->where('is_enabled', true)
+            ->first();
+    }
+
+    private function resolveScheduledDateTimeFromLease(string $dueDate, LeaseCutoffContractRule $rule): Carbon
+    {
+        $timezone = $rule->effectiveTimezone();
+        $date = Carbon::parse($dueDate, $timezone)->addDays(max(0, (int) $rule->grace_days));
+        $time = $rule->effectiveCutoffTime() ?: '00:00';
+
+        return Carbon::parse($date->format('Y-m-d') . ' ' . $time, $timezone)
+            ->setTimezone(config('app.timezone', 'Africa/Douala'));
+    }
+
+    private function isDueNow(Carbon $scheduledFor, LeaseCutoffContractRule $rule): bool
+    {
+        $timezone = $rule->effectiveTimezone();
+
+        return Carbon::now($timezone)->greaterThanOrEqualTo($scheduledFor->copy()->setTimezone($timezone));
+    }
+
+    private function buildTriggerContext(
+        array $lease,
+        string $dueDate,
+        LeaseContractLink $contractLink,
+        array $contractContext,
+        LeaseCutoffContractRule $contractRule,
+        Carbon $scheduledFor
+    ): array {
+        $leaseId = (int) ($lease['id'] ?? 0);
+        $contractId = (int) $contractLink->source_contract_id;
+        $parentId = $contractLink->source_parent_contract_id;
+        $isSub = $contractLink->contract_kind === LeaseContractLink::KIND_SUB;
+        $typeLabel = $contractLink->displayTypeLabel();
+        $vehicleLabel = trim((string) ($contractLink->vehicle?->immatriculation ?: $contractLink->immatriculation ?: ('véhicule #' . $contractLink->vehicle_id)));
+        $triggerName = $isSub ? 'sous-contrat' : 'contrat principal';
+        $parentText = $isSub && $parentId ? ' rattaché au contrat principal #' . $parentId : '';
+        $reste = $lease['reste_a_payer'] ?? $lease['montant_attendu'] ?? null;
+        $amountText = $reste !== null && $reste !== '' ? ' avec un reste à payer de ' . $reste . ' FCFA' : '';
+
+        $triggerLabel = sprintf('%s %s #%d%s', $triggerName, $typeLabel, $contractId, $parentText);
+
+        $reason = sprintf(
+            'Le %s "%s" a causé la planification de coupure de %s car le lease #%d du %s #%d%s, échéance du %s, est NON_PAYE%s. La règle spécifique du contrat/sous-contrat #%d est active. Coupure planifiée pour %s.',
+            $isSub ? 'sous-contrat' : 'contrat principal',
+            $typeLabel,
+            $vehicleLabel,
+            $leaseId,
+            $triggerName,
+            $contractId,
+            $parentText,
+            $dueDate,
+            $amountText,
+            $contractLink->id,
+            $scheduledFor->format('Y-m-d H:i')
+        );
+
+        $payload = [
+            'lease_id' => $leaseId ?: null,
+            'contract_id' => $contractId ?: null,
+            'parent_contract_id' => $parentId,
+            'contract_link_id' => $contractLink->id,
+            'contract_rule_id' => $contractRule->id,
+            'contract_kind' => $contractLink->contract_kind,
+            'contract_reference' => $contractContext['contract_reference'] ?? null,
+            'parent_reference' => $contractContext['parent_reference'] ?? null,
+            'type_contrat_id' => $contractLink->type_contrat_id,
+            'type_contrat_label' => $typeLabel,
+            'immatriculation' => $vehicleLabel,
+            'date_echeance' => $dueDate,
+            'montant_attendu' => $lease['montant_attendu'] ?? null,
+            'montant_paye' => $lease['montant_paye'] ?? null,
+            'reste_a_payer' => $reste,
+            'statut' => $lease['statut'] ?? null,
+            'chauffeur_nom_complet' => $lease['chauffeur_nom_complet'] ?? null,
+            'rule_cutoff_time' => $contractRule->effectiveCutoffTime(),
+            'timezone' => $contractRule->effectiveTimezone(),
+            'grace_days' => $contractRule->grace_days,
+            'only_when_stopped' => $contractRule->only_when_stopped,
+            'scheduled_for' => $scheduledFor->toDateTimeString(),
+        ];
+
+        return [
+            'trigger_label' => $triggerLabel,
+            'trigger_payload' => $payload,
+            'payment_status_snapshot' => $payload,
+            'reason' => $reason,
+        ];
+    }
+
     private function buildContractContext(array $contract, array $contractsById, array $lease): array
     {
         $contractId = $this->extractContractId($contract);
@@ -416,252 +465,39 @@ class LeaseCutoffPlannerService
 
         $typeId = $this->extractTypeContratId($contract);
         $typeLabel = $this->extractTypeContratLabel($contract, $lease, $typeId);
-
         $contractKind = $parentId > 0 ? LeaseContractLink::KIND_SUB : LeaseContractLink::KIND_MAIN;
-        $contractReference = (string) ($contract['reference'] ?? $contract['nom_complet'] ?? ('Contrat #' . $contractId));
-        $parentReference = $parent ? (string) ($parent['reference'] ?? $parent['nom_complet'] ?? ('Contrat parent #' . $parentId)) : null;
-
-        $triggerImmatriculation = (string) ($contract['immatriculation'] ?? '');
-        $parentImmatriculation = $parent ? (string) ($parent['immatriculation'] ?? '') : '';
-        $effectiveImmatriculation = $triggerImmatriculation !== '' ? $triggerImmatriculation : $parentImmatriculation;
 
         return [
-            'contract' => $contract,
-            'parent' => $parent,
             'contract_id' => $contractId,
-            'parent_contract_id' => $parentId > 0 ? $parentId : null,
+            'parent_contract_id' => $parentId ?: null,
             'contract_kind' => $contractKind,
-            'contract_reference' => $contractReference,
-            'parent_reference' => $parentReference,
             'type_contrat_id' => $typeId,
             'type_contrat_label' => $typeLabel,
-            'trigger_immatriculation' => $triggerImmatriculation,
-            'parent_immatriculation' => $parentImmatriculation,
-            'effective_immatriculation' => $effectiveImmatriculation,
+            'contract_reference' => $contract['reference'] ?? $contract['numero'] ?? null,
+            'parent_reference' => $parent['reference'] ?? $parent['numero'] ?? null,
             'log' => [
                 'trigger_contract_id' => $contractId,
-                'parent_contract_id' => $parentId > 0 ? $parentId : null,
-                'contract_kind' => $contractKind,
-                'contract_reference' => $contractReference,
-                'parent_reference' => $parentReference,
-                'type_contrat_id' => $typeId ?: null,
-                'type_contrat_label' => $typeLabel ?: null,
-                'effective_immatriculation' => $effectiveImmatriculation ?: null,
+                'trigger_parent_contract_id' => $parentId ?: null,
+                'trigger_contract_kind' => $contractKind,
+                'trigger_type_contrat_id' => $typeId ?: null,
+                'trigger_type_contrat_label' => $typeLabel ?: null,
             ],
         ];
     }
 
-    /**
-     * Résout le véhicule à couper.
-     *
-     * Ordre de priorité :
-     * 1. lien local du contrat déclencheur ;
-     * 2. lien local du contrat parent ;
-     * 3. immatriculation du contrat ou du parent.
-     */
-    private function resolveVehicleForTrigger(array $contractContext): ?Voiture
+    private function extractLeaseDueDate(array $lease): ?string
     {
-        $triggerId = (int) $contractContext['contract_id'];
-        $parentId = (int) ($contractContext['parent_contract_id'] ?? 0);
+        $value = $lease['date_echeance'] ?? null;
 
-        $link = LeaseContractLink::query()
-            ->where('source_contract_id', $triggerId)
-            ->whereNotNull('vehicle_id')
-            ->where('status', '!=', 'DELETED')
-            ->orderByDesc('updated_at')
-            ->first();
-
-        if (!$link && $parentId > 0) {
-            $link = LeaseContractLink::query()
-                ->where('source_contract_id', $parentId)
-                ->whereNotNull('vehicle_id')
-                ->where('status', '!=', 'DELETED')
-                ->orderByDesc('updated_at')
-                ->first();
-        }
-
-        if ($link && $link->vehicle_id) {
-            $vehicle = Voiture::query()->find((int) $link->vehicle_id);
-            if ($vehicle) {
-                return $vehicle;
-            }
-        }
-
-        $immat = $this->normalizeImmatriculation((string) ($contractContext['effective_immatriculation'] ?? ''));
-        if ($immat === '') {
+        if (! $value) {
             return null;
         }
 
-        return Voiture::query()
-            ->whereRaw('REPLACE(UPPER(immatriculation), " ", "") = ?', [$immat])
-            ->first();
-    }
-
-    private function resolveContractLinkForTrigger(LeaseCutoffRule $rule, array $contractContext): ?LeaseContractLink
-    {
-        $query = LeaseContractLink::query()
-            ->where('partner_id', $rule->partner_id)
-            ->where('source_contract_id', (int) $contractContext['contract_id'])
-            ->where('status', '!=', 'DELETED')
-            ->orderByDesc('updated_at');
-
-        $link = $query->first();
-        if ($link) {
-            return $link;
-        }
-
-        $parentId = (int) ($contractContext['parent_contract_id'] ?? 0);
-        if ($parentId <= 0) {
+        try {
+            return Carbon::parse($value)->toDateString();
+        } catch (\Throwable) {
             return null;
         }
-
-        return LeaseContractLink::query()
-            ->where('partner_id', $rule->partner_id)
-            ->where('source_contract_id', $parentId)
-            ->where('status', '!=', 'DELETED')
-            ->orderByDesc('updated_at')
-            ->first();
-    }
-
-    private function findTypeRule(LeaseCutoffRule $rule, int $typeId, string $typeLabel): ?LeaseCutoffRuleContractType
-    {
-        if ($typeId > 0) {
-            $byId = $rule->contractTypeRules->firstWhere('type_contrat_id', $typeId);
-            if ($byId) {
-                return $byId;
-            }
-        }
-
-        $target = $this->normalizeLabel($typeLabel);
-        if ($target === '') {
-            return null;
-        }
-
-        return $rule->contractTypeRules->first(function (LeaseCutoffRuleContractType $row) use ($target) {
-            return $this->normalizeLabel((string) $row->type_contrat_label) === $target;
-        });
-    }
-
-    private function resolveScheduledDateTimeFromLease(
-        array $lease,
-        LeaseCutoffRule $rule,
-        LeaseCutoffRuleContractType $typeRule
-    ): Carbon {
-        $timezone = $rule->timezone ?: config('app.timezone', 'Africa/Douala');
-        $dueDate = Carbon::parse((string) ($lease['date_echeance'] ?? now($timezone)->toDateString()), $timezone);
-        $effectiveTime = $this->resolveEffectiveCutoffTime($rule, $typeRule) ?: '00:00';
-        $graceDays = $this->resolveEffectiveGraceDays($rule, $typeRule);
-
-        return Carbon::parse($dueDate->addDays($graceDays)->format('Y-m-d') . ' ' . $effectiveTime, $timezone)
-            ->setTimezone(config('app.timezone'));
-    }
-
-    private function isDueNow(Carbon $scheduledFor, LeaseCutoffRule $rule): bool
-    {
-        $timezone = $rule->timezone ?: config('app.timezone', 'Africa/Douala');
-
-        return Carbon::now($timezone)->greaterThanOrEqualTo($scheduledFor->copy()->setTimezone($timezone));
-    }
-
-    private function resolveEffectiveCutoffTime(LeaseCutoffRule $rule, ?LeaseCutoffRuleContractType $typeRule = null): ?string
-    {
-        if ($typeRule && $typeRule->cutoff_time) {
-            return substr((string) $typeRule->cutoff_time, 0, 5);
-        }
-
-        return $rule->cutoff_time ? substr((string) $rule->cutoff_time, 0, 5) : null;
-    }
-
-    private function resolveEffectiveGraceDays(LeaseCutoffRule $rule, ?LeaseCutoffRuleContractType $typeRule = null): int
-    {
-        if ($typeRule && $typeRule->grace_days !== null) {
-            return max(0, (int) $typeRule->grace_days);
-        }
-
-        return max(0, (int) ($rule->grace_days ?? 0));
-    }
-
-    /**
-     * Message utilisateur clair + payload développeur.
-     */
-    private function buildTriggerContext(
-        array $lease,
-        array $contractContext,
-        Voiture $vehicle,
-        LeaseCutoffRule $rule,
-        LeaseCutoffRuleContractType $typeRule,
-        Carbon $scheduledFor
-    ): array {
-        $leaseId = (int) ($lease['id'] ?? 0);
-        $contractId = (int) $contractContext['contract_id'];
-        $parentId = $contractContext['parent_contract_id'];
-        $contractKind = $contractContext['contract_kind'];
-        $isSub = $contractKind === LeaseContractLink::KIND_SUB;
-        $typeLabel = (string) ($contractContext['type_contrat_label'] ?: $typeRule->type_contrat_label ?: 'Type de contrat');
-        $dueDate = (string) ($lease['date_echeance'] ?? 'date inconnue');
-        $reste = $lease['reste_a_payer'] ?? $lease['montant_attendu'] ?? null;
-        $vehicleLabel = trim((string) ($vehicle->immatriculation ?? ('véhicule #' . $vehicle->id)));
-        $triggerName = $isSub ? 'sous-contrat' : 'contrat principal';
-        $parentText = $isSub && $parentId
-            ? ' rattaché au contrat principal #' . $parentId
-            : '';
-
-        $amountText = $reste !== null && $reste !== ''
-            ? ' avec un reste à payer de ' . $reste . ' FCFA'
-            : '';
-
-        $triggerLabel = sprintf(
-            '%s %s #%d%s',
-            $triggerName,
-            $typeLabel,
-            $contractId,
-            $parentText
-        );
-
-        $reason = sprintf(
-            'Le type de contrat "%s" a causé la coupure de %s car le lease #%d du %s #%d%s, échéance du %s, est NON_PAYE%s. La règle générale du véhicule et la règle du type "%s" sont actives. Coupure planifiée pour %s.',
-            $typeLabel,
-            $vehicleLabel,
-            $leaseId,
-            $triggerName,
-            $contractId,
-            $parentText,
-            $dueDate,
-            $amountText,
-            $typeLabel,
-            $scheduledFor->format('Y-m-d H:i')
-        );
-
-        $triggerPayload = [
-            'lease_id' => $leaseId ?: null,
-            'contract_id' => $contractId ?: null,
-            'parent_contract_id' => $parentId,
-            'contract_kind' => $contractKind,
-            'contract_reference' => $contractContext['contract_reference'],
-            'parent_reference' => $contractContext['parent_reference'],
-            'type_contrat_id' => $contractContext['type_contrat_id'] ?: $typeRule->type_contrat_id,
-            'type_contrat_label' => $typeLabel,
-            'immatriculation' => $vehicleLabel,
-            'date_echeance' => $dueDate,
-            'montant_attendu' => $lease['montant_attendu'] ?? null,
-            'montant_paye' => $lease['montant_paye'] ?? null,
-            'reste_a_payer' => $reste,
-            'statut' => $lease['statut'] ?? null,
-            'chauffeur_nom_complet' => $lease['chauffeur_nom_complet'] ?? null,
-            'rule_id' => $rule->id,
-            'type_rule_id' => $typeRule->id,
-            'rule_cutoff_time' => $rule->cutoff_time,
-            'type_rule_cutoff_time' => $typeRule->cutoff_time,
-            'effective_grace_days' => $this->resolveEffectiveGraceDays($rule, $typeRule),
-            'scheduled_for' => $scheduledFor->toDateTimeString(),
-        ];
-
-        return [
-            'trigger_label' => $triggerLabel,
-            'trigger_payload' => $triggerPayload,
-            'payment_status_snapshot' => $triggerPayload,
-            'reason' => $reason,
-        ];
     }
 
     private function extractContractId(array $contract): int
@@ -704,19 +540,6 @@ class LeaseCutoffPlannerService
             ?: (string) ($lease['type_contrat_libelle'] ?? '')
             ?: (string) data_get($contract, 'raw.type_contrat.libelle', '');
 
-        return trim($label) !== '' ? trim($label) : ($typeId > 0 ? 'Type #' . $typeId : '');
-    }
-
-    private function normalizeImmatriculation(?string $value): string
-    {
-        return strtoupper(preg_replace('/\s+/', '', trim((string) $value)));
-    }
-
-    private function normalizeLabel(?string $value): string
-    {
-        $value = trim((string) $value);
-        $value = preg_replace('/\s+/', ' ', $value);
-
-        return mb_strtoupper($value, 'UTF-8');
+        return trim($label) !== '' ? trim($label) : ($typeId > 0 ? 'Type #' . $typeId : 'Type inconnu');
     }
 }
