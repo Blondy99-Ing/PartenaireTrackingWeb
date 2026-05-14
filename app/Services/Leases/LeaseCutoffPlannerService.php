@@ -17,10 +17,13 @@ use Illuminate\Support\Facades\Log;
  * lorsque toutes les conditions métier sont réunies.
  *
  * Règle métier centrale :
- * - on récupère les leases NON_PAYE d'une date ;
- * - on résout le contrat/sous-contrat exact du lease ;
- * - on cherche la ligne lease_contract_links exacte ;
- * - on planifie seulement si cette ligne possède une règle spécifique active ;
+ * - le cron automatique traite uniquement la date métier du jour ;
+ * - une reprise d'hier ou d'une autre date se fait uniquement avec --date=YYYY-MM-DD ;
+ * - chaque lease est traité indépendamment ;
+ * - Moto, Téléphone, Casque, etc. peuvent avoir chacun leur règle et leur heure ;
+ * - une règle Moto désactivée ne bloque pas une règle Téléphone active ;
+ * - une règle Téléphone active ne dépend pas de la règle Moto ;
+ * - une coupure est planifiée seulement si le contrat/sous-contrat exact possède une règle active ;
  * - aucun type général ou sous-contrat non associé ne peut déclencher une coupure.
  */
 class LeaseCutoffPlannerService
@@ -63,6 +66,7 @@ class LeaseCutoffPlannerService
         $skipReasons = [
             'lease_invalid' => 0,
             'lease_not_non_paid' => 0,
+            'lease_date_mismatch' => 0,
             'contract_not_found' => 0,
             'contract_link_missing' => 0,
             'vehicle_missing' => 0,
@@ -111,6 +115,24 @@ class LeaseCutoffPlannerService
                 continue;
             }
 
+            /**
+             * Sécurité jour par jour :
+             * même si l'API Recouvrement est appelée avec date_echeance=$targetDate,
+             * on refuse tout lease dont la date réelle ne correspond pas exactement
+             * à la journée traitée.
+             *
+             * Résultat :
+             * - le cron du 14 ne traite que le 14 ;
+             * - une queue ou un lease du 13 ne revient pas automatiquement le 14 ;
+             * - une date passée se rejoue uniquement avec --date=YYYY-MM-DD.
+             */
+            if ($dueDate !== $targetDate) {
+                $skipped++;
+                $skipReasons['lease_date_mismatch']++;
+                Log::warning('[LEASE_CUTOFF_PLAN] Lease ignoré : date_echeance différente de la date traitée.', $ctx);
+                continue;
+            }
+
             $contract = $contractsById[$contractId] ?? null;
             if (! is_array($contract)) {
                 $skipped++;
@@ -124,8 +146,11 @@ class LeaseCutoffPlannerService
 
             /**
              * La ligne exacte est obligatoire.
-             * Si le lease concerne un sous-contrat Téléphone, il faut la ligne du
-             * sous-contrat Téléphone, pas seulement la ligne du contrat Moto parent.
+             *
+             * Si le lease concerne Téléphone, on cherche le contract_link Téléphone.
+             * Si le lease concerne Moto, on cherche le contract_link Moto.
+             *
+             * On ne doit jamais utiliser uniquement le véhicule ou le contrat parent.
              */
             $contractLink = $this->resolveExactContractLink($contractId);
             if (! $contractLink) {
@@ -145,6 +170,13 @@ class LeaseCutoffPlannerService
                 continue;
             }
 
+            /**
+             * Règle centrale :
+             * seule la règle du contrat/sous-contrat exact compte.
+             *
+             * Si Moto est désactivée, cela n'empêche pas Téléphone de couper
+             * si Téléphone possède sa propre règle active.
+             */
             $contractRule = $this->resolveActiveContractRule($contractLink);
             if (! $contractRule) {
                 $skipped++;
@@ -167,6 +199,12 @@ class LeaseCutoffPlannerService
                 continue;
             }
 
+            /**
+             * Chaque entité a sa propre heure :
+             * - Moto peut être à 12:00 ;
+             * - Téléphone peut être à 17:00 ;
+             * - Casque peut être à une autre heure.
+             */
             $scheduledFor = $this->resolveScheduledDateTimeFromLease($dueDate, $contractRule);
             if (! $this->isDueNow($scheduledFor, $contractRule)) {
                 $skipped++;
@@ -191,11 +229,9 @@ class LeaseCutoffPlannerService
                 $contractLink,
                 $contractRule,
                 $vehicle,
-                $lease,
                 $leaseId,
                 $contractId,
                 $dueDate,
-                $contractContext,
                 $scheduledFor,
                 $trigger,
                 &$created,
@@ -204,11 +240,19 @@ class LeaseCutoffPlannerService
                 &$skipReasons,
                 $ctx
             ) {
+                /**
+                 * Idempotence par entité contractuelle :
+                 * on vérifie lease_id + contract_link_id + date.
+                 *
+                 * On ne bloque jamais par véhicule seul, sinon Moto à 12h pourrait
+                 * empêcher Téléphone à 17h de déclencher sa propre coupure.
+                 */
                 $history = LeaseCutoffHistory::query()
                     ->where('partner_id', $contractRule->partner_id)
                     ->where('vehicle_id', $vehicle->id)
                     ->where('contract_id', $contractId)
                     ->where('lease_id', $leaseId)
+                    ->where('contract_link_id', $contractLink->id)
                     ->whereDate('lease_date_echeance', $dueDate)
                     ->lockForUpdate()
                     ->first();
@@ -218,6 +262,7 @@ class LeaseCutoffPlannerService
                     ->where('vehicle_id', $vehicle->id)
                     ->where('contract_id', $contractId)
                     ->where('lease_id', $leaseId)
+                    ->where('contract_link_id', $contractLink->id)
                     ->whereDate('lease_date_echeance', $dueDate)
                     ->lockForUpdate()
                     ->first();
@@ -282,7 +327,7 @@ class LeaseCutoffPlannerService
                     'status' => 'PENDING',
                     'reason' => $trigger['reason'],
                     'payment_status_snapshot' => $trigger['payment_status_snapshot'],
-                    'notes' => 'Événement créé automatiquement depuis les leases NON_PAYE. Aucune commande GPS n’a encore été envoyée.',
+                    'notes' => 'Événement créé automatiquement depuis les leases NON_PAYE du jour. Aucune commande GPS n’a encore été envoyée.',
                 ]);
 
                 LeaseCutoffQueue::create([
@@ -346,17 +391,10 @@ class LeaseCutoffPlannerService
         }
 
         /**
-         * Règle métier actuelle : le cron quotidien ne regarde que la date du jour.
-         * Les échéances d'hier restent consultables dans l'historique d'hier, mais
-         * elles ne sont plus planifiées automatiquement aujourd'hui.
-         *
-         * $offsetDays est conservé uniquement pour compatibilité interne éventuelle,
-         * mais la commande Artisan standard passe toujours une date explicite.
+         * Sans --date, le cron automatique traite uniquement aujourd'hui.
+         * $offsetDays est ignoré volontairement pour empêcher les reprises
+         * automatiques d'hier.
          */
-        if ($offsetDays !== null) {
-            return Carbon::now($timezone)->subDays(max(0, $offsetDays))->toDateString();
-        }
-
         return Carbon::now($timezone)->toDateString();
     }
 
@@ -365,7 +403,10 @@ class LeaseCutoffPlannerService
         return LeaseContractLink::query()
             ->with(['vehicle', 'cutoffRule'])
             ->where('source_contract_id', $sourceContractId)
-            ->where('status', '!=', 'DELETED')
+            ->where(function ($query) {
+                $query->whereNull('status')
+                    ->orWhere('status', '!=', 'DELETED');
+            })
             ->orderByDesc('updated_at')
             ->first();
     }
@@ -418,7 +459,7 @@ class LeaseCutoffPlannerService
         $triggerLabel = sprintf('%s %s #%d%s', $triggerName, $typeLabel, $contractId, $parentText);
 
         $reason = sprintf(
-            'Le %s "%s" a causé la planification de coupure de %s car le lease #%d du %s #%d%s, échéance du %s, est NON_PAYE%s. La règle spécifique du contrat/sous-contrat #%d est active. Coupure planifiée pour %s.',
+            'Le %s "%s" a causé la planification de coupure de %s car le lease #%d du %s #%d%s, échéance du %s, est NON_PAYE%s. La règle spécifique de cette entité contractuelle est active. Coupure planifiée pour %s.',
             $isSub ? 'sous-contrat' : 'contrat principal',
             $typeLabel,
             $vehicleLabel,
@@ -428,7 +469,6 @@ class LeaseCutoffPlannerService
             $parentText,
             $dueDate,
             $amountText,
-            $contractLink->id,
             $scheduledFor->format('Y-m-d H:i')
         );
 

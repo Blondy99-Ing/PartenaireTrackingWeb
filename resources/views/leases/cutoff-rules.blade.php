@@ -4,225 +4,1063 @@
 
 @php
     $rows = collect($rows ?? $vehicles ?? []);
-    $totalContracts = $rows->count();
-    $activeRules = $rows->sum(fn ($row) => (int) ($row['enabled_contract_rules_count'] ?? 0));
-    $missingTimes = $rows->sum(fn ($row) => (int) ($row['missing_time_contract_rules_count'] ?? 0));
-    $totalRuleLines = $rows->sum(fn ($row) => count($row['contract_rules'] ?? []));
+    $totalContracts  = $rows->count();
+    $activeRules     = $rows->sum(fn ($row) => (int) ($row['enabled_contract_rules_count'] ?? 0));
+    $missingTimes    = $rows->sum(fn ($row) => (int) ($row['missing_time_contract_rules_count'] ?? 0));
+    $totalRuleLines  = $rows->sum(fn ($row) => count($row['contract_rules'] ?? []));
 @endphp
 
 @push('styles')
 <style>
-    .lco-page{display:flex;flex-direction:column;gap:1rem}.lco-card{background:var(--color-card,#fff);border:1px solid var(--color-border-subtle,#e5e7eb);border-radius:18px;box-shadow:0 8px 24px rgba(15,23,42,.06);overflow:hidden}.lco-head{display:flex;justify-content:space-between;gap:1rem;padding:1rem;border-bottom:1px solid var(--color-border-subtle,#e5e7eb)}.lco-head h2{margin:0;font-size:1rem;font-weight:900;color:var(--color-text,#111827);display:flex;gap:.5rem;align-items:center}.lco-head h2 i{color:var(--color-primary,#f58220)}.lco-head p{margin:.25rem 0 0;font-size:.78rem;color:var(--color-secondary-text,#6b7280);line-height:1.55}.lco-alert{padding:.85rem 1rem;border-radius:16px;border:1px solid transparent;font-size:.78rem;font-weight:800}.lco-alert.success{color:#15803d;background:rgba(22,163,74,.08);border-color:rgba(22,163,74,.22)}.lco-alert.error{color:#b91c1c;background:rgba(220,38,38,.08);border-color:rgba(220,38,38,.22)}.lco-alert.warn{color:#b45309;background:rgba(245,158,11,.08);border-color:rgba(245,158,11,.25)}.lco-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.75rem;padding:1rem}@media(max-width:900px){.lco-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:560px){.lco-kpis{grid-template-columns:1fr}}.lco-kpi{border:1px solid var(--color-border-subtle,#e5e7eb);border-radius:16px;padding:.85rem;background:rgba(148,163,184,.05);display:flex;justify-content:space-between;align-items:center}.lco-kpi span{display:block;color:var(--color-secondary-text,#6b7280);font-size:.62rem;font-weight:900;letter-spacing:.07em;text-transform:uppercase}.lco-kpi strong{display:block;margin-top:.15rem;color:var(--color-primary,#f58220);font-size:1.35rem;font-weight:900}.lco-kpi i{width:36px;height:36px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:rgba(245,130,32,.12);color:var(--color-primary,#f58220)}.lco-toolbar{padding:.9rem 1rem;border-bottom:1px solid var(--color-border-subtle,#e5e7eb);display:flex;flex-direction:column;gap:.75rem}.lco-toolbar-top{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}.lco-search{position:relative;flex:1;min-width:260px}.lco-search i{position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:.75rem;color:#6b7280}.lco-input{width:100%;border:1px solid var(--color-border-subtle,#e5e7eb);border-radius:12px;padding:.62rem .75rem;background:var(--color-card,#fff);color:var(--color-text,#111827);font-size:.76rem;outline:none}.lco-search .lco-input{padding-left:2.1rem}.lco-input:focus{border-color:var(--color-primary,#f58220);box-shadow:0 0 0 3px rgba(245,130,32,.12)}.lco-btn{border:1px solid var(--color-border-subtle,#e5e7eb);background:var(--color-card,#fff);color:var(--color-text,#111827);border-radius:12px;padding:.62rem .82rem;font-size:.72rem;font-weight:900;cursor:pointer;display:inline-flex;align-items:center;gap:.4rem;transition:.16s ease;text-decoration:none}.lco-btn:hover{border-color:var(--color-primary,#f58220);color:var(--color-primary,#f58220);transform:translateY(-1px)}.lco-btn.primary{background:var(--color-primary,#f58220);border-color:var(--color-primary,#f58220);color:#fff}.lco-btn.soft{background:rgba(245,130,32,.09);border-color:rgba(245,130,32,.22);color:var(--color-primary,#f58220)}.lco-selection{display:none;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap;padding:.75rem 1rem;background:rgba(245,130,32,.08);border-top:1px solid rgba(245,130,32,.2)}.lco-selection.show{display:flex}.lco-table-wrap{overflow-x:auto}.lco-table{width:100%;border-collapse:separate;border-spacing:0;min-width:1120px}.lco-table th{position:sticky;top:0;background:rgba(248,250,252,.96);z-index:1;text-align:left;font-size:.62rem;text-transform:uppercase;letter-spacing:.07em;color:#64748b;padding:.75rem;border-bottom:1px solid #e5e7eb}.lco-table td{padding:.85rem;border-bottom:1px solid #eef2f7;vertical-align:top}.lco-row.hidden{display:none}.lco-row.selected{background:rgba(245,130,32,.045)}.contract-title{font-weight:900;color:#111827;display:flex;gap:.45rem;align-items:center}.contract-meta{margin-top:.25rem;font-size:.72rem;color:#6b7280;line-height:1.45}.tag{display:inline-flex;align-items:center;gap:.25rem;border-radius:999px;padding:.2rem .48rem;font-size:.62rem;font-weight:900}.tag.ok{background:rgba(22,163,74,.10);color:#15803d}.tag.warn{background:rgba(245,158,11,.12);color:#b45309}.tag.off{background:rgba(100,116,139,.12);color:#64748b}.tag.sub{background:rgba(59,130,246,.10);color:#1d4ed8}.rule-grid{display:grid;grid-template-columns:repeat(2,minmax(260px,1fr));gap:.7rem}@media(max-width:980px){.rule-grid{grid-template-columns:1fr}}.rule-card{border:1px solid #e5e7eb;border-radius:16px;padding:.75rem;background:rgba(248,250,252,.65);transition:.15s}.rule-card.enabled{border-color:rgba(22,163,74,.35);background:rgba(22,163,74,.045)}.rule-card .rule-top{display:flex;justify-content:space-between;gap:.5rem}.rule-name{font-weight:900;color:#111827}.rule-sub{font-size:.68rem;color:#64748b;margin-top:.16rem}.switchline{display:flex;align-items:center;gap:.4rem;font-size:.72rem;font-weight:900}.switchline input,.lco-row-check{width:16px;height:16px;accent-color:var(--color-primary,#f58220)}.rule-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.45rem;margin-top:.65rem}.mini-field label{display:block;font-size:.58rem;text-transform:uppercase;letter-spacing:.06em;font-weight:900;color:#64748b;margin-bottom:.2rem}.mini-input{width:100%;border:1px solid #e5e7eb;border-radius:10px;padding:.48rem .55rem;font-size:.72rem;background:#fff}.mini-check{display:flex;align-items:center;gap:.35rem;margin-top:.45rem;font-size:.66rem;font-weight:800;color:#475569}.empty{padding:2rem;text-align:center;color:#64748b;font-weight:800}.lco-footer{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;padding:1rem;border-top:1px solid #e5e7eb}.lco-footer p{margin:0;font-size:.76rem;color:#64748b;line-height:1.45}.lco-actions{display:flex;gap:.5rem;flex-wrap:wrap}.dirty .contract-title:after{content:'Modifié';font-size:.55rem;border-radius:999px;padding:.15rem .38rem;background:rgba(245,158,11,.12);color:#b45309}
+/* ══════════════════════════════════════════════════════════
+   TOKENS
+══════════════════════════════════════════════════════════ */
+:root {
+    --lco-r: 16px;
+    --lco-r-sm: 10px;
+    --lco-r-pill: 100px;
+    --lco-gap: 1rem;
+    --lco-ease: cubic-bezier(.4,0,.2,1);
+    --lco-t: 140ms;
+    --lco-primary: var(--color-primary, #f58220);
+    --lco-primary-light: rgba(245,130,32,.08);
+    --lco-primary-border: rgba(245,130,32,.28);
+}
+
+/* ══════════════════════════════════════════════════════════
+   PAGE
+══════════════════════════════════════════════════════════ */
+.lco { display: flex; flex-direction: column; gap: var(--lco-gap); }
+
+/* ══════════════════════════════════════════════════════════
+   ALERTS
+══════════════════════════════════════════════════════════ */
+.lco-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: .6rem;
+    padding: .85rem 1rem;
+    border-radius: var(--lco-r);
+    border: 1px solid transparent;
+    font-size: .8rem;
+    font-weight: 700;
+    line-height: 1.5;
+}
+
+.lco-alert i { margin-top: .1rem; flex-shrink: 0; }
+.lco-alert ul { margin: .35rem 0 0 1rem; font-weight: 500; }
+
+.lco-alert.success { color: #15803d; background: rgba(22,163,74,.08);  border-color: rgba(22,163,74,.22); }
+.lco-alert.error   { color: #b91c1c; background: rgba(220,38,38,.08);  border-color: rgba(220,38,38,.22); }
+.lco-alert.warn    { color: #92400e; background: rgba(245,158,11,.08); border-color: rgba(245,158,11,.25); }
+
+/* ══════════════════════════════════════════════════════════
+   HERO HEADER
+══════════════════════════════════════════════════════════ */
+.lco-hero {
+    background: var(--color-card);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--lco-r);
+    padding: 1.1rem 1.4rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    box-shadow: var(--shadow-sm);
+    position: relative;
+    overflow: hidden;
+}
+
+.lco-hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, var(--lco-primary) 0%, transparent 55%);
+    opacity: .04;
+    pointer-events: none;
+}
+
+.lco-hero-icon {
+    width: 46px; height: 46px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, var(--lco-primary), var(--lco-primary-border));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 1.15rem;
+    flex-shrink: 0;
+    box-shadow: 0 4px 14px rgba(245,130,32,.28);
+}
+
+.lco-hero-body { flex: 1; min-width: 0; }
+
+.lco-hero-title {
+    font-size: .98rem;
+    font-weight: 900;
+    color: var(--color-text);
+    margin: 0 0 .2rem;
+    letter-spacing: -.015em;
+}
+
+.lco-hero-sub {
+    font-size: .76rem;
+    color: var(--color-text-muted);
+    margin: 0;
+    line-height: 1.55;
+    max-width: 760px;
+}
+
+.lco-hero-chips {
+    display: flex;
+    gap: .45rem;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+    justify-content: flex-end;
+}
+
+.lco-hero-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    padding: .32rem .7rem;
+    border-radius: var(--lco-r-pill);
+    border: 1px solid var(--color-border-subtle);
+    background: var(--color-bg, #f8fafc);
+    font-size: .7rem;
+    font-weight: 700;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+}
+
+/* ══════════════════════════════════════════════════════════
+   KPI STRIP
+══════════════════════════════════════════════════════════ */
+.lco-kpis {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: .55rem;
+}
+
+@media (max-width: 900px) { .lco-kpis { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 520px) { .lco-kpis { grid-template-columns: 1fr; } }
+
+.lco-kpi {
+    background: var(--color-card);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--lco-r);
+    padding: .9rem 1rem;
+    box-shadow: var(--shadow-xs);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    position: relative;
+    overflow: hidden;
+    transition: box-shadow var(--lco-t), transform var(--lco-t);
+}
+
+.lco-kpi::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: var(--lco-kpi-accent, var(--lco-primary));
+    border-radius: var(--lco-r) var(--lco-r) 0 0;
+}
+
+.lco-kpi:hover { box-shadow: var(--shadow-sm); transform: translateY(-1px); }
+
+.lco-kpi-label {
+    font-size: .6rem;
+    font-weight: 700;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    margin-bottom: .3rem;
+}
+
+.lco-kpi-val {
+    font-size: 1.55rem;
+    font-weight: 900;
+    color: var(--color-text);
+    letter-spacing: -.03em;
+    line-height: 1;
+}
+
+.lco-kpi-icon {
+    width: 38px; height: 38px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: .95rem;
+    flex-shrink: 0;
+    background: var(--lco-kpi-icon-bg, var(--lco-primary-light));
+    color: var(--lco-kpi-icon-color, var(--lco-primary));
+}
+
+/* ══════════════════════════════════════════════════════════
+   TOOLBAR (bulk actions)
+══════════════════════════════════════════════════════════ */
+.lco-toolbar {
+    background: var(--color-card);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--lco-r);
+    overflow: hidden;
+    box-shadow: var(--shadow-xs);
+}
+
+.lco-toolbar-header {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    padding: .7rem 1.1rem;
+    border-bottom: 1px solid var(--color-border-subtle);
+    background: var(--color-bg-subtle, #f9fafb);
+    flex-wrap: wrap;
+    justify-content: space-between;
+}
+
+.dark-mode .lco-toolbar-header { background: rgba(255,255,255,.03); }
+
+.lco-toolbar-title {
+    font-size: .7rem;
+    font-weight: 700;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    white-space: nowrap;
+}
+
+.lco-toolbar-body {
+    padding: .85rem 1.1rem;
+    display: flex;
+    flex-direction: column;
+    gap: .65rem;
+}
+
+.lco-toolbar-row {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    flex-wrap: wrap;
+}
+
+/* Inputs */
+.lco-search-wrap { position: relative; flex: 1; min-width: 220px; }
+
+.lco-search-icon {
+    position: absolute;
+    left: .85rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--color-text-muted);
+    font-size: .75rem;
+    pointer-events: none;
+}
+
+.lco-input {
+    height: 38px;
+    border: 1px solid var(--color-input-border);
+    border-radius: var(--lco-r-sm);
+    background: var(--color-input-bg);
+    color: var(--color-text);
+    font-size: .82rem;
+    transition: border-color var(--lco-t), box-shadow var(--lco-t);
+}
+
+.lco-input:focus {
+    outline: none;
+    border-color: var(--lco-primary);
+    box-shadow: 0 0 0 3px var(--lco-primary-light);
+}
+
+.lco-search-input {
+    width: 100%;
+    padding: 0 .85rem 0 2.25rem;
+    font-weight: 500;
+}
+
+.lco-time-input { padding: 0 .75rem; min-width: 130px; }
+
+/* Buttons */
+.lco-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    height: 38px;
+    padding: 0 .9rem;
+    border-radius: var(--lco-r-sm);
+    border: 1px solid var(--color-border);
+    background: var(--color-card);
+    color: var(--color-text);
+    font-size: .73rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background var(--lco-t), border-color var(--lco-t), color var(--lco-t), transform var(--lco-t);
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.lco-btn:hover { border-color: var(--lco-primary); color: var(--lco-primary); transform: translateY(-1px); }
+
+.lco-btn.primary {
+    background: var(--lco-primary);
+    border-color: var(--lco-primary);
+    color: #fff;
+}
+
+.lco-btn.primary:hover { opacity: .88; transform: translateY(-1px); }
+
+.lco-btn.soft {
+    background: var(--lco-primary-light);
+    border-color: var(--lco-primary-border);
+    color: var(--lco-primary);
+}
+
+.lco-btn-icon-only {
+    width: 38px;
+    padding: 0;
+    justify-content: center;
+}
+
+/* Divider between bulk groups */
+.lco-toolbar-divider {
+    width: 1px;
+    height: 28px;
+    background: var(--color-border-subtle);
+    flex-shrink: 0;
+}
+
+/* ══════════════════════════════════════════════════════════
+   SELECTION BAR
+══════════════════════════════════════════════════════════ */
+.lco-sel-bar {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    flex-wrap: wrap;
+    padding: .7rem 1.1rem;
+    background: var(--lco-primary-light);
+    border: 1px solid var(--lco-primary-border);
+    border-radius: var(--lco-r);
+    font-size: .8rem;
+    font-weight: 700;
+    color: var(--lco-primary);
+    box-shadow: var(--shadow-xs);
+}
+
+.lco-sel-bar.show { display: flex; }
+
+.lco-sel-count { display: flex; align-items: center; gap: .4rem; }
+
+.lco-sel-actions { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; }
+
+/* ══════════════════════════════════════════════════════════
+   MAIN FORM CARD
+══════════════════════════════════════════════════════════ */
+.lco-form-card {
+    background: var(--color-card);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--lco-r);
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+}
+
+/* Table */
+.lco-table-wrap { overflow-x: auto; }
+
+.lco-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 1080px;
+    font-size: .82rem;
+}
+
+.lco-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--color-bg-subtle, #f8fafc);
+    text-align: left;
+    font-size: .62rem;
+    font-weight: 700;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    padding: .65rem .9rem;
+    border-bottom: 2px solid var(--lco-primary);
+}
+
+.dark-mode .lco-table thead th { background: #161b22; }
+
+.lco-table tbody td {
+    padding: .9rem .9rem;
+    border-bottom: 1px solid var(--color-border-subtle);
+    vertical-align: top;
+}
+
+.lco-table tbody tr:last-child td { border-bottom: none; }
+
+.lco-row:hover td { background: var(--color-sidebar-active); }
+.lco-row.selected td { background: var(--lco-primary-light); }
+.lco-row.hidden { display: none; }
+
+/* Row check */
+.lco-row-check {
+    width: 16px; height: 16px;
+    accent-color: var(--lco-primary);
+    cursor: pointer;
+}
+
+/* ── Vehicle cell ── */
+.lco-vehicle {
+    display: flex;
+    align-items: flex-start;
+    gap: .6rem;
+}
+
+.lco-vehicle-icon {
+    width: 34px; height: 34px;
+    border-radius: 10px;
+    background: var(--lco-primary-light);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--lco-primary);
+    font-size: .8rem;
+    flex-shrink: 0;
+    margin-top: .1rem;
+}
+
+.lco-vehicle-plate {
+    font-weight: 900;
+    font-size: .9rem;
+    color: var(--color-text);
+    letter-spacing: -.01em;
+}
+
+.lco-vehicle-meta {
+    font-size: .71rem;
+    color: var(--color-text-muted);
+    margin-top: .22rem;
+    line-height: 1.55;
+}
+
+.lco-vehicle-meta code {
+    font-size: .68rem;
+    background: var(--color-border-subtle);
+    padding: .1rem .3rem;
+    border-radius: 5px;
+    color: var(--color-text-muted);
+}
+
+/* ── Modified indicator ── */
+.lco-row.dirty .lco-vehicle-plate::after {
+    content: ' ·';
+    color: #c2410c;
+    font-size: .9rem;
+}
+
+/* ── Driver cell ── */
+.lco-driver {
+    font-size: .8rem;
+    color: var(--color-text);
+    font-weight: 600;
+}
+
+.lco-driver-empty { color: var(--color-text-muted); font-style: italic; }
+
+/* ── Status cell ── */
+.lco-status-cell { white-space: nowrap; }
+
+/* Tags */
+.lco-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: .25rem;
+    border-radius: var(--lco-r-pill);
+    padding: .25rem .55rem;
+    font-size: .64rem;
+    font-weight: 700;
+    white-space: nowrap;
+    border: 1px solid transparent;
+}
+
+.lco-tag.ok   { background: rgba(22,163,74,.10);  color: #15803d; border-color: rgba(22,163,74,.25); }
+.lco-tag.warn { background: rgba(245,158,11,.12); color: #92400e; border-color: rgba(245,158,11,.3); }
+.lco-tag.off  { background: rgba(100,116,139,.1); color: #64748b; border-color: rgba(100,116,139,.2); }
+.lco-tag.sub  { background: rgba(59,130,246,.1);  color: #1d4ed8; border-color: rgba(59,130,246,.25); }
+.lco-tag.main { background: rgba(22,163,74,.10);  color: #15803d; border-color: rgba(22,163,74,.25); }
+
+.dark-mode .lco-tag.ok   { background: rgba(22,163,74,.18);  color: #6ee7b7; }
+.dark-mode .lco-tag.warn { background: rgba(245,158,11,.18); color: #fcd34d; }
+.dark-mode .lco-tag.off  { background: rgba(100,116,139,.15);color: #9ca3af; }
+.dark-mode .lco-tag.sub  { background: rgba(59,130,246,.18); color: #93c5fd; }
+.dark-mode .lco-tag.main { background: rgba(22,163,74,.18);  color: #6ee7b7; }
+
+/* ══════════════════════════════════════════════════════════
+   RULE GRID & CARDS
+══════════════════════════════════════════════════════════ */
+.lco-rule-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(260px, 1fr));
+    gap: .65rem;
+}
+
+@media (max-width: 980px) { .lco-rule-grid { grid-template-columns: 1fr; } }
+
+.lco-rule-card {
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--lco-r);
+    padding: .8rem .9rem;
+    background: var(--color-bg-subtle, rgba(248,250,252,.7));
+    transition: border-color var(--lco-t), background var(--lco-t), box-shadow var(--lco-t);
+}
+
+.lco-rule-card:hover {
+    box-shadow: var(--shadow-xs);
+}
+
+.lco-rule-card.enabled {
+    border-color: rgba(22,163,74,.35);
+    background: rgba(22,163,74,.04);
+}
+
+.dark-mode .lco-rule-card.enabled {
+    border-color: rgba(22,163,74,.3);
+    background: rgba(22,163,74,.08);
+}
+
+/* Card top: label + toggle */
+.lco-rule-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: .5rem;
+    margin-bottom: .65rem;
+}
+
+.lco-rule-name {
+    font-weight: 700;
+    font-size: .83rem;
+    color: var(--color-text);
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: .35rem;
+}
+
+.lco-rule-id {
+    font-size: .68rem;
+    color: var(--color-text-muted);
+    margin-top: .18rem;
+    font-family: var(--font-mono, monospace);
+}
+
+/* Toggle switch */
+.lco-toggle-wrap {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    flex-shrink: 0;
+}
+
+.lco-toggle-label {
+    font-size: .7rem;
+    font-weight: 700;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+}
+
+/* Fields grid: 4 cols */
+.lco-rule-fields {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: .45rem;
+    padding-top: .6rem;
+    border-top: 1px solid var(--color-border-subtle);
+}
+
+.lco-field label {
+    display: block;
+    font-size: .57rem;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    font-weight: 700;
+    color: var(--color-text-muted);
+    margin-bottom: .22rem;
+}
+
+.lco-field-input {
+    width: 100%;
+    height: 34px;
+    border: 1px solid var(--color-input-border);
+    border-radius: var(--lco-r-sm);
+    padding: 0 .55rem;
+    font-size: .76rem;
+    background: var(--color-input-bg);
+    color: var(--color-text);
+    transition: border-color var(--lco-t);
+}
+
+.lco-field-input:focus {
+    outline: none;
+    border-color: var(--lco-primary);
+    box-shadow: 0 0 0 2px var(--lco-primary-light);
+}
+
+.lco-check-wrap {
+    display: flex;
+    align-items: center;
+    gap: .35rem;
+    margin-top: .3rem;
+    font-size: .7rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+}
+
+.lco-check-wrap input { accent-color: var(--lco-primary); }
+
+/* ══════════════════════════════════════════════════════════
+   FORM FOOTER
+══════════════════════════════════════════════════════════ */
+.lco-form-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: .9rem 1.1rem;
+    border-top: 1px solid var(--color-border-subtle);
+    background: var(--color-bg-subtle, #f9fafb);
+}
+
+.dark-mode .lco-form-footer { background: rgba(255,255,255,.02); }
+
+.lco-form-footer-hint {
+    font-size: .73rem;
+    color: var(--color-text-muted);
+    display: flex;
+    align-items: flex-start;
+    gap: .4rem;
+    line-height: 1.5;
+}
+
+.lco-form-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+
+/* ══════════════════════════════════════════════════════════
+   EMPTY STATE
+══════════════════════════════════════════════════════════ */
+.lco-empty {
+    padding: 3.5rem 2rem;
+    text-align: center;
+}
+
+.lco-empty-icon {
+    width: 56px; height: 56px;
+    border-radius: 18px;
+    background: var(--color-bg-subtle, #f3f4f6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.4rem;
+    color: var(--color-border);
+    margin: 0 auto .85rem;
+}
+
+.lco-empty-text { font-size: .95rem; font-weight: 800; color: var(--color-text); margin-bottom: .35rem; }
+.lco-empty-sub { font-size: .78rem; color: var(--color-text-muted); }
 </style>
 @endpush
 
 @section('content')
-<div class="lco-page">
-    @if(session('success'))
-        <div class="lco-alert success"><i class="fas fa-check-circle"></i> {{ session('success') }}</div>
-    @endif
+<div class="lco">
 
-    @if(session('error'))
-        <div class="lco-alert error"><i class="fas fa-triangle-exclamation"></i> {{ session('error') }}</div>
-    @endif
 
-    @if($errors->any())
-        <div class="lco-alert error">
-            <strong>Veuillez corriger le formulaire :</strong>
-            <ul style="margin:.5rem 0 0 1rem;">
-                @foreach($errors->all() as $error)
-                    <li>{{ $error }}</li>
-                @endforeach
-            </ul>
-        </div>
-    @endif
+
+
 
     @foreach(($pageWarnings ?? []) as $warning)
-        <div class="lco-alert warn"><i class="fas fa-circle-info"></i> {{ $warning }}</div>
+        <div class="lco-alert warn">
+            <i class="fas fa-circle-info"></i>
+            <span>{{ $warning }}</span>
+        </div>
     @endforeach
 
-    <section class="lco-card">
-        <div class="lco-head">
+    {{-- ── HERO HEADER ─────────────────────────────────────────── --}}
+    <div class="lco-hero">
+        <div class="lco-hero-icon">
+            <i class="fas fa-shield-halved"></i>
+        </div>
+        <div class="lco-hero-body">
+            <h1 class="lco-hero-title">Paramétrage coupure lease</h1>
+            <p class="lco-hero-sub">
+                Une coupure automatique n'est possible que si le contrat ou l'un de ses sous-contrats
+                réellement associés possède une règle active. Le paramétrage en masse ne modifie
+                que les contrats visibles et sélectionnés.
+            </p>
+        </div>
+        <div class="lco-hero-chips">
+            <span class="lco-hero-chip">
+                <i class="fas fa-file-contract" style="font-size:.65rem;color:var(--lco-primary);"></i>
+                {{ $totalContracts }} contrat{{ $totalContracts > 1 ? 's' : '' }}
+            </span>
+            <span class="lco-hero-chip">
+                <i class="fas fa-link" style="font-size:.65rem;"></i>
+                {{ $totalRuleLines }} ligne{{ $totalRuleLines > 1 ? 's' : '' }}
+            </span>
+        </div>
+    </div>
+
+    {{-- ── KPI STRIP ────────────────────────────────────────────── --}}
+    <div class="lco-kpis">
+        <div class="lco-kpi" style="--lco-kpi-accent:#f58220;--lco-kpi-icon-bg:rgba(245,130,32,.1);--lco-kpi-icon-color:#f58220;">
             <div>
-                <h2><i class="fas fa-shield-halved"></i> Règles de coupure par contrat réel</h2>
-                <p>
-                    Une coupure automatique n’est possible que si le contrat spécifique ou l’un de ses sous-contrats réellement associés possède une règle active.
-                    Le paramétrage en masse est autorisé, mais il ne modifie que les contrats/sous-contrats visibles et sélectionnés.
-                </p>
+                <div class="lco-kpi-label">Contrats principaux</div>
+                <div class="lco-kpi-val" id="kpiContracts">{{ $totalContracts }}</div>
+            </div>
+            <div class="lco-kpi-icon"><i class="fas fa-file-contract"></i></div>
+        </div>
+
+        <div class="lco-kpi" style="--lco-kpi-accent:#6366f1;--lco-kpi-icon-bg:rgba(99,102,241,.1);--lco-kpi-icon-color:#6366f1;">
+            <div>
+                <div class="lco-kpi-label">Lignes réelles</div>
+                <div class="lco-kpi-val">{{ $totalRuleLines }}</div>
+            </div>
+            <div class="lco-kpi-icon"><i class="fas fa-link"></i></div>
+        </div>
+
+        <div class="lco-kpi" style="--lco-kpi-accent:#10b981;--lco-kpi-icon-bg:rgba(16,185,129,.1);--lco-kpi-icon-color:#10b981;">
+            <div>
+                <div class="lco-kpi-label">Règles actives</div>
+                <div class="lco-kpi-val" id="kpiActiveRules">{{ $activeRules }}</div>
+            </div>
+            <div class="lco-kpi-icon"><i class="fas fa-power-off"></i></div>
+        </div>
+
+        <div class="lco-kpi" style="--lco-kpi-accent:#f59e0b;--lco-kpi-icon-bg:rgba(245,158,11,.1);--lco-kpi-icon-color:#f59e0b;">
+            <div>
+                <div class="lco-kpi-label">Actives sans heure</div>
+                <div class="lco-kpi-val" id="kpiMissingTime">{{ $missingTimes }}</div>
+            </div>
+            <div class="lco-kpi-icon"><i class="fas fa-clock"></i></div>
+        </div>
+    </div>
+
+    {{-- ── SELECTION BAR (si sélection active) ─────────────────── --}}
+    <div class="lco-sel-bar" id="selectionBar">
+        <div class="lco-sel-count">
+            <i class="fas fa-check-square"></i>
+            <span id="selectedCount">0</span> contrat(s) sélectionné(s)
+        </div>
+        <div class="lco-sel-actions">
+            <input type="time" class="lco-input lco-time-input" id="selectionTime" value="12:00">
+            <button type="button" class="lco-btn soft" id="selApplyTimeBtn">
+                <i class="fas fa-clock"></i> Appliquer heure
+            </button>
+            <button type="button" class="lco-btn soft" id="selEnableBtn">
+                <i class="fas fa-toggle-on"></i> Activer
+            </button>
+            <button type="button" class="lco-btn" id="selDisableBtn">
+                <i class="fas fa-toggle-off"></i> Désactiver
+            </button>
+            <button type="button" class="lco-btn lco-btn-icon-only" id="clearSelectionBtn" title="Vider la sélection">
+                <i class="fas fa-xmark"></i>
+            </button>
+        </div>
+    </div>
+
+    {{-- ── TOOLBAR (recherche + actions en masse) ───────────────── --}}
+    <div class="lco-toolbar">
+        <div class="lco-toolbar-header">
+            <span class="lco-toolbar-title">
+                <i class="fas fa-layer-group"></i>
+                Paramétrage en masse
+            </span>
+            <span style="font-size:.72rem;color:var(--color-text-muted);">
+                Les actions s'appliquent aux lignes visibles ou sélectionnées uniquement.
+            </span>
+        </div>
+
+        <div class="lco-toolbar-body">
+            <div class="lco-toolbar-row">
+                {{-- Recherche --}}
+                <div class="lco-search-wrap">
+                    <i class="fas fa-search lco-search-icon"></i>
+                    <input
+                        type="search"
+                        id="contractSearch"
+                        class="lco-input lco-search-input"
+                        placeholder="Contrat, véhicule, chauffeur, type…"
+                    >
+                </div>
+
+                <div class="lco-toolbar-divider"></div>
+
+                {{-- Groupe : heure + actions visibles --}}
+                <input type="time" class="lco-input lco-time-input" id="bulkTime" value="12:00">
+
+                <button type="button" class="lco-btn soft" id="applyTimeVisibleBtn">
+                    <i class="fas fa-clock"></i> Heure aux visibles
+                </button>
+
+                <div class="lco-toolbar-divider"></div>
+
+                <button type="button" class="lco-btn soft" id="enableVisibleBtn">
+                    <i class="fas fa-toggle-on"></i> Activer visibles
+                </button>
+
+                <button type="button" class="lco-btn" id="disableVisibleBtn">
+                    <i class="fas fa-toggle-off"></i> Désactiver visibles
+                </button>
             </div>
         </div>
+    </div>
 
-        <div class="lco-kpis">
-            <div class="lco-kpi"><div><span>Contrats principaux</span><strong id="kpiContracts">{{ $totalContracts }}</strong></div><i class="fas fa-file-contract"></i></div>
-            <div class="lco-kpi"><div><span>Lignes réelles</span><strong>{{ $totalRuleLines }}</strong></div><i class="fas fa-link"></i></div>
-            <div class="lco-kpi"><div><span>Règles actives</span><strong id="kpiActiveRules">{{ $activeRules }}</strong></div><i class="fas fa-power-off"></i></div>
-            <div class="lco-kpi"><div><span>Actives sans heure</span><strong id="kpiMissingTime">{{ $missingTimes }}</strong></div><i class="fas fa-clock"></i></div>
-        </div>
-    </section>
-
-    <section class="lco-card">
-        <div class="lco-head">
-            <div>
-                <h2><i class="fas fa-layer-group"></i> Paramétrage en masse</h2>
-                <p>Les actions ci-dessous s’appliquent aux lignes visibles ou sélectionnées. Elles n’ajoutent jamais de sous-contrat absent du contrat.</p>
-            </div>
-        </div>
-
+    {{-- ── FORM CARD ────────────────────────────────────────────── --}}
+    <div class="lco-form-card">
         <form method="POST" action="{{ route('lease.cutoff-rules.store') }}" id="cutoffRulesForm">
             @csrf
-
-            <div class="lco-toolbar">
-                <div class="lco-toolbar-top">
-                    <div class="lco-search">
-                        <i class="fas fa-search"></i>
-                        <input class="lco-input" type="search" id="contractSearch" placeholder="Rechercher contrat, véhicule, chauffeur, type...">
-                    </div>
-                    <input type="time" class="lco-input" id="bulkTime" style="max-width:150px" value="12:00">
-                    <button type="button" class="lco-btn soft" id="applyTimeVisibleBtn"><i class="fas fa-clock"></i> Heure aux visibles</button>
-                    <button type="button" class="lco-btn soft" id="enableVisibleBtn"><i class="fas fa-toggle-on"></i> Activer visibles</button>
-                    <button type="button" class="lco-btn" id="disableVisibleBtn"><i class="fas fa-toggle-off"></i> Désactiver visibles</button>
-                </div>
-            </div>
-
-            <div class="lco-selection" id="selectionBar">
-                <strong><span id="selectedCount">0</span> contrat(s) sélectionné(s)</strong>
-                <div class="lco-actions">
-                    <input type="time" class="lco-input" id="selectionTime" style="max-width:150px" value="12:00">
-                    <button type="button" class="lco-btn soft" id="selApplyTimeBtn"><i class="fas fa-clock"></i> Appliquer heure</button>
-                    <button type="button" class="lco-btn soft" id="selEnableBtn"><i class="fas fa-toggle-on"></i> Activer</button>
-                    <button type="button" class="lco-btn" id="selDisableBtn"><i class="fas fa-toggle-off"></i> Désactiver</button>
-                    <button type="button" class="lco-btn" id="clearSelectionBtn"><i class="fas fa-xmark"></i> Vider</button>
-                </div>
-            </div>
 
             <div class="lco-table-wrap">
                 <table class="lco-table">
                     <thead>
                         <tr>
-                            <th style="width:45px"><input type="checkbox" id="checkAll" class="lco-row-check"></th>
-                            <th>Contrat / Véhicule</th>
+                            <th style="width:42px;">
+                                <input type="checkbox" id="checkAll" class="lco-row-check">
+                            </th>
+                            <th>Véhicule / Contrat</th>
                             <th>Chauffeur</th>
                             <th>Statut</th>
-                            <th>Contrat et sous-contrats réellement associés</th>
+                            <th>Règles associées</th>
                         </tr>
                     </thead>
+
                     <tbody>
-                        @forelse($rows as $rowIndex => $row)
-                            @php
-                                $searchText = strtolower(trim(($row['immatriculation'] ?? '').' '.($row['driver_name'] ?? '').' '.($row['main_type_label'] ?? '').' '.collect($row['contract_rules'] ?? [])->pluck('type_contrat_label')->implode(' ')));
-                            @endphp
-                            <tr class="lco-row" data-search="{{ $searchText }}" data-enabled-count="{{ $row['enabled_contract_rules_count'] ?? 0 }}" data-missing-time="{{ $row['missing_time_contract_rules_count'] ?? 0 }}">
-                                <td><input type="checkbox" class="lco-row-check"></td>
-                                <td>
-                                    <input type="hidden" name="rules[{{ $rowIndex }}][main_contract_link_id]" value="{{ $row['main_contract_link_id'] }}">
-                                    <input type="hidden" name="rules[{{ $rowIndex }}][vehicle_id]" value="{{ $row['vehicle_id'] }}">
-                                    <div class="contract-title"><i class="fas fa-motorcycle"></i> {{ $row['immatriculation'] ?: 'Véhicule sans immatriculation' }}</div>
-                                    <div class="contract-meta">
-                                        {{ trim(($row['marque'] ?? '').' '.($row['model'] ?? '')) ?: 'Modèle non renseigné' }}<br>
-                                        Contrat principal #{{ $row['main_source_contract_id'] }} — {{ $row['main_type_label'] }}<br>
-                                        GPS : {{ $row['mac_id_gps'] ?: 'mac_id_gps manquant' }}
+                    @forelse($rows as $rowIndex => $row)
+                        @php
+                            $searchText = strtolower(trim(
+                                ($row['immatriculation'] ?? '') . ' ' .
+                                ($row['driver_name'] ?? '') . ' ' .
+                                ($row['main_type_label'] ?? '') . ' ' .
+                                collect($row['contract_rules'] ?? [])->pluck('type_contrat_label')->implode(' ')
+                            ));
+                        @endphp
+
+                        <tr class="lco-row"
+                            data-search="{{ $searchText }}"
+                            data-enabled-count="{{ $row['enabled_contract_rules_count'] ?? 0 }}"
+                            data-missing-time="{{ $row['missing_time_contract_rules_count'] ?? 0 }}">
+
+                            {{-- Checkbox --}}
+                            <td style="vertical-align:middle;">
+                                <input type="checkbox" class="lco-row-check">
+                            </td>
+
+                            {{-- Véhicule --}}
+                            <td>
+                                <input type="hidden" name="rules[{{ $rowIndex }}][main_contract_link_id]" value="{{ $row['main_contract_link_id'] }}">
+                                <input type="hidden" name="rules[{{ $rowIndex }}][vehicle_id]" value="{{ $row['vehicle_id'] }}">
+
+                                <div class="lco-vehicle">
+                                    <div class="lco-vehicle-icon">
+                                        <i class="fas fa-motorcycle"></i>
                                     </div>
-                                </td>
-                                <td><div class="contract-meta">{{ $row['driver_name'] ?: 'Chauffeur non résolu' }}</div></td>
-                                <td class="row-status"></td>
-                                <td>
-                                    <div class="rule-grid">
-                                        @foreach(($row['contract_rules'] ?? []) as $ruleIndex => $rule)
-                                            <div class="rule-card {{ !empty($rule['is_enabled']) ? 'enabled' : '' }}">
-                                                <div class="rule-top">
-                                                    <div>
-                                                        <div class="rule-name">
-                                                            @if(($rule['contract_kind'] ?? 'MAIN') === 'SUB')
-                                                                <span class="tag sub">Sous-contrat</span>
-                                                            @else
-                                                                <span class="tag ok">Principal</span>
-                                                            @endif
-                                                            {{ $rule['type_contrat_label'] }}
-                                                        </div>
-                                                        <div class="rule-sub">
-                                                            Contrat #{{ $rule['source_contract_id'] }}
-                                                            @if(!empty($rule['source_parent_contract_id']))
-                                                                — parent #{{ $rule['source_parent_contract_id'] }}
-                                                            @endif
-                                                        </div>
+                                    <div>
+                                        <div class="lco-vehicle-plate">
+                                            {{ $row['immatriculation'] ?: 'Sans immatriculation' }}
+                                        </div>
+                                        <div class="lco-vehicle-meta">
+                                            {{ trim(($row['marque'] ?? '') . ' ' . ($row['model'] ?? '')) ?: 'Modèle non renseigné' }}<br>
+                                            Contrat #{{ $row['main_source_contract_id'] }} — {{ $row['main_type_label'] }}<br>
+                                            GPS : <code>{{ $row['mac_id_gps'] ?: 'manquant' }}</code>
+                                        </div>
+                                    </div>
+                                </div>
+                            </td>
+
+                            {{-- Chauffeur --}}
+                            <td style="vertical-align:middle;">
+                                @if($row['driver_name'])
+                                    <span class="lco-driver">{{ $row['driver_name'] }}</span>
+                                @else
+                                    <span class="lco-driver lco-driver-empty">Non résolu</span>
+                                @endif
+                            </td>
+
+                            {{-- Statut (calculé en JS) --}}
+                            <td class="row-status lco-status-cell" style="vertical-align:middle;"></td>
+
+                            {{-- Règles --}}
+                            <td>
+                                <div class="lco-rule-grid">
+                                    @foreach(($row['contract_rules'] ?? []) as $ruleIndex => $rule)
+                                        <div class="lco-rule-card {{ !empty($rule['is_enabled']) ? 'enabled' : '' }}">
+
+                                            {{-- Top : nom + toggle --}}
+                                            <div class="lco-rule-top">
+                                                <div>
+                                                    <div class="lco-rule-name">
+                                                        <span class="lco-tag {{ ($rule['contract_kind'] ?? 'MAIN') === 'SUB' ? 'sub' : 'main' }}">
+                                                            {{ ($rule['contract_kind'] ?? 'MAIN') === 'SUB' ? 'Sous-contrat' : 'Principal' }}
+                                                        </span>
+                                                        {{ $rule['type_contrat_label'] }}
                                                     </div>
-                                                    <label class="switchline">
-                                                        <input type="checkbox" class="rule-enabled" name="rules[{{ $rowIndex }}][contract_rules][{{ $ruleIndex }}][is_enabled]" value="1" @checked($rule['is_enabled'])>
-                                                        Activer
+                                                    <div class="lco-rule-id">
+                                                        #{{ $rule['source_contract_id'] }}
+                                                        @if(!empty($rule['source_parent_contract_id']))
+                                                            · parent #{{ $rule['source_parent_contract_id'] }}
+                                                        @endif
+                                                    </div>
+                                                </div>
+
+                                                <div class="lco-toggle-wrap">
+                                                    <span class="lco-toggle-label">Activer</span>
+                                                    <input
+                                                        type="checkbox"
+                                                        class="rule-enabled lco-row-check"
+                                                        name="rules[{{ $rowIndex }}][contract_rules][{{ $ruleIndex }}][is_enabled]"
+                                                        value="1"
+                                                        @checked($rule['is_enabled'])
+                                                    >
+                                                </div>
+                                            </div>
+
+                                            <input type="hidden" name="rules[{{ $rowIndex }}][contract_rules][{{ $ruleIndex }}][contract_link_id]" value="{{ $rule['contract_link_id'] }}">
+                                            <input type="hidden" name="rules[{{ $rowIndex }}][contract_rules][{{ $ruleIndex }}][timezone]" value="{{ $rule['timezone'] ?? 'Africa/Douala' }}">
+
+                                            {{-- Champs : heure, grâce, sécurité, notif --}}
+                                            <div class="lco-rule-fields">
+                                                <div class="lco-field">
+                                                    <label>Heure</label>
+                                                    <input
+                                                        type="time"
+                                                        class="lco-field-input rule-time"
+                                                        name="rules[{{ $rowIndex }}][contract_rules][{{ $ruleIndex }}][cutoff_time]"
+                                                        value="{{ $rule['cutoff_time'] ?: '12:00' }}"
+                                                    >
+                                                </div>
+
+                                                <div class="lco-field">
+                                                    <label>Grâce (j)</label>
+                                                    <input
+                                                        type="number"
+                                                        class="lco-field-input"
+                                                        min="0" max="365"
+                                                        name="rules[{{ $rowIndex }}][contract_rules][{{ $ruleIndex }}][grace_days]"
+                                                        value="{{ $rule['grace_days'] ?? 0 }}"
+                                                    >
+                                                </div>
+
+                                                <div class="lco-field">
+                                                    <label>Sécurité</label>
+                                                    <label class="lco-check-wrap">
+                                                        <input
+                                                            type="checkbox"
+                                                            name="rules[{{ $rowIndex }}][contract_rules][{{ $ruleIndex }}][only_when_stopped]"
+                                                            value="1"
+                                                            @checked($rule['only_when_stopped'] ?? true)
+                                                        >
+                                                        Arrêt seul
                                                     </label>
                                                 </div>
 
-                                                <input type="hidden" name="rules[{{ $rowIndex }}][contract_rules][{{ $ruleIndex }}][contract_link_id]" value="{{ $rule['contract_link_id'] }}">
-                                                <input type="hidden" name="rules[{{ $rowIndex }}][contract_rules][{{ $ruleIndex }}][timezone]" value="{{ $rule['timezone'] ?? 'Africa/Douala' }}">
-
-                                                <div class="rule-fields">
-                                                    <div class="mini-field">
-                                                        <label>Heure</label>
-                                                        <input type="time" class="mini-input rule-time" name="rules[{{ $rowIndex }}][contract_rules][{{ $ruleIndex }}][cutoff_time]" value="{{ $rule['cutoff_time'] ?: '12:00' }}">
-                                                    </div>
-                                                    <div class="mini-field">
-                                                        <label>Grâce</label>
-                                                        <input type="number" class="mini-input" min="0" max="365" name="rules[{{ $rowIndex }}][contract_rules][{{ $ruleIndex }}][grace_days]" value="{{ $rule['grace_days'] ?? 0 }}">
-                                                    </div>
-                                                    <div class="mini-field">
-                                                        <label>Sécurité</label>
-                                                        <label class="mini-check"><input type="checkbox" name="rules[{{ $rowIndex }}][contract_rules][{{ $ruleIndex }}][only_when_stopped]" value="1" @checked($rule['only_when_stopped'] ?? true)> Arrêt seul</label>
-                                                    </div>
-                                                    <div class="mini-field">
-                                                        <label>Notification</label>
-                                                        <label class="mini-check"><input type="checkbox" name="rules[{{ $rowIndex }}][contract_rules][{{ $ruleIndex }}][notify_before_cutoff]" value="1" @checked($rule['notify_before_cutoff'] ?? false)> Notifier</label>
-                                                    </div>
+                                                <div class="lco-field">
+                                                    <label>Notif.</label>
+                                                    <label class="lco-check-wrap">
+                                                        <input
+                                                            type="checkbox"
+                                                            name="rules[{{ $rowIndex }}][contract_rules][{{ $ruleIndex }}][notify_before_cutoff]"
+                                                            value="1"
+                                                            @checked($rule['notify_before_cutoff'] ?? false)
+                                                        >
+                                                        Notifier
+                                                    </label>
                                                 </div>
                                             </div>
-                                        @endforeach
-                                    </div>
-                                </td>
-                            </tr>
-                        @empty
-                            <tr><td colspan="5"><div class="empty"><i class="fas fa-file-contract"></i><br>Aucun contrat lié trouvé. Synchronisez d’abord les contrats Recouvrement avec les véhicules Tracking.</div></td></tr>
-                        @endforelse
+                                        </div>
+                                    @endforeach
+                                </div>
+                            </td>
+                        </tr>
+
+                    @empty
+                        <tr>
+                            <td colspan="5">
+                                <div class="lco-empty">
+                                    <div class="lco-empty-icon"><i class="fas fa-file-contract"></i></div>
+                                    <div class="lco-empty-text">Aucun contrat lié trouvé</div>
+                                    <div class="lco-empty-sub">Synchronisez d'abord les contrats Recouvrement avec les véhicules Tracking.</div>
+                                </div>
+                            </td>
+                        </tr>
+                    @endforelse
                     </tbody>
                 </table>
             </div>
 
-            <div class="lco-footer">
-                <p><i class="fas fa-info-circle"></i> Pas de règle active sur le contrat/sous-contrat réel = aucune planification de coupure.</p>
-                <div class="lco-actions">
-                    <button type="reset" class="lco-btn"><i class="fas fa-rotate-left"></i> Réinitialiser</button>
-                    <button type="submit" class="lco-btn primary"><i class="fas fa-save"></i> Enregistrer les règles</button>
+            {{-- FOOTER --}}
+            <div class="lco-form-footer">
+                <div class="lco-form-footer-hint">
+                    <i class="fas fa-info-circle" style="margin-top:.1rem;color:var(--lco-primary);flex-shrink:0;"></i>
+                    Pas de règle active sur le contrat/sous-contrat réel = aucune planification de coupure.
+                </div>
+                <div class="lco-form-actions">
+                    <button type="reset" class="lco-btn">
+                        <i class="fas fa-rotate-left"></i>
+                        Réinitialiser
+                    </button>
+                    <button type="submit" class="lco-btn primary">
+                        <i class="fas fa-save"></i>
+                        Enregistrer les règles
+                    </button>
                 </div>
             </div>
         </form>
-    </section>
+    </div>
+
 </div>
 @endsection
 
 @push('scripts')
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-    const rows = Array.from(document.querySelectorAll('.lco-row'));
-    const search = document.getElementById('contractSearch');
-    const checkAll = document.getElementById('checkAll');
+    const rows         = Array.from(document.querySelectorAll('.lco-row'));
+    const search       = document.getElementById('contractSearch');
+    const checkAll     = document.getElementById('checkAll');
     const selectionBar = document.getElementById('selectionBar');
-    const selectedCount = document.getElementById('selectedCount');
+    const selectedCountEl = document.getElementById('selectedCount');
 
-    const visibleRows = () => rows.filter(row => !row.classList.contains('hidden'));
-    const selectedRows = () => rows.filter(row => row.querySelector('.lco-row-check')?.checked);
+    /* ── helpers ───────────────────────────────────────────── */
+    const visibleRows  = () => rows.filter(r => !r.classList.contains('hidden'));
+    const selectedRows = () => rows.filter(r => r.querySelector('.lco-row-check')?.checked);
 
+    /* Refresh a single row's status badge and KPI data attributes */
     function refreshRow(row) {
-        const cards = Array.from(row.querySelectorAll('.rule-card'));
-        const enabled = cards.filter(card => card.querySelector('.rule-enabled')?.checked).length;
-        const missing = cards.filter(card => card.querySelector('.rule-enabled')?.checked && !card.querySelector('.rule-time')?.value).length;
+        const cards   = Array.from(row.querySelectorAll('.lco-rule-card'));
+        const enabled = cards.filter(c => c.querySelector('.rule-enabled')?.checked).length;
+        const missing = cards.filter(c => c.querySelector('.rule-enabled')?.checked && !c.querySelector('.rule-time')?.value).length;
+
         row.dataset.enabledCount = String(enabled);
-        row.dataset.missingTime = String(missing);
+        row.dataset.missingTime  = String(missing);
 
-        cards.forEach(card => card.classList.toggle('enabled', !!card.querySelector('.rule-enabled')?.checked));
+        /* card visual state */
+        cards.forEach(c => c.classList.toggle('enabled', !!c.querySelector('.rule-enabled')?.checked));
 
-        const status = row.querySelector('.row-status');
-        if (status) {
-            if (enabled > 0 && missing === 0) status.innerHTML = '<span class="tag ok">Règle active</span>';
-            else if (enabled > 0 && missing > 0) status.innerHTML = '<span class="tag warn">Heure manquante</span>';
-            else status.innerHTML = '<span class="tag off">Aucune règle active</span>';
+        /* row status badge */
+        const statusEl = row.querySelector('.row-status');
+        if (statusEl) {
+            if (enabled > 0 && missing === 0)
+                statusEl.innerHTML = '<span class="lco-tag ok"><i class="fas fa-check" style="font-size:.55rem;"></i> Règle active</span>';
+            else if (enabled > 0 && missing > 0)
+                statusEl.innerHTML = '<span class="lco-tag warn"><i class="fas fa-clock" style="font-size:.55rem;"></i> Heure manquante</span>';
+            else
+                statusEl.innerHTML = '<span class="lco-tag off"><i class="fas fa-minus" style="font-size:.55rem;"></i> Aucune règle</span>';
         }
 
         row.classList.add('dirty');
@@ -230,17 +1068,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function refreshKpis() {
-        const activeRules = rows.reduce((sum, row) => sum + Number(row.dataset.enabledCount || 0), 0);
-        const missing = rows.reduce((sum, row) => sum + Number(row.dataset.missingTime || 0), 0);
-        document.getElementById('kpiActiveRules').textContent = activeRules;
-        document.getElementById('kpiMissingTime').textContent = missing;
+        const activeRules = rows.reduce((s, r) => s + Number(r.dataset.enabledCount || 0), 0);
+        const missing     = rows.reduce((s, r) => s + Number(r.dataset.missingTime  || 0), 0);
+        document.getElementById('kpiActiveRules').textContent  = activeRules;
+        document.getElementById('kpiMissingTime').textContent  = missing;
     }
 
     function applyFilters() {
         const q = (search?.value || '').trim().toLowerCase();
         rows.forEach(row => {
-            const ok = !q || (row.dataset.search || '').includes(q);
-            row.classList.toggle('hidden', !ok);
+            const match = !q || (row.dataset.search || '').includes(q);
+            row.classList.toggle('hidden', !match);
         });
         refreshSelectionBar();
     }
@@ -248,35 +1086,30 @@ document.addEventListener('DOMContentLoaded', () => {
     function refreshSelectionBar() {
         const selected = selectedRows();
         selectionBar?.classList.toggle('show', selected.length > 0);
-        if (selectedCount) selectedCount.textContent = selected.length;
+        if (selectedCountEl) selectedCountEl.textContent = selected.length;
 
-        const vis = visibleRows();
-        const visSelected = vis.filter(row => row.querySelector('.lco-row-check')?.checked).length;
+        const vis        = visibleRows();
+        const visChecked = vis.filter(r => r.querySelector('.lco-row-check')?.checked).length;
         if (checkAll) {
-            checkAll.checked = vis.length > 0 && visSelected === vis.length;
-            checkAll.indeterminate = visSelected > 0 && visSelected < vis.length;
+            checkAll.checked       = vis.length > 0 && visChecked === vis.length;
+            checkAll.indeterminate = visChecked > 0 && visChecked < vis.length;
         }
-        rows.forEach(row => row.classList.toggle('selected', !!row.querySelector('.lco-row-check')?.checked));
+
+        rows.forEach(r => r.classList.toggle('selected', !!r.querySelector('.lco-row-check')?.checked));
     }
 
-    function mutateRows(targetRows, callback) {
-        targetRows.forEach(row => {
-            callback(row);
-            refreshRow(row);
-        });
+    /* ── batch mutations ────────────────────────────────────── */
+    function mutate(targetRows, callback) {
+        targetRows.forEach(row => { callback(row); refreshRow(row); });
         applyFilters();
     }
 
-    function setRulesEnabled(row, enabled) {
-        row.querySelectorAll('.rule-enabled').forEach(input => input.checked = enabled);
-    }
+    const setEnabled = (row, val) => row.querySelectorAll('.rule-enabled').forEach(i => i.checked = val);
+    const setTimes   = (row, t)   => { if (t) row.querySelectorAll('.rule-time').forEach(i => i.value = t); };
 
-    function setTimes(row, time) {
-        if (!time) return;
-        row.querySelectorAll('.rule-time').forEach(input => input.value = time);
-    }
-
+    /* ── listeners ──────────────────────────────────────────── */
     search?.addEventListener('input', applyFilters);
+
     checkAll?.addEventListener('change', () => {
         visibleRows().forEach(row => {
             const cb = row.querySelector('.lco-row-check');
@@ -288,38 +1121,49 @@ document.addEventListener('DOMContentLoaded', () => {
     rows.forEach(row => {
         row.querySelector('.lco-row-check')?.addEventListener('change', refreshSelectionBar);
         row.querySelectorAll('input').forEach(input => {
-            if (!input.classList.contains('lco-row-check')) {
-                input.addEventListener('change', () => { refreshRow(row); applyFilters(); });
-                input.addEventListener('input', () => { refreshRow(row); applyFilters(); });
-            }
+            if (input.classList.contains('lco-row-check')) return;
+            input.addEventListener('change', () => { refreshRow(row); applyFilters(); });
+            input.addEventListener('input',  () => { refreshRow(row); applyFilters(); });
         });
     });
 
-    document.getElementById('enableVisibleBtn')?.addEventListener('click', () => mutateRows(visibleRows(), row => setRulesEnabled(row, true)));
-    document.getElementById('disableVisibleBtn')?.addEventListener('click', () => mutateRows(visibleRows(), row => setRulesEnabled(row, false)));
-    document.getElementById('applyTimeVisibleBtn')?.addEventListener('click', () => {
-        const time = document.getElementById('bulkTime')?.value;
-        if (!time) return alert('Choisissez une heure à appliquer.');
-        mutateRows(visibleRows(), row => setTimes(row, time));
-    });
+    /* Visible buttons */
+    document.getElementById('enableVisibleBtn')
+        ?.addEventListener('click', () => mutate(visibleRows(), r => setEnabled(r, true)));
 
-    document.getElementById('selEnableBtn')?.addEventListener('click', () => mutateRows(selectedRows(), row => setRulesEnabled(row, true)));
-    document.getElementById('selDisableBtn')?.addEventListener('click', () => mutateRows(selectedRows(), row => setRulesEnabled(row, false)));
-    document.getElementById('selApplyTimeBtn')?.addEventListener('click', () => {
-        const time = document.getElementById('selectionTime')?.value;
-        if (!time) return alert('Choisissez une heure à appliquer.');
-        mutateRows(selectedRows(), row => setTimes(row, time));
-    });
-    document.getElementById('clearSelectionBtn')?.addEventListener('click', () => {
-        rows.forEach(row => {
-            const cb = row.querySelector('.lco-row-check');
-            if (cb) cb.checked = false;
+    document.getElementById('disableVisibleBtn')
+        ?.addEventListener('click', () => mutate(visibleRows(), r => setEnabled(r, false)));
+
+    document.getElementById('applyTimeVisibleBtn')
+        ?.addEventListener('click', () => {
+            const t = document.getElementById('bulkTime')?.value;
+            if (!t) { alert('Choisissez une heure à appliquer.'); return; }
+            mutate(visibleRows(), r => setTimes(r, t));
         });
-        refreshSelectionBar();
-    });
 
+    /* Selection buttons */
+    document.getElementById('selEnableBtn')
+        ?.addEventListener('click', () => mutate(selectedRows(), r => setEnabled(r, true)));
+
+    document.getElementById('selDisableBtn')
+        ?.addEventListener('click', () => mutate(selectedRows(), r => setEnabled(r, false)));
+
+    document.getElementById('selApplyTimeBtn')
+        ?.addEventListener('click', () => {
+            const t = document.getElementById('selectionTime')?.value;
+            if (!t) { alert('Choisissez une heure à appliquer.'); return; }
+            mutate(selectedRows(), r => setTimes(r, t));
+        });
+
+    document.getElementById('clearSelectionBtn')
+        ?.addEventListener('click', () => {
+            rows.forEach(r => { const cb = r.querySelector('.lco-row-check'); if (cb) cb.checked = false; });
+            refreshSelectionBar();
+        });
+
+    /* ── init ───────────────────────────────────────────────── */
     rows.forEach(refreshRow);
-    rows.forEach(row => row.classList.remove('dirty'));
+    rows.forEach(r => r.classList.remove('dirty'));
     applyFilters();
 });
 </script>

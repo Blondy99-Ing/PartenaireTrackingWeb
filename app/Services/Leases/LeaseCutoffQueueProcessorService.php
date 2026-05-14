@@ -14,6 +14,9 @@ use Illuminate\Support\Facades\Log;
  * Traite la queue de coupure lease.
  *
  * Sécurité métier :
+ * - le cron automatique traite uniquement les queues de la date du jour ;
+ * - une queue d'hier ne sera jamais reprise automatiquement aujourd'hui ;
+ * - une ancienne date se traite uniquement avec --date=YYYY-MM-DD ;
  * - on revérifie le lease exact avec lease_id + date_echeance ;
  * - on revérifie la règle spécifique avant tout nouvel envoi GPS ;
  * - on ne coupe pas si le véhicule roule, est offline, ou si l'état est incertain ;
@@ -102,6 +105,21 @@ class LeaseCutoffQueueProcessorService
                     continue;
                 }
 
+                /**
+                 * Verrou jour par jour.
+                 *
+                 * Même si la requête SQL filtre déjà lease_date_echeance=$targetDate,
+                 * on conserve cette vérification pour éviter qu'une queue incohérente
+                 * ou un payload ancien ne fasse traiter une autre date.
+                 */
+                if ($dueDate !== $targetDate) {
+                    Log::warning('[LEASE_CUTOFF_PROCESS] Queue ignorée : date_echeance différente de la date traitée.', array_merge($ctx, [
+                        'target_date_echeance' => $targetDate,
+                        'queue_due_date' => $dueDate,
+                    ]));
+                    continue;
+                }
+
                 if (! isset($nonPaidByDate[$dueDate])) {
                     $nonPaidByDate[$dueDate] = $this->leaseApi->fetchNonPaidLeasesForDateIndexedByLeaseId($dueDate);
 
@@ -134,9 +152,12 @@ class LeaseCutoffQueueProcessorService
 
                 /**
                  * Revérification de la règle spécifique avant commande GPS.
-                 * On ne l'applique pas aux queues déjà COMMAND_SENT : dans ce cas la
-                 * commande est déjà partie et le rôle du processor est seulement de
-                 * confirmer ou échouer, sans renvoi.
+                 *
+                 * Si la queue n'a pas encore envoyé de commande, la règle doit toujours
+                 * être active sur le même contrat/sous-contrat réel.
+                 *
+                 * Si la queue est déjà COMMAND_SENT, on ne renvoie pas la commande :
+                 * on vérifie seulement la confirmation moteur.
                  */
                 if ($item->status !== 'COMMAND_SENT') {
                     $activeRule = $this->resolveActiveContractRule($item);
@@ -347,17 +368,16 @@ class LeaseCutoffQueueProcessorService
             return Carbon::parse($dateEcheance, $timezone)->toDateString();
         }
 
-        /**
-         * Par défaut, le processor ne traite que la date métier du jour.
-         * Une queue d'hier reste visible dans l'historique d'hier, mais elle ne
-         * doit pas être reprise automatiquement aujourd'hui.
-         */
         return Carbon::now($timezone)->toDateString();
     }
 
     private function resolveActiveContractRule(LeaseCutoffQueue $item): ?LeaseCutoffContractRule
     {
-        if ($item->contractRule && $item->contractRule->is_enabled) {
+        if (
+            $item->contractRule
+            && (bool) $item->contractRule->is_enabled
+            && (int) $item->contractRule->contract_link_id === (int) $item->contract_link_id
+        ) {
             return $item->contractRule;
         }
 
