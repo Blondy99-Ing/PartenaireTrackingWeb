@@ -17,18 +17,10 @@ class DashbaordLeaseController extends Controller
 
     public function index(Request $request)
     {
-        $filters = $request->only([
-            'period',
-            'type',
-            'status',
-            'search',
-        ]);
+        $filters = $request->only(['search']);
 
         try {
-            $dashboard = $this->dashboardLeaseService->build(
-                $request->user(),
-                $filters
-            );
+            $dashboard = $this->dashboardLeaseService->build($request->user(), $filters);
 
             return view('leases.dashboard', [
                 'dashboard' => $dashboard,
@@ -45,7 +37,7 @@ class DashbaordLeaseController extends Controller
             return view('leases.dashboard', [
                 'dashboard' => $this->emptyDashboard(),
                 'filters' => $filters,
-                'pageError' => 'Le dashboard recouvrement est momentanément indisponible. Veuillez réessayer.',
+                'pageError' => 'Le dashboard recouvrement est momentanément indisponible.',
             ]);
         }
     }
@@ -53,17 +45,18 @@ class DashbaordLeaseController extends Controller
     private function emptyDashboard(): array
     {
         return [
-            'filters' => [
-                'period' => 'today',
-                'type' => 'all',
-                'status' => 'all',
-                'search' => '',
-            ],
+            'filters' => ['search' => ''],
             'period' => [
                 'key' => 'today',
                 'label' => 'Aujourd’hui',
                 'start_date' => now()->toDateString(),
                 'end_date' => now()->toDateString(),
+            ],
+            'week_period' => [
+                'key' => 'current_week',
+                'label' => 'Semaine courante',
+                'start_date' => now()->startOfWeek()->toDateString(),
+                'end_date' => now()->endOfWeek()->toDateString(),
             ],
             'warnings' => [],
             'kpis' => [
@@ -71,24 +64,27 @@ class DashbaordLeaseController extends Controller
                 'expected_amount' => 0,
                 'paid_amount' => 0,
                 'remaining_amount' => 0,
-                'drivers_to_call' => 0,
+                'drivers_paid' => 0,
+                'total_expected_drivers' => 0,
+                'drivers_unpaid' => 0,
                 'unpaid_leases_count' => 0,
-                'cutoffs_to_follow' => 0,
-                'cutoffs_confirmed' => 0,
-                'active_contracts' => 0,
                 'vehicles_count' => 0,
+                'vehicles_used' => 0,
+                'vehicles_never_used' => 0,
             ],
-            'priorities' => [],
             'charts' => [
                 'recovery' => [
                     'labels' => [],
+                    'dates' => [],
                     'expected' => [],
                     'paid' => [],
                     'remaining' => [],
+                    'rate' => [],
                 ],
-                'type_breakdown' => [
-                    'total' => 0,
+                'type_recovery' => [
                     'items' => [],
+                    'total_expected' => 0,
+                    'total_paid' => 0,
                 ],
             ],
             'tables' => [
@@ -105,10 +101,8 @@ class DashbaordLeaseController extends Controller
             ],
             'cutoff_summary' => [
                 'planned' => 0,
-                'waiting_stop' => 0,
                 'command_sent' => 0,
                 'confirmed' => 0,
-                'cancelled_paid' => 0,
                 'gps_failed' => 0,
             ],
         ];

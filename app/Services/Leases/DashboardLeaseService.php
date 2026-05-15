@@ -2,9 +2,10 @@
 
 namespace App\Services\Leases;
 
+use App\Models\LeaseContractLink;
+use App\Models\LeaseCutoffContractRule;
 use App\Models\LeaseCutoffHistory;
 use App\Models\LeaseCutoffQueue;
-use App\Models\LeaseCutoffRule;
 use App\Models\User;
 use App\Models\Voiture;
 use App\Services\Keycloak\KeycloakSessionTokenManager;
@@ -26,12 +27,11 @@ class DashboardLeaseService
     public function build(User $user, array $filters = []): array
     {
         $partnerId = $this->resolvePartnerId($user);
-
-        $selectedPeriod = $this->resolvePeriod((string) ($filters['period'] ?? 'today'));
+        $selectedPeriod = $this->resolvePeriod('today');
         $weekPeriod = $this->currentWeekPeriod();
+        $search = trim((string) ($filters['search'] ?? ''));
 
         $warnings = [];
-
         $dailyStats = null;
         $contracts = [];
         $chauffeurs = [];
@@ -43,30 +43,23 @@ class DashboardLeaseService
             $dailyStats = $this->fetchDailyStats();
         } catch (Throwable $e) {
             report($e);
-            $warnings[] = "Les statistiques journalières Recouvrement sont indisponibles. Les KPI seront recalculés depuis les leases.";
-            Log::warning('[LEASE_DASHBOARD_DAILY_STATS_FAILED]', [
-                'error' => $e->getMessage(),
-            ]);
+            $warnings[] = 'Les statistiques du jour sont momentanément indisponibles.';
+            Log::warning('[LEASE_DASHBOARD_DAILY_STATS_FAILED]', ['error' => $e->getMessage()]);
         }
 
         try {
             $contracts = $this->leaseApiService->fetchContracts();
         } catch (Throwable $e) {
             report($e);
-            $warnings[] = "Les contrats Recouvrement sont indisponibles.";
-            Log::error('[LEASE_DASHBOARD_CONTRACTS_FAILED]', [
-                'error' => $e->getMessage(),
-            ]);
+            $warnings[] = 'Les contrats ne sont pas disponibles pour le moment.';
+            Log::error('[LEASE_DASHBOARD_CONTRACTS_FAILED]', ['error' => $e->getMessage()]);
         }
 
         try {
             $chauffeurs = $this->leaseApiService->fetchChauffeurs();
         } catch (Throwable $e) {
             report($e);
-            $warnings[] = "La liste des chauffeurs est indisponible.";
-            Log::error('[LEASE_DASHBOARD_CHAUFFEURS_FAILED]', [
-                'error' => $e->getMessage(),
-            ]);
+            Log::warning('[LEASE_DASHBOARD_CHAUFFEURS_FAILED]', ['error' => $e->getMessage()]);
         }
 
         try {
@@ -76,10 +69,8 @@ class DashboardLeaseService
             ]);
         } catch (Throwable $e) {
             report($e);
-            $warnings[] = "Les leases de la période sont indisponibles.";
-            Log::error('[LEASE_DASHBOARD_SELECTED_LEASES_FAILED]', [
-                'error' => $e->getMessage(),
-            ]);
+            $warnings[] = 'Les échéances du jour ne sont pas disponibles.';
+            Log::error('[LEASE_DASHBOARD_SELECTED_LEASES_FAILED]', ['error' => $e->getMessage()]);
         }
 
         try {
@@ -89,10 +80,8 @@ class DashboardLeaseService
             ]);
         } catch (Throwable $e) {
             report($e);
-            $warnings[] = "Les leases de la semaine courante sont indisponibles.";
-            Log::error('[LEASE_DASHBOARD_WEEK_LEASES_FAILED]', [
-                'error' => $e->getMessage(),
-            ]);
+            $warnings[] = 'L’évolution de la semaine est indisponible.';
+            Log::error('[LEASE_DASHBOARD_WEEK_LEASES_FAILED]', ['error' => $e->getMessage()]);
         }
 
         try {
@@ -102,55 +91,41 @@ class DashboardLeaseService
             );
         } catch (Throwable $e) {
             report($e);
-            $warnings[] = "Les paiements Recouvrement sont indisponibles.";
-            Log::error('[LEASE_DASHBOARD_PAYMENTS_FAILED]', [
-                'error' => $e->getMessage(),
-            ]);
+            $warnings[] = 'Les paiements du jour sont momentanément indisponibles.';
+            Log::error('[LEASE_DASHBOARD_PAYMENTS_FAILED]', ['error' => $e->getMessage()]);
         }
 
         $vehicles = $this->getPartnerVehicles($partnerId);
         $cutoffData = $this->getLocalCutoffData($partnerId, $selectedPeriod);
+        $vehicleUsage = $this->buildVehicleUsage($partnerId, $vehicles);
 
         $kpis = $this->buildKpis(
             dailyStats: $dailyStats,
             selectedLeases: $selectedLeases,
             payments: $payments,
             contracts: $contracts,
-            chauffeurs: $chauffeurs,
             vehicles: $vehicles,
-            cutoffData: $cutoffData
+            vehicleUsage: $vehicleUsage
         );
 
         return [
             'filters' => [
-                'period' => $filters['period'] ?? 'today',
-                'type' => $filters['type'] ?? 'all',
-                'status' => $filters['status'] ?? 'all',
-                'search' => $filters['search'] ?? '',
+                'search' => $search,
             ],
-
             'period' => $selectedPeriod,
             'week_period' => $weekPeriod,
             'warnings' => $warnings,
-
             'kpis' => $kpis,
-
-            'priorities' => $this->buildPriorities($selectedLeases, $cutoffData, $kpis),
-
             'charts' => [
                 'recovery' => $this->buildCurrentWeekRecoveryChart($weekLeases, $weekPeriod),
-                'payment_breakdown' => $this->buildPaymentBreakdown($kpis),
-                'type_breakdown' => $this->buildTypeBreakdown($selectedLeases),
+                'type_recovery' => $this->buildTypeRecoveryBreakdown($selectedLeases),
             ],
-
             'tables' => [
                 'drivers_risk' => $this->buildDriversRiskTable($selectedLeases),
                 'payments_today' => $this->buildPaymentsTable($payments),
                 'cutoffs' => $this->buildCutoffTimeline($cutoffData),
             ],
-
             'contracts_summary' => $this->buildContractsSummary($contracts),
-
             'cutoff_summary' => $this->buildCutoffSummary($cutoffData),
         ];
     }
@@ -172,8 +147,6 @@ class DashboardLeaseService
             'total_attendus' => (int) ($json['total_attendus'] ?? 0),
             'ayant_verse' => (int) ($json['ayant_verse'] ?? 0),
             'n_ayant_pas_verse' => (int) ($json['n_ayant_pas_verse'] ?? 0),
-            'updated_at' => (string) ($json['updated_at'] ?? ''),
-            'raw' => $json,
         ];
     }
 
@@ -203,9 +176,7 @@ class DashboardLeaseService
         }
 
         if (! $response->successful()) {
-            throw new RuntimeException(
-                "Échec API Recouvrement GET {$endpoint} [{$response->status()}] : " . $response->body()
-            );
+            throw new RuntimeException("Échec API Recouvrement GET {$endpoint} [{$response->status()}] : " . $response->body());
         }
 
         $json = $response->json();
@@ -222,9 +193,8 @@ class DashboardLeaseService
         array $selectedLeases,
         array $payments,
         array $contracts,
-        array $chauffeurs,
         Collection $vehicles,
-        array $cutoffData
+        array $vehicleUsage
     ): array {
         $expectedFromLeases = collect($selectedLeases)->sum(fn ($row) => $this->leaseExpected($row));
         $paidFromLeases = collect($selectedLeases)->sum(fn ($row) => $this->leasePaid($row));
@@ -233,90 +203,48 @@ class DashboardLeaseService
         $expected = $dailyStats['montant_attendu'] ?? $expectedFromLeases;
         $paid = $dailyStats['montant_collecte'] ?? $paidFromLeases;
         $remaining = $dailyStats['montant_echec'] ?? max(0, $remainingFromLeases ?: ($expected - $paid));
+        $rate = $expected > 0 ? (int) round(($paid / $expected) * 100) : 0;
 
-        $rate = $expected > 0
-            ? (int) round(($paid / $expected) * 100)
-            : 0;
-
-        $unpaidLeases = collect($selectedLeases)
-            ->filter(fn ($row) => ($row['statut'] ?? null) === 'unpaid')
-            ->values();
-
-        $activeChauffeurs = collect($chauffeurs)
-            ->filter(fn ($row) => (bool) ($row['is_active'] ?? false))
-            ->count();
-
-        $inactiveChauffeurs = max(0, count($chauffeurs) - $activeChauffeurs);
-
-        $activeContractDrivers = collect($contracts)
-            ->filter(fn ($row) => ($row['statut'] ?? null) === 'actif' || strtoupper((string) ($row['statut'] ?? '')) === 'ACTIF')
-            ->pluck('chauffeur_id')
-            ->filter()
-            ->unique()
-            ->count();
+        $unpaidLeases = collect($selectedLeases)->filter(fn ($row) => ($row['statut'] ?? null) === 'unpaid');
 
         return [
             'date' => $dailyStats['date'] ?? now()->toDateString(),
-
-            'recovery_rate' => $rate,
+            'recovery_rate' => min(100, max(0, $rate)),
             'expected_amount' => $expected,
             'paid_amount' => $paid,
             'remaining_amount' => $remaining,
-
-            'total_expected_drivers' => $dailyStats['total_attendus'] ?? $unpaidLeases->pluck('chauffeur')->filter()->unique()->count(),
-            'drivers_paid' => $dailyStats['ayant_verse'] ?? 0,
+            'total_expected_drivers' => $dailyStats['total_attendus'] ?? collect($selectedLeases)->pluck('chauffeur')->filter()->unique()->count(),
+            'drivers_paid' => $dailyStats['ayant_verse'] ?? collect($payments)->pluck('chauffeur')->filter()->unique()->count(),
             'drivers_unpaid' => $dailyStats['n_ayant_pas_verse'] ?? $unpaidLeases->pluck('chauffeur')->filter()->unique()->count(),
-
-            'drivers_to_call' => $unpaidLeases->pluck('chauffeur')->filter()->unique()->count(),
             'unpaid_leases_count' => $unpaidLeases->count(),
-
-            'active_chauffeurs' => $activeChauffeurs,
-            'inactive_chauffeurs' => $inactiveChauffeurs,
-            'active_contract_drivers' => $activeContractDrivers,
-
-            'active_contracts' => collect($contracts)
-                ->filter(fn ($row) => ($row['statut'] ?? null) === 'actif' || strtoupper((string) ($row['statut'] ?? '')) === 'ACTIF')
-                ->count(),
-
+            'active_contracts' => collect($contracts)->filter(fn ($row) => $this->isActiveStatus($row['statut'] ?? $row['status'] ?? ''))->count(),
             'vehicles_count' => $vehicles->count(),
-
-            'cutoffs_to_follow' => $cutoffData['active_queue']->count(),
-            'cutoffs_confirmed' => $cutoffData['histories']->where('status', 'CUT_OFF')->count(),
+            'vehicles_used' => $vehicleUsage['used'],
+            'vehicles_never_used' => $vehicleUsage['never_used'],
         ];
     }
 
     private function buildCurrentWeekRecoveryChart(array $weekLeases, array $weekPeriod): array
     {
-        $labelsByIsoDay = [
-            1 => 'Lun',
-            2 => 'Mar',
-            3 => 'Mer',
-            4 => 'Jeu',
-            5 => 'Ven',
-            6 => 'Sam',
-            7 => 'Dim',
-        ];
-
+        $labelsByIsoDay = [1 => 'Lun', 2 => 'Mar', 3 => 'Mer', 4 => 'Jeu', 5 => 'Ven', 6 => 'Sam', 7 => 'Dim'];
         $days = [];
-
         $start = Carbon::parse($weekPeriod['start_date']);
         $end = Carbon::parse($weekPeriod['end_date']);
 
         for ($date = $start->copy(); $date->lte($end); $date->addDay()) {
             $key = $date->toDateString();
-
             $days[$key] = [
                 'label' => $labelsByIsoDay[$date->isoWeekday()] ?? $date->format('d/m'),
                 'date' => $key,
                 'expected' => 0.0,
                 'paid' => 0.0,
                 'remaining' => 0.0,
+                'rate' => 0,
             ];
         }
 
         foreach ($weekLeases as $lease) {
             $date = $this->safeDate($lease['date_echeance'] ?? $lease['date'] ?? null);
-
             if (! $date || ! isset($days[$date])) {
                 continue;
             }
@@ -326,6 +254,10 @@ class DashboardLeaseService
             $days[$date]['remaining'] += $this->leaseRemaining($lease);
         }
 
+        foreach ($days as &$day) {
+            $day['rate'] = $day['expected'] > 0 ? (int) round(($day['paid'] / $day['expected']) * 100) : 0;
+        }
+
         return [
             'title' => 'Semaine courante',
             'labels' => collect($days)->pluck('label')->values()->all(),
@@ -333,69 +265,42 @@ class DashboardLeaseService
             'expected' => collect($days)->pluck('expected')->values()->all(),
             'paid' => collect($days)->pluck('paid')->values()->all(),
             'remaining' => collect($days)->pluck('remaining')->values()->all(),
+            'rate' => collect($days)->pluck('rate')->values()->all(),
         ];
     }
 
-    private function buildPaymentBreakdown(array $kpis): array
+    private function buildTypeRecoveryBreakdown(array $leases): array
     {
-        $expected = (float) ($kpis['expected_amount'] ?? 0);
-        $paid = (float) ($kpis['paid_amount'] ?? 0);
-        $remaining = max(0, (float) ($kpis['remaining_amount'] ?? ($expected - $paid)));
-
-        $rate = $expected > 0
-            ? (int) round(($paid / $expected) * 100)
-            : 0;
-
-        $paidPercent = $expected > 0
-            ? (int) round(($paid / $expected) * 100)
-            : 0;
-
-        $remainingPercent = max(0, 100 - $paidPercent);
-
-        return [
-            'rate' => $rate,
-            'total' => $expected,
-            'items' => [
-                [
-                    'label' => 'Collecté',
-                    'amount' => $paid,
-                    'percent' => $paidPercent,
-                    'badge' => 'success',
-                ],
-                [
-                    'label' => 'Reste à payer',
-                    'amount' => $remaining,
-                    'percent' => $remainingPercent,
-                    'badge' => 'danger',
-                ],
-            ],
-        ];
-    }
-
-    private function buildTypeBreakdown(array $leases): array
-    {
-        $unpaid = collect($leases)->filter(fn ($row) => ($row['statut'] ?? null) === 'unpaid');
-        $total = max(1, $unpaid->count());
-
-        $items = $unpaid
-            ->groupBy(fn ($row) => $row['type_contrat_label'] ?? $row['contrat_type'] ?? 'Autre')
-            ->map(function ($rows, $label) use ($total) {
-                $count = count($rows);
+        $groups = collect($leases)
+            ->groupBy(fn ($row) => $this->typeGroupKey($row))
+            ->map(function (Collection $rows, string $key) {
+                $first = $rows->first() ?: [];
+                $expected = $rows->sum(fn ($row) => $this->leaseExpected($row));
+                $paid = $rows->sum(fn ($row) => $this->leasePaid($row));
+                $remaining = max(0, $expected - $paid);
+                $rate = $expected > 0 ? (int) round(($paid / $expected) * 100) : 0;
+                $isMain = $this->isMainContract($first);
 
                 return [
-                    'label' => (string) $label,
-                    'count' => $count,
-                    'amount' => collect($rows)->sum(fn ($row) => $this->leaseRemaining($row)),
-                    'percent' => (int) round(($count / $total) * 100),
+                    'key' => $key,
+                    'label' => $this->displayTypeLabel($first),
+                    'kind' => $isMain ? 'principal' : 'sous-contrat',
+                    'is_main' => $isMain,
+                    'expected' => $expected,
+                    'paid' => $paid,
+                    'remaining' => $remaining,
+                    'rate' => min(100, max(0, $rate)),
+                    'count' => $rows->count(),
                 ];
             })
-            ->sortByDesc('count')
+            ->sortByDesc(fn ($item) => ($item['is_main'] ? 1_000_000_000 : 0) + $item['paid'])
             ->values()
             ->all();
 
         return [
-            'total' => $unpaid->count(),
-            'items' => $items,
+            'items' => $groups,
+            'total_expected' => collect($groups)->sum('expected'),
+            'total_paid' => collect($groups)->sum('paid'),
         ];
     }
 
@@ -406,14 +311,9 @@ class DashboardLeaseService
 
         return [
             'planned' => $queue->where('status', 'PENDING')->count() + $histories->where('status', 'PENDING')->count(),
-            'waiting_stop' => $queue->where('status', 'WAITING_STOP')->count() + $histories->where('status', 'WAITING_STOP')->count(),
             'command_sent' => $queue->where('status', 'COMMAND_SENT')->count() + $histories->where('status', 'COMMAND_SENT')->count(),
             'confirmed' => $histories->where('status', 'CUT_OFF')->count(),
-            'cancelled_paid' => $histories->whereIn('status', ['CANCELLED_PAID', 'CANCELLED'])->count(),
             'gps_failed' => $histories->where('status', 'FAILED')->count(),
-            'active_rules' => $cutoffData['active_rules_count'],
-            'vehicles_with_rules' => $cutoffData['vehicles_with_rules'],
-            'vehicles_without_rules' => $cutoffData['vehicles_without_rules'],
         ];
     }
 
@@ -425,140 +325,70 @@ class DashboardLeaseService
         $queue = LeaseCutoffQueue::query()
             ->with('vehicle')
             ->where('partner_id', $partnerId)
-            ->where(function ($query) use ($start, $end) {
-                $query->whereIn('status', ['PENDING', 'WAITING_STOP', 'COMMAND_SENT'])
-                    ->orWhereBetween('scheduled_for', [$start, $end])
-                    ->orWhereBetween('updated_at', [$start, $end]);
-            })
+            ->whereBetween('lease_date_echeance', [$start->toDateString(), $end->toDateString()])
             ->get();
-
-        $activeQueue = $queue
-            ->whereIn('status', ['PENDING', 'WAITING_STOP', 'COMMAND_SENT'])
-            ->values();
 
         $histories = LeaseCutoffHistory::query()
             ->with('vehicle')
             ->where('partner_id', $partnerId)
-            ->where(function ($query) use ($start, $end) {
-                $query->whereBetween('scheduled_for', [$start, $end])
-                    ->orWhereBetween('updated_at', [$start, $end])
-                    ->orWhereIn('status', ['PENDING', 'WAITING_STOP', 'COMMAND_SENT']);
-            })
+            ->whereBetween('lease_date_echeance', [$start->toDateString(), $end->toDateString()])
             ->get();
 
-        $activeRules = LeaseCutoffRule::query()
+        $rules = LeaseCutoffContractRule::query()
             ->where('partner_id', $partnerId)
             ->where('is_enabled', true)
+            ->whereNotNull('contract_link_id')
             ->get();
-
-        $partnerVehicleCount = $this->getPartnerVehicles($partnerId)->count();
 
         return [
             'queue' => $queue,
-            'active_queue' => $activeQueue,
+            'active_queue' => $queue->whereIn('status', ['PENDING', 'WAITING_STOP', 'COMMAND_SENT'])->values(),
             'histories' => $histories,
-            'active_rules_count' => $activeRules->count(),
-            'vehicles_with_rules' => $activeRules->pluck('vehicle_id')->filter()->unique()->count(),
-            'vehicles_without_rules' => max(0, $partnerVehicleCount - $activeRules->pluck('vehicle_id')->filter()->unique()->count()),
-        ];
-    }
-
-    private function buildPriorities(array $leases, array $cutoffData, array $kpis): array
-    {
-        $unpaid = collect($leases)->filter(fn ($row) => ($row['statut'] ?? null) === 'unpaid');
-
-        return [
-            [
-                'type' => 'danger',
-                'icon' => 'fas fa-user-clock',
-                'title' => ($kpis['drivers_to_call'] ?? 0) . ' chauffeurs nécessitent une relance',
-                'description' => 'Le reste à payer est de ' . $this->money((float) ($kpis['remaining_amount'] ?? 0)) . '. Les chauffeurs avec plusieurs impayés sont prioritaires.',
-                'badges' => [
-                    ['type' => 'danger', 'label' => $unpaid->count() . ' leases NON_PAYE'],
-                    ['type' => 'warning', 'label' => ($kpis['drivers_unpaid'] ?? 0) . ' n’ayant pas versé'],
-                ],
-            ],
-            [
-                'type' => 'warning',
-                'icon' => 'fas fa-motorcycle',
-                'title' => $cutoffData['active_queue']->count() . ' coupures à suivre',
-                'description' => 'Une coupure ne doit être exécutée que si le lease reste impayé, le véhicule est arrêté et le GPS est fiable.',
-                'badges' => [
-                    ['type' => 'warning', 'label' => $cutoffData['active_queue']->where('status', 'WAITING_STOP')->count() . ' en attente arrêt'],
-                    ['type' => 'info', 'label' => $cutoffData['active_queue']->where('status', 'COMMAND_SENT')->count() . ' commandes envoyées'],
-                ],
-            ],
-            [
-                'type' => 'info',
-                'icon' => 'fas fa-users',
-                'title' => 'Chauffeurs actifs / inactifs',
-                'description' => 'Le gestionnaire voit immédiatement la base chauffeur exploitable pour les versements.',
-                'badges' => [
-                    ['type' => 'success', 'label' => ($kpis['active_chauffeurs'] ?? 0) . ' actifs'],
-                    ['type' => 'muted', 'label' => ($kpis['inactive_chauffeurs'] ?? 0) . ' inactifs'],
-                ],
-            ],
+            'active_rules_count' => $rules->count(),
         ];
     }
 
     private function buildDriversRiskTable(array $leases): array
     {
         return collect($leases)
-            ->filter(fn ($row) => ($row['statut'] ?? null) === 'unpaid')
-            ->groupBy(function ($row) {
-                return trim((string) ($row['chauffeur'] ?? 'Chauffeur inconnu'))
-                    . '|'
-                    . trim((string) ($row['vehicule'] ?? '—'));
-            })
-            ->map(function ($rows, $key) {
-                [$driver, $vehicle] = array_pad(explode('|', $key), 2, '—');
-
-                $types = collect($rows)
-                    ->pluck('type_contrat_label')
-                    ->filter()
-                    ->unique()
-                    ->values()
-                    ->all();
-
-                $amount = collect($rows)->sum(fn ($row) => $this->leaseRemaining($row));
-
-                $cutoffLabel = collect($rows)
-                    ->pluck('coupure_label')
-                    ->filter()
-                    ->first() ?: 'À relancer';
+            ->groupBy(fn ($row) => (string) ($row['chauffeur'] ?? 'Chauffeur'))
+            ->map(function (Collection $rows, string $driver) {
+                $unpaid = $rows->filter(fn ($row) => ($row['statut'] ?? null) === 'unpaid');
+                $amountDue = $unpaid->sum(fn ($row) => $this->leaseRemaining($row));
+                $types = $unpaid->map(fn ($row) => $this->displayTypeLabel($row))->filter()->unique()->implode(', ');
+                $vehicle = $rows->pluck('vehicule')->filter()->first() ?: $rows->pluck('immatriculation')->filter()->first() ?: '—';
 
                 return [
-                    'driver' => $driver,
+                    'driver' => $driver ?: '—',
                     'vehicle' => $vehicle,
-                    'unpaid_count' => count($rows),
-                    'amount_due' => $amount,
-                    'types' => implode(' + ', $types) ?: '—',
-                    'status' => $this->driverOperationalStatus($cutoffLabel),
-                    'action' => $this->driverAction($cutoffLabel),
+                    'unpaid_count' => $unpaid->count(),
+                    'amount_due' => $amountDue,
+                    'types' => $types ?: '—',
+                    'status' => $amountDue > 0 ? ['label' => 'À suivre', 'badge' => 'warning'] : ['label' => 'À jour', 'badge' => 'success'],
+                    'action' => $amountDue > 0 ? 'Suivre' : 'OK',
                     'last_info' => $this->latestLeaseInfo($rows),
-                    'search' => mb_strtolower($driver . ' ' . $vehicle . ' ' . implode(' ', $types), 'UTF-8'),
+                    'search' => mb_strtolower($driver . ' ' . $vehicle . ' ' . $types, 'UTF-8'),
                 ];
             })
-            ->sortByDesc(fn ($row) => ($row['unpaid_count'] * 1000000) + $row['amount_due'])
+            ->filter(fn ($row) => ($row['unpaid_count'] ?? 0) > 0)
+            ->sortByDesc('amount_due')
             ->values()
-            ->take(10)
             ->all();
     }
 
     private function buildPaymentsTable(array $payments): array
     {
         return collect($payments)
-            ->sortByDesc(fn ($row) => strtotime((string) ($row['date_paiement'] ?? '')) ?: 0)
-            ->take(8)
+            ->sortByDesc(fn ($payment) => optional($this->safeCarbon($payment['date_paiement'] ?? null))->timestamp ?? 0)
             ->map(function ($payment) {
                 return [
                     'time' => $this->formatTime($payment['date_paiement'] ?? null),
-                    'driver' => $payment['chauffeur_nom_complet'] ?: '—',
-                    'lease' => '#' . ($payment['lease_id'] ?? '—'),
-                    'amount' => $this->toFloat($payment['montant'] ?? 0),
-                    'method' => $payment['methode_label'] ?? $payment['methode'] ?? '—',
-                    'status' => $this->paymentStatusLabel($payment['statut'] ?? ''),
-                    'recorded_by' => $payment['enregistre_par'] ?: 'Système',
+                    'driver' => $payment['chauffeur_nom_complet'] ?? $payment['chauffeur'] ?? '—',
+                    'lease' => ! empty($payment['lease_id']) ? 'Lease ' . $payment['lease_id'] : '—',
+                    'amount' => $this->toFloat($payment['montant'] ?? $payment['amount'] ?? 0),
+                    'method' => $payment['methode_label'] ?? $payment['methode'] ?? $payment['method'] ?? '—',
+                    'status' => $this->paymentStatusLabel($payment['statut'] ?? $payment['status'] ?? ''),
+                    'search' => mb_strtolower(($payment['chauffeur_nom_complet'] ?? $payment['chauffeur'] ?? '') . ' ' . ($payment['lease_id'] ?? '') . ' ' . ($payment['methode_label'] ?? $payment['methode'] ?? ''), 'UTF-8'),
                 ];
             })
             ->values()
@@ -569,17 +399,17 @@ class DashboardLeaseService
     {
         return $cutoffData['histories']
             ->sortByDesc(fn ($row) => optional($row->updated_at)->timestamp ?? 0)
-            ->take(8)
+            ->take(10)
             ->map(function (LeaseCutoffHistory $history) {
                 return [
-                    'vehicle' => optional($history->vehicle)->immatriculation ?? 'Véhicule #' . $history->vehicle_id,
-                    'lease' => '#' . ($history->lease_id ?: '—'),
-                    'type' => $history->type_contrat_label ?: 'Contrat',
+                    'vehicle' => optional($history->vehicle)->immatriculation ?? 'Véhicule',
+                    'type' => $this->cleanLabel((string) ($history->type_contrat_label ?: 'Contrat')),
                     'status' => $history->status,
                     'status_label' => $this->cutoffStatusLabel((string) $history->status),
                     'badge' => $this->cutoffBadge((string) $history->status),
-                    'reason' => $history->reason ?: $history->trigger_label ?: 'Décision de coupure enregistrée.',
+                    'reason' => $this->shortCutoffReason($history),
                     'updated_at' => optional($history->updated_at)->format('d/m H:i'),
+                    'search' => mb_strtolower((optional($history->vehicle)->immatriculation ?? '') . ' ' . ($history->type_contrat_label ?? '') . ' ' . ($history->reason ?? ''), 'UTF-8'),
                 ];
             })
             ->values()
@@ -591,21 +421,34 @@ class DashboardLeaseService
         $rows = collect($contracts);
 
         return [
-            'main_active' => $rows
-                ->filter(fn ($row) => empty($row['source_parent_contract_id'] ?? null))
-                ->filter(fn ($row) => ($row['statut'] ?? null) === 'actif' || strtoupper((string) ($row['statut'] ?? '')) === 'ACTIF')
-                ->count(),
-
-            'sub_active' => $rows
-                ->filter(fn ($row) => ! empty($row['source_parent_contract_id'] ?? null))
-                ->filter(fn ($row) => ($row['statut'] ?? null) === 'actif' || strtoupper((string) ($row['statut'] ?? '')) === 'ACTIF')
-                ->count(),
-
-            'sold' => $rows->filter(fn ($row) => ($row['statut'] ?? null) === 'solde' || strtoupper((string) ($row['statut'] ?? '')) === 'SOLDE')->count(),
-
-            'suspended' => $rows->filter(fn ($row) => ($row['statut'] ?? null) === 'suspendu' || strtoupper((string) ($row['statut'] ?? '')) === 'SUSPENDU')->count(),
-
+            'main_active' => $rows->filter(fn ($row) => $this->isMainContract($row))->filter(fn ($row) => $this->isActiveStatus($row['statut'] ?? $row['status'] ?? ''))->count(),
+            'sub_active' => $rows->filter(fn ($row) => ! $this->isMainContract($row))->filter(fn ($row) => $this->isActiveStatus($row['statut'] ?? $row['status'] ?? ''))->count(),
+            'sold' => $rows->filter(fn ($row) => $this->isSoldStatus($row['statut'] ?? $row['status'] ?? ''))->count(),
+            'suspended' => $rows->filter(fn ($row) => $this->isSuspendedStatus($row['statut'] ?? $row['status'] ?? ''))->count(),
             'remaining_total' => $rows->sum(fn ($row) => $this->toFloat($row['montant_restant'] ?? 0)),
+        ];
+    }
+
+    private function buildVehicleUsage(int $partnerId, Collection $vehicles): array
+    {
+        $total = $vehicles->count();
+        $usedVehicleIds = LeaseContractLink::query()
+            ->where('partner_id', $partnerId)
+            ->whereNotNull('vehicle_id')
+            ->where(function ($query) {
+                $query->whereNull('status')->orWhere('status', '!=', 'DELETED');
+            })
+            ->pluck('vehicle_id')
+            ->filter()
+            ->unique()
+            ->count();
+
+        $used = min($total, $usedVehicleIds);
+
+        return [
+            'total' => $total,
+            'used' => $used,
+            'never_used' => max(0, $total - $used),
         ];
     }
 
@@ -626,7 +469,6 @@ class DashboardLeaseService
         return collect($payments)
             ->filter(function ($payment) use ($start, $end) {
                 $date = $this->safeCarbon($payment['date_paiement'] ?? null);
-
                 return $date && $date->betweenIncluded($start, $end);
             })
             ->values()
@@ -638,35 +480,12 @@ class DashboardLeaseService
         $timezone = config('app.timezone') ?: 'Africa/Douala';
         $today = now($timezone)->startOfDay();
 
-        return match ($period) {
-            'yesterday' => [
-                'key' => 'yesterday',
-                'label' => 'Hier',
-                'start_date' => $today->copy()->subDay()->toDateString(),
-                'end_date' => $today->copy()->subDay()->toDateString(),
-            ],
-
-            'week' => [
-                'key' => 'week',
-                'label' => '7 derniers jours',
-                'start_date' => $today->copy()->subDays(6)->toDateString(),
-                'end_date' => $today->toDateString(),
-            ],
-
-            'month' => [
-                'key' => 'month',
-                'label' => '30 derniers jours',
-                'start_date' => $today->copy()->subDays(29)->toDateString(),
-                'end_date' => $today->toDateString(),
-            ],
-
-            default => [
-                'key' => 'today',
-                'label' => 'Aujourd’hui',
-                'start_date' => $today->toDateString(),
-                'end_date' => $today->toDateString(),
-            ],
-        };
+        return [
+            'key' => 'today',
+            'label' => 'Aujourd’hui',
+            'start_date' => $today->toDateString(),
+            'end_date' => $today->toDateString(),
+        ];
     }
 
     private function currentWeekPeriod(): array
@@ -689,30 +508,135 @@ class DashboardLeaseService
 
     private function leaseExpected(array $lease): float
     {
-        return $this->toFloat(
-            $lease['montant_requis']
-            ?? $lease['montant_attendu']
-            ?? data_get($lease, 'raw.montant_attendu')
-            ?? 0
-        );
+        return $this->toFloat($lease['montant_requis'] ?? $lease['montant_attendu'] ?? data_get($lease, 'raw.montant_attendu') ?? 0);
     }
 
     private function leasePaid(array $lease): float
     {
-        return $this->toFloat(
-            $lease['montant_paye']
-            ?? data_get($lease, 'raw.montant_paye')
-            ?? 0
-        );
+        return $this->toFloat($lease['montant_paye'] ?? data_get($lease, 'raw.montant_paye') ?? 0);
     }
 
     private function leaseRemaining(array $lease): float
     {
-        return $this->toFloat(
-            $lease['reste_a_payer']
-            ?? data_get($lease, 'raw.reste_a_payer')
-            ?? max(0, $this->leaseExpected($lease) - $this->leasePaid($lease))
-        );
+        return $this->toFloat($lease['reste_a_payer'] ?? data_get($lease, 'raw.reste_a_payer') ?? max(0, $this->leaseExpected($lease) - $this->leasePaid($lease)));
+    }
+
+    private function typeGroupKey(array $row): string
+    {
+        return ($this->isMainContract($row) ? 'main:' : 'sub:') . mb_strtolower($this->displayTypeLabel($row), 'UTF-8');
+    }
+
+    private function displayTypeLabel(array|object $row): string
+    {
+        $data = is_object($row) ? (array) $row : $row;
+        $label = $data['type_contrat_libelle']
+            ?? $data['type_contrat_label']
+            ?? $data['contrat_type']
+            ?? $data['contract_type_label']
+            ?? '';
+
+        return $this->cleanLabel((string) $label, $this->isMainContract($data) ? 'Contrat principal' : 'Sous-contrat');
+    }
+
+    private function cleanLabel(string $label, string $fallback = 'Contrat'): string
+    {
+        $label = trim($label);
+
+        if ($label === '' || preg_match('/^(type|contrat)\s*#?\d+$/i', $label)) {
+            return $fallback;
+        }
+
+        return $label;
+    }
+
+    private function isMainContract(array|object $row): bool
+    {
+        $data = is_object($row) ? (array) $row : $row;
+        $kind = strtoupper((string) ($data['contract_kind'] ?? $data['kind'] ?? ''));
+
+        if ($kind === 'MAIN') {
+            return true;
+        }
+
+        if ($kind === 'SUB') {
+            return false;
+        }
+
+        return empty($data['parent_contract_id'] ?? $data['source_parent_contract_id'] ?? $data['parent_id'] ?? null);
+    }
+
+    private function isActiveStatus(mixed $status): bool
+    {
+        return in_array(mb_strtoupper((string) $status, 'UTF-8'), ['ACTIF', 'ACTIVE', 'EN_COURS'], true);
+    }
+
+    private function isSoldStatus(mixed $status): bool
+    {
+        return in_array(mb_strtoupper((string) $status, 'UTF-8'), ['SOLDE', 'SOLD', 'TERMINE', 'TERMINÉ'], true);
+    }
+
+    private function isSuspendedStatus(mixed $status): bool
+    {
+        return in_array(mb_strtoupper((string) $status, 'UTF-8'), ['SUSPENDU', 'SUSPENDED'], true);
+    }
+
+    private function latestLeaseInfo(Collection $rows): string
+    {
+        $lastDate = $rows->pluck('date_echeance')->filter()->sort()->last();
+        return $lastDate ? 'Échéance ' . Carbon::parse($lastDate)->format('d/m/Y') : 'Échéance non disponible';
+    }
+
+    private function paymentStatusLabel(string $status): array
+    {
+        $value = mb_strtoupper(trim($status), 'UTF-8');
+
+        return match ($value) {
+            'VALIDE', 'VALIDÉ', 'PAYE', 'PAYÉ', 'SUCCESS', 'SUCCES', 'SUCCÈS' => ['label' => 'Validé', 'badge' => 'success'],
+            'EN_ATTENTE', 'PENDING', 'PROCESSING' => ['label' => 'En attente', 'badge' => 'warning'],
+            'ECHEC', 'ÉCHEC', 'FAILED' => ['label' => 'Échec', 'badge' => 'danger'],
+            default => ['label' => $status ?: '—', 'badge' => 'muted'],
+        };
+    }
+
+    private function shortCutoffReason(LeaseCutoffHistory $history): string
+    {
+        $status = (string) $history->status;
+
+        return match ($status) {
+            'PENDING' => 'Coupure planifiée.',
+            'WAITING_STOP' => 'Coupure reportée : sécurité GPS.',
+            'COMMAND_SENT' => 'Commande envoyée.',
+            'CUT_OFF' => 'Coupure confirmée.',
+            'CANCELLED_PAID', 'CANCELLED' => 'Annulée après régularisation.',
+            'FAILED' => 'Échec de coupure.',
+            default => 'Décision enregistrée.',
+        };
+    }
+
+    private function cutoffStatusLabel(string $status): string
+    {
+        return match ($status) {
+            'PENDING' => 'Planifiée',
+            'WAITING_STOP' => 'En attente',
+            'COMMAND_SENT' => 'Envoyée',
+            'CUT_OFF' => 'Confirmée',
+            'CANCELLED_PAID', 'CANCELLED' => 'Annulée',
+            'FAILED' => 'Échec',
+            default => $status ?: '—',
+        };
+    }
+
+    private function cutoffBadge(string $status): string
+    {
+        return match ($status) {
+            'PENDING' => 'warning',
+            'WAITING_STOP' => 'info',
+            'COMMAND_SENT' => 'info',
+            'CUT_OFF' => 'success',
+            'CANCELLED_PAID', 'CANCELLED' => 'muted',
+            'FAILED' => 'danger',
+            default => 'muted',
+        };
     }
 
     private function toFloat(mixed $value): float
@@ -722,11 +646,6 @@ class DashboardLeaseService
         }
 
         return (float) $value;
-    }
-
-    private function money(float|int $amount): string
-    {
-        return number_format((float) $amount, 0, ',', ' ') . ' FCFA';
     }
 
     private function safeDate(?string $value): ?string
@@ -750,103 +669,6 @@ class DashboardLeaseService
     private function formatTime(?string $value): string
     {
         $date = $this->safeCarbon($value);
-
         return $date ? $date->format('H:i') : '—';
-    }
-
-    private function latestLeaseInfo(Collection $rows): string
-    {
-        $lastDate = $rows->pluck('date_echeance')->filter()->sort()->last();
-
-        return $lastDate
-            ? 'Échéance : ' . Carbon::parse($lastDate)->format('d/m/Y')
-            : 'Échéance non disponible';
-    }
-
-    private function paymentStatusLabel(string $status): array
-    {
-        $value = mb_strtoupper(trim($status), 'UTF-8');
-
-        return match ($value) {
-            'VALIDE', 'VALIDÉ', 'PAYE', 'PAYÉ', 'SUCCESS', 'SUCCES', 'SUCCÈS' => [
-                'label' => 'Validé',
-                'badge' => 'success',
-            ],
-
-            'EN_ATTENTE', 'PENDING', 'PROCESSING' => [
-                'label' => 'En attente',
-                'badge' => 'warning',
-            ],
-
-            'ECHEC', 'ÉCHEC', 'FAILED' => [
-                'label' => 'Échec',
-                'badge' => 'danger',
-            ],
-
-            default => [
-                'label' => $status ?: '—',
-                'badge' => 'muted',
-            ],
-        };
-    }
-
-    private function driverOperationalStatus(string $cutoffLabel): array
-    {
-        $label = mb_strtolower($cutoffLabel, 'UTF-8');
-
-        if (str_contains($label, 'attente')) {
-            return ['label' => 'En attente arrêt', 'badge' => 'info'];
-        }
-
-        if (str_contains($label, 'plan')) {
-            return ['label' => 'Coupure planifiée', 'badge' => 'warning'];
-        }
-
-        if (str_contains($label, 'commande')) {
-            return ['label' => 'Commande envoyée', 'badge' => 'info'];
-        }
-
-        return ['label' => 'À relancer', 'badge' => 'danger'];
-    }
-
-    private function driverAction(string $cutoffLabel): string
-    {
-        $label = mb_strtolower($cutoffLabel, 'UTF-8');
-
-        if (str_contains($label, 'attente')) {
-            return 'Surveiller';
-        }
-
-        if (str_contains($label, 'commande') || str_contains($label, 'plan')) {
-            return 'Suivre';
-        }
-
-        return 'Appeler';
-    }
-
-    private function cutoffStatusLabel(string $status): string
-    {
-        return match ($status) {
-            'PENDING' => 'Planifiée',
-            'WAITING_STOP' => 'En attente arrêt',
-            'COMMAND_SENT' => 'Commande envoyée',
-            'CUT_OFF' => 'Coupure confirmée',
-            'CANCELLED_PAID', 'CANCELLED' => 'Annulée paiement',
-            'FAILED' => 'Échec',
-            default => $status ?: '—',
-        };
-    }
-
-    private function cutoffBadge(string $status): string
-    {
-        return match ($status) {
-            'PENDING' => 'warning',
-            'WAITING_STOP' => 'info',
-            'COMMAND_SENT' => 'info',
-            'CUT_OFF' => 'success',
-            'CANCELLED_PAID', 'CANCELLED' => 'muted',
-            'FAILED' => 'danger',
-            default => 'muted',
-        };
     }
 }

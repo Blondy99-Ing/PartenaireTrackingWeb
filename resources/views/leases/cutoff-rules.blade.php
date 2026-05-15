@@ -970,18 +970,7 @@
                                                     </label>
                                                 </div>
 
-                                                <div class="lco-field">
-                                                    <label>Notif.</label>
-                                                    <label class="lco-check-wrap">
-                                                        <input
-                                                            type="checkbox"
-                                                            name="rules[{{ $rowIndex }}][contract_rules][{{ $ruleIndex }}][notify_before_cutoff]"
-                                                            value="1"
-                                                            @checked($rule['notify_before_cutoff'] ?? false)
-                                                        >
-                                                        Notifier
-                                                    </label>
-                                                </div>
+                                                
                                             </div>
                                         </div>
                                     @endforeach
