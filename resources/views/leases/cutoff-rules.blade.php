@@ -8,6 +8,54 @@
     $activeRules     = $rows->sum(fn ($row) => (int) ($row['enabled_contract_rules_count'] ?? 0));
     $missingTimes    = $rows->sum(fn ($row) => (int) ($row['missing_time_contract_rules_count'] ?? 0));
     $totalRuleLines  = $rows->sum(fn ($row) => count($row['contract_rules'] ?? []));
+
+    /**
+     * Map des vrais libellés venant de Recouvrement.
+     * Cette vue peut recevoir des libellés techniques comme "Type #4"
+     * depuis les anciennes règles enregistrées. On les remplace ici par
+     * le libellé métier si $contractTypes contient l'id correspondant.
+     */
+    $contractTypeLabels = collect($contractTypes ?? [])
+        ->filter(fn ($type) => is_array($type))
+        ->mapWithKeys(function ($type) {
+            $id = (int) ($type['id'] ?? $type['type_contrat_id'] ?? $type['type_contrat'] ?? 0);
+
+            $label = trim((string) (
+                $type['libelle']
+                ?? $type['label']
+                ?? $type['nom']
+                ?? $type['name']
+                ?? ''
+            ));
+
+            return $id > 0 && $label !== '' ? [$id => $label] : [];
+        });
+
+    $isTechnicalLabel = function (?string $label): bool {
+        $label = trim((string) $label);
+
+        return $label === ''
+            || (bool) preg_match('/^(type|contrat|sous-contrat)\s*#?\d+$/i', $label)
+            || (bool) preg_match('/^#?\d+$/', $label)
+            || (bool) preg_match('/^parent\s*#?\d+$/i', $label)
+            || (bool) preg_match('/^CTR[-_ ]?\d+$/i', $label);
+    };
+
+    $safeTypeLabel = function (?string $label, $typeId = null, bool $isMain = false) use ($contractTypeLabels, $isTechnicalLabel): string {
+        $typeId = (int) $typeId;
+
+        if ($typeId > 0 && $contractTypeLabels->has($typeId)) {
+            return (string) $contractTypeLabels->get($typeId);
+        }
+
+        $label = trim((string) $label);
+
+        if (! $isTechnicalLabel($label)) {
+            return $label;
+        }
+
+        return $isMain ? 'Contrat principal' : 'Sous-contrat';
+    };
 @endphp
 
 @push('styles')
@@ -844,11 +892,29 @@
                     <tbody>
                     @forelse($rows as $rowIndex => $row)
                         @php
+                            $contractRules = collect($row['contract_rules'] ?? []);
+
+                            $mainRule = $contractRules
+                                ->first(fn ($rule) => ($rule['contract_kind'] ?? 'MAIN') === 'MAIN')
+                                ?? $contractRules->first();
+
+                            $mainVisibleLabel = $safeTypeLabel(
+                                $row['main_type_label'] ?? ($mainRule['type_contrat_label'] ?? null),
+                                $mainRule['type_contrat_id'] ?? null,
+                                true
+                            );
+
                             $searchText = strtolower(trim(
                                 ($row['immatriculation'] ?? '') . ' ' .
                                 ($row['driver_name'] ?? '') . ' ' .
-                                ($row['main_type_label'] ?? '') . ' ' .
-                                collect($row['contract_rules'] ?? [])->pluck('type_contrat_label')->implode(' ')
+                                $mainVisibleLabel . ' ' .
+                                $contractRules
+                                    ->map(fn ($rule) => $safeTypeLabel(
+                                        $rule['type_contrat_label'] ?? null,
+                                        $rule['type_contrat_id'] ?? null,
+                                        ($rule['contract_kind'] ?? 'MAIN') !== 'SUB'
+                                    ))
+                                    ->implode(' ')
                             ));
                         @endphp
 
@@ -877,8 +943,8 @@
                                         </div>
                                         <div class="lco-vehicle-meta">
                                             {{ trim(($row['marque'] ?? '') . ' ' . ($row['model'] ?? '')) ?: 'Modèle non renseigné' }}<br>
-                                            Contrat #{{ $row['main_source_contract_id'] }} — {{ $row['main_type_label'] }}<br>
-                                            GPS : <code>{{ $row['mac_id_gps'] ?: 'manquant' }}</code>
+                                            Contrat principal — {{ $mainVisibleLabel }}<br>
+                                            GPS : {{ !empty($row['mac_id_gps']) ? 'renseigné' : 'à compléter' }}
                                         </div>
                                     </div>
                                 </div>
@@ -900,22 +966,33 @@
                             <td>
                                 <div class="lco-rule-grid">
                                     @foreach(($row['contract_rules'] ?? []) as $ruleIndex => $rule)
+                                        @php
+                                            $isSubContract = ($rule['contract_kind'] ?? 'MAIN') === 'SUB';
+
+                                            $ruleVisibleLabel = $safeTypeLabel(
+                                                $rule['type_contrat_label'] ?? null,
+                                                $rule['type_contrat_id'] ?? null,
+                                                ! $isSubContract
+                                            );
+
+                                            $ruleKindLabel = $isSubContract ? 'Sous-contrat' : 'Principal';
+                                            $ruleDescription = $isSubContract
+                                                ? 'Règle du sous-contrat associé'
+                                                : 'Règle du contrat principal';
+                                        @endphp
                                         <div class="lco-rule-card {{ !empty($rule['is_enabled']) ? 'enabled' : '' }}">
 
                                             {{-- Top : nom + toggle --}}
                                             <div class="lco-rule-top">
                                                 <div>
                                                     <div class="lco-rule-name">
-                                                        <span class="lco-tag {{ ($rule['contract_kind'] ?? 'MAIN') === 'SUB' ? 'sub' : 'main' }}">
-                                                            {{ ($rule['contract_kind'] ?? 'MAIN') === 'SUB' ? 'Sous-contrat' : 'Principal' }}
+                                                        <span class="lco-tag {{ $isSubContract ? 'sub' : 'main' }}">
+                                                            {{ $ruleKindLabel }}
                                                         </span>
-                                                        {{ $rule['type_contrat_label'] }}
+                                                        {{ $ruleVisibleLabel }}
                                                     </div>
                                                     <div class="lco-rule-id">
-                                                        #{{ $rule['source_contract_id'] }}
-                                                        @if(!empty($rule['source_parent_contract_id']))
-                                                            · parent #{{ $rule['source_parent_contract_id'] }}
-                                                        @endif
+                                                        {{ $ruleDescription }}
                                                     </div>
                                                 </div>
 

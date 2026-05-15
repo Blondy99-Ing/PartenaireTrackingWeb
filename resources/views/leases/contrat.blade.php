@@ -1041,6 +1041,219 @@
     }
 
     .lc-subform-body { padding:.8rem; }
+
+
+
+
+    /* =========================================================
+   Correction responsive formulaires / drawers
+   Objectif :
+   - tous les formulaires restent accessibles sur petit écran ;
+   - le contenu scrolle à l'intérieur du drawer ;
+   - le bouton Enregistrer reste toujours visible ;
+   - aucun input ne reste caché en bas de page.
+   ========================================================= */
+
+.lc-drawer {
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
+}
+
+.lc-drawer form {
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.lc-drawer-head {
+    flex: 0 0 auto;
+}
+
+.lc-drawer-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    padding-bottom: 1.25rem;
+}
+
+.lc-drawer-foot {
+    flex: 0 0 auto;
+    position: sticky;
+    bottom: 0;
+    z-index: 4;
+    background: var(--color-card, #fff);
+    box-shadow: 0 -8px 20px rgba(15, 23, 42, .06);
+}
+
+/* Les blocs internes du formulaire peuvent scroller sans casser le drawer */
+.lc-drawer .lc-panel {
+    max-height: none;
+    overflow: visible;
+}
+
+.lc-drawer .lc-panel > div:not(.lc-panel-head) {
+    min-height: 0;
+}
+
+/* Meilleure lisibilité des formulaires longs */
+.lc-inline-edit,
+.lc-subform-card {
+    max-width: 100%;
+    overflow: visible;
+}
+
+.lc-form-grid {
+    min-width: 0;
+}
+
+.lc-field {
+    min-width: 0;
+}
+
+.lc-input,
+.lc-select,
+.lc-textarea {
+    max-width: 100%;
+}
+
+/* Le textarea ne doit pas pousser toute la fenêtre */
+.lc-textarea {
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+/* Sous-formulaires : scroll propre si plusieurs sous-contrats */
+#createSubList {
+    max-height: 55vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: .25rem;
+}
+
+/* Scrollbar discrète */
+.lc-drawer-body::-webkit-scrollbar,
+#createSubList::-webkit-scrollbar {
+    width: 7px;
+}
+
+.lc-drawer-body::-webkit-scrollbar-thumb,
+#createSubList::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, .55);
+    border-radius: 999px;
+}
+
+.lc-drawer-body::-webkit-scrollbar-track,
+#createSubList::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* =========================================================
+   Petit écran
+   ========================================================= */
+
+@media (max-width: 700px) {
+    .lc-drawer {
+        width: 100%;
+        height: 100dvh;
+        max-height: 100dvh;
+    }
+
+    .lc-drawer-head {
+        padding: .85rem;
+    }
+
+    .lc-drawer-head h3 {
+        font-size: .95rem;
+    }
+
+    .lc-drawer-head p {
+        font-size: .68rem;
+        line-height: 1.35;
+    }
+
+    .lc-drawer-body {
+        padding: .75rem;
+        gap: .75rem;
+    }
+
+    .lc-drawer-foot {
+        padding: .7rem .75rem;
+        justify-content: stretch;
+    }
+
+    .lc-drawer-foot .lc-btn {
+        flex: 1 1 0;
+        justify-content: center;
+    }
+
+    .lc-form-grid {
+        grid-template-columns: 1fr !important;
+        gap: .65rem;
+    }
+
+    .lc-panel-head {
+        padding: .75rem;
+    }
+
+    .lc-panel-head h2 {
+        font-size: .8rem;
+    }
+
+    .lc-inline-edit {
+        padding: .7rem;
+    }
+
+    .lc-subform-body {
+        padding: .7rem;
+    }
+
+    #createSubList {
+        max-height: 42vh;
+    }
+
+    .lc-input,
+    .lc-select,
+    .lc-textarea {
+        min-height: 42px;
+        font-size: .78rem;
+    }
+}
+
+/* =========================================================
+   Très petit écran
+   ========================================================= */
+
+@media (max-width: 420px) {
+    .lc-drawer-head {
+        gap: .5rem;
+    }
+
+    .lc-drawer-head .lc-btn {
+        padding: .5rem .6rem;
+    }
+
+    .lc-drawer-body {
+        padding: .6rem;
+    }
+
+    .lc-drawer-foot {
+        flex-direction: column-reverse;
+    }
+
+    .lc-drawer-foot .lc-btn {
+        width: 100%;
+    }
+
+    #createSubList {
+        max-height: 38vh;
+    }
+}
 </style>
 @endpush
 

@@ -478,7 +478,9 @@
 }
 @media (max-width: 1100px) {
     .recouvrement-dashboard .table-grid,
-    .recouvrement-dashboard .ops-grid,
+    .recouvrement-dashboard .ops-grid {
+        grid-template-columns: 1fr;
+    }
 }
 @media (max-width: 760px) {
     .recouvrement-dashboard { padding: .55rem; }
@@ -736,6 +738,13 @@ document.addEventListener('DOMContentLoaded', function () {
     const dashboardData = window.leaseDashboardData || {};
     const recovery = dashboardData?.charts?.recovery || {};
 
+    /**
+     * Affichage par défaut : diagramme à bâtons.
+     * Sans cette valeur initiale, le graphique peut rester vide tant que
+     * l'utilisateur n'a pas cliqué sur un bouton de changement de mode.
+     */
+    let weeklyChartMode = 'bar';
+
     function cssVar(name, fallback) {
         const bodyValue = getComputedStyle(document.body).getPropertyValue(name).trim();
         const rootValue = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -925,10 +934,14 @@ document.addEventListener('DOMContentLoaded', function () {
         }, 120);
     });
 
-    setTimeout(function () {
+    requestAnimationFrame(function () {
         renderWeeklyChart();
         applySearch();
-    }, 80);
+
+        // Deuxième rendu léger : utile lorsque la carte vient juste de finir
+        // de prendre sa largeur après le chargement CSS.
+        setTimeout(renderWeeklyChart, 120);
+    });
 });
 </script>
 @endpush

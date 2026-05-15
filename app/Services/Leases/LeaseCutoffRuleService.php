@@ -17,6 +17,11 @@ use Illuminate\Support\Facades\Log;
  * - mais chaque règle enregistrée reste attachée à un contrat/sous-contrat réel ;
  * - aucun sous-contrat absent du contrat n'est affiché ni créé ;
  * - pas de règle active sur le contract_link exact => aucune coupure.
+ *
+ * Règle d'affichage :
+ * - aucun ID technique ne doit être affiché dans l'interface ;
+ * - si le vrai libellé métier est absent, on affiche "Contrat principal" ou "Sous-contrat" ;
+ * - on ne doit jamais afficher "Type #4", "Contrat #40", "#7", etc.
  */
 class LeaseCutoffRuleService
 {
@@ -65,24 +70,38 @@ class LeaseCutoffRuleService
                 ->merge($subsByParent->get($main->source_contract_id, collect()))
                 ->values();
 
-            $contractRules = $items->map(fn (LeaseContractLink $link) => $this->formatContractRuleRow($link))->values();
+            $contractRules = $items
+                ->map(fn (LeaseContractLink $link) => $this->formatContractRuleRow($link))
+                ->values();
 
             $enabledCount = $contractRules->where('is_enabled', true)->count();
+
             $missingTimeCount = $contractRules
                 ->filter(fn (array $rule) => ! empty($rule['is_enabled']) && empty($rule['cutoff_time']))
                 ->count();
 
             return [
                 'main_contract_link_id' => (int) $main->id,
+
+                /**
+                 * Ces IDs restent utiles pour les actions serveur.
+                 * Ils ne doivent simplement pas être affichés comme texte utilisateur dans la vue.
+                 */
                 'main_source_contract_id' => (int) $main->source_contract_id,
                 'vehicle_id' => (int) $main->vehicle_id,
                 'driver_id' => $main->driver_id ? (int) $main->driver_id : null,
+
                 'driver_name' => $this->formatUserName($main->driver),
                 'immatriculation' => $main->vehicle?->immatriculation ?: $main->immatriculation,
                 'marque' => $main->vehicle?->marque,
                 'model' => $main->vehicle?->model,
                 'mac_id_gps' => $main->vehicle?->mac_id_gps,
-                'main_type_label' => $main->displayTypeLabel(),
+
+                /**
+                 * Libellé propre, sans Type #id.
+                 */
+                'main_type_label' => $this->safeContractTypeLabel($main),
+
                 'contract_rules' => $contractRules->all(),
                 'enabled_contract_rules_count' => $enabledCount,
                 'missing_time_contract_rules_count' => $missingTimeCount,
@@ -133,6 +152,7 @@ class LeaseCutoffRuleService
         DB::transaction(function () use ($submitted, $links, $partnerId, $actorId) {
             foreach ($submitted as $payload) {
                 $linkId = (int) ($payload['contract_link_id'] ?? 0);
+
                 /** @var LeaseContractLink|null $link */
                 $link = $links->get($linkId);
 
@@ -153,6 +173,12 @@ class LeaseCutoffRuleService
                     $rule->created_by = $actorId;
                 }
 
+                /**
+                 * On sauvegarde un libellé propre pour éviter de réinjecter Type #id
+                 * dans les prochaines vues ou historiques.
+                 */
+                $safeTypeLabel = $this->safeContractTypeLabel($link);
+
                 $rule->fill([
                     'vehicle_id' => $link->vehicle_id,
                     'driver_id' => $link->driver_id,
@@ -160,7 +186,7 @@ class LeaseCutoffRuleService
                     'source_parent_contract_id' => $link->source_parent_contract_id,
                     'contract_kind' => $link->contract_kind ?: LeaseContractLink::KIND_MAIN,
                     'type_contrat_id' => $link->type_contrat_id,
-                    'type_contrat_label' => $link->type_contrat_label,
+                    'type_contrat_label' => $safeTypeLabel,
                     'is_enabled' => $this->toBool($payload['is_enabled'] ?? false),
                     'cutoff_time' => ! empty($payload['cutoff_time']) ? $payload['cutoff_time'] : null,
                     'timezone' => $payload['timezone'] ?? 'Africa/Douala',
@@ -270,16 +296,33 @@ class LeaseCutoffRuleService
         /** @var LeaseCutoffContractRule|null $rule */
         $rule = $link->cutoffRule;
 
+        $isMain = $this->isMainContract($link);
+        $safeTypeLabel = $this->safeContractTypeLabel($link);
+
         return [
             'rule_id' => $rule?->id,
+
+            /**
+             * Ces valeurs peuvent rester dans le payload pour les actions serveur,
+             * mais la vue ne doit pas les afficher comme libellés.
+             */
             'contract_link_id' => (int) $link->id,
             'vehicle_id' => (int) $link->vehicle_id,
             'driver_id' => $link->driver_id ? (int) $link->driver_id : null,
             'source_contract_id' => (int) $link->source_contract_id,
             'source_parent_contract_id' => $link->source_parent_contract_id ? (int) $link->source_parent_contract_id : null,
+
             'contract_kind' => $link->contract_kind ?: LeaseContractLink::KIND_MAIN,
+            'is_main' => $isMain,
+            'kind_label' => $isMain ? 'Contrat principal' : 'Sous-contrat',
+
             'type_contrat_id' => $link->type_contrat_id ? (int) $link->type_contrat_id : null,
-            'type_contrat_label' => $link->displayTypeLabel(),
+
+            /**
+             * Libellé sécurisé pour l'interface.
+             */
+            'type_contrat_label' => $safeTypeLabel,
+
             'is_enabled' => (bool) ($rule?->is_enabled ?? false),
             'cutoff_time' => $rule?->effectiveCutoffTime(),
             'timezone' => $rule?->timezone ?: 'Africa/Douala',
@@ -297,10 +340,65 @@ class LeaseCutoffRuleService
             return null;
         }
 
-        return trim(implode(' ', array_filter([
+        $name = trim(implode(' ', array_filter([
             $user->prenom ?? null,
             $user->nom ?? null,
-        ]))) ?: ($user->email ?? ('Utilisateur #' . $user->id));
+        ])));
+
+        /**
+         * On évite "Utilisateur #id" dans la vue.
+         */
+        return $name ?: ($user->email ?? 'Chauffeur non renseigné');
+    }
+
+    private function isMainContract(LeaseContractLink $link): bool
+    {
+        return ($link->contract_kind ?: LeaseContractLink::KIND_MAIN) === LeaseContractLink::KIND_MAIN;
+    }
+
+    /**
+     * Retourne un libellé propre pour l'interface.
+     *
+     * Priorité :
+     * 1. type_contrat_label propre venant du lien contrat ;
+     * 2. displayTypeLabel() si propre ;
+     * 3. libellé de la règle si propre ;
+     * 4. fallback métier sans ID : Contrat principal / Sous-contrat.
+     */
+    private function safeContractTypeLabel(LeaseContractLink $link): string
+    {
+        $isMain = $this->isMainContract($link);
+
+        $candidates = [
+            $link->type_contrat_label,
+            method_exists($link, 'displayTypeLabel') ? $link->displayTypeLabel() : null,
+            $link->cutoffRule?->type_contrat_label,
+        ];
+
+        foreach ($candidates as $candidate) {
+            $label = trim((string) $candidate);
+
+            if (! $this->labelLooksTechnical($label)) {
+                return $label;
+            }
+        }
+
+        return $isMain ? 'Contrat principal' : 'Sous-contrat';
+    }
+
+    private function labelLooksTechnical(?string $label): bool
+    {
+        $label = trim((string) $label);
+
+        if ($label === '') {
+            return true;
+        }
+
+        return (bool) preg_match('/^(type|contrat|sous-contrat)\s*#?\d+$/i', $label)
+            || (bool) preg_match('/^#\d+$/', $label)
+            || (bool) preg_match('/^\d+$/', $label)
+            || (bool) preg_match('/^CTR[-_ ]?\d+$/i', $label)
+            || (bool) preg_match('/^parent\s*#?\d+$/i', $label);
     }
 
     private function toBool(mixed $value): bool

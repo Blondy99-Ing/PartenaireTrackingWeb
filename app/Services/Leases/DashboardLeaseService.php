@@ -200,12 +200,37 @@ class DashboardLeaseService
         $paidFromLeases = collect($selectedLeases)->sum(fn ($row) => $this->leasePaid($row));
         $remainingFromLeases = collect($selectedLeases)->sum(fn ($row) => $this->leaseRemaining($row));
 
-        $expected = $dailyStats['montant_attendu'] ?? $expectedFromLeases;
-        $paid = $dailyStats['montant_collecte'] ?? $paidFromLeases;
-        $remaining = $dailyStats['montant_echec'] ?? max(0, $remainingFromLeases ?: ($expected - $paid));
+        /**
+         * Les KPI financiers du dashboard doivent être cohérents avec le bloc
+         * "Chauffeurs à suivre". On utilise donc les leases affichés comme
+         * source de vérité principale. Les statistiques journalières de l'API
+         * restent seulement un fallback lorsque les leases sont indisponibles.
+         */
+        $hasLeaseRows = count($selectedLeases) > 0;
+
+        $expected = $hasLeaseRows ? $expectedFromLeases : ($dailyStats['montant_attendu'] ?? 0);
+        $paid = $hasLeaseRows ? $paidFromLeases : ($dailyStats['montant_collecte'] ?? 0);
+        $remaining = $hasLeaseRows
+            ? $remainingFromLeases
+            : ($dailyStats['montant_echec'] ?? max(0, $expected - $paid));
+
         $rate = $expected > 0 ? (int) round(($paid / $expected) * 100) : 0;
 
-        $unpaidLeases = collect($selectedLeases)->filter(fn ($row) => ($row['statut'] ?? null) === 'unpaid');
+        $leasesCollection = collect($selectedLeases);
+        $unpaidLeases = $leasesCollection->filter(fn ($row) => ($row['statut'] ?? null) === 'unpaid');
+        $paidLeases = $leasesCollection->filter(fn ($row) => ($row['statut'] ?? null) === 'paid');
+
+        $driversExpected = $hasLeaseRows
+            ? $leasesCollection->pluck('chauffeur')->filter()->unique()->count()
+            : ($dailyStats['total_attendus'] ?? 0);
+
+        $driversPaid = $hasLeaseRows
+            ? $paidLeases->pluck('chauffeur')->filter()->unique()->count()
+            : ($dailyStats['ayant_verse'] ?? collect($payments)->pluck('chauffeur')->filter()->unique()->count());
+
+        $driversUnpaid = $hasLeaseRows
+            ? $unpaidLeases->pluck('chauffeur')->filter()->unique()->count()
+            : ($dailyStats['n_ayant_pas_verse'] ?? 0);
 
         return [
             'date' => $dailyStats['date'] ?? now()->toDateString(),
@@ -213,9 +238,9 @@ class DashboardLeaseService
             'expected_amount' => $expected,
             'paid_amount' => $paid,
             'remaining_amount' => $remaining,
-            'total_expected_drivers' => $dailyStats['total_attendus'] ?? collect($selectedLeases)->pluck('chauffeur')->filter()->unique()->count(),
-            'drivers_paid' => $dailyStats['ayant_verse'] ?? collect($payments)->pluck('chauffeur')->filter()->unique()->count(),
-            'drivers_unpaid' => $dailyStats['n_ayant_pas_verse'] ?? $unpaidLeases->pluck('chauffeur')->filter()->unique()->count(),
+            'total_expected_drivers' => $driversExpected,
+            'drivers_paid' => $driversPaid,
+            'drivers_unpaid' => $driversUnpaid,
             'unpaid_leases_count' => $unpaidLeases->count(),
             'active_contracts' => collect($contracts)->filter(fn ($row) => $this->isActiveStatus($row['statut'] ?? $row['status'] ?? ''))->count(),
             'vehicles_count' => $vehicles->count(),
@@ -309,8 +334,14 @@ class DashboardLeaseService
         $queue = $cutoffData['queue'];
         $histories = $cutoffData['histories'];
 
+        /**
+         * Interprétation métier du dashboard :
+         * une coupure est considérée comme planifiée dès qu'un contrat ou
+         * sous-contrat réel possède une règle de coupure active. Ce nombre
+         * n'est donc pas limité aux queues déjà créées par le cron.
+         */
         return [
-            'planned' => $queue->where('status', 'PENDING')->count() + $histories->where('status', 'PENDING')->count(),
+            'planned' => (int) ($cutoffData['active_rules_count'] ?? 0),
             'command_sent' => $queue->where('status', 'COMMAND_SENT')->count() + $histories->where('status', 'COMMAND_SENT')->count(),
             'confirmed' => $histories->where('status', 'CUT_OFF')->count(),
             'gps_failed' => $histories->where('status', 'FAILED')->count(),
