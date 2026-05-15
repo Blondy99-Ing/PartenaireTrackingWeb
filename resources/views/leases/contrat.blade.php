@@ -1259,47 +1259,13 @@
 
 @section('content')
 <div class="lease-console">
-    @if(session('success'))
-        <div class="lc-panel" style="padding:.85rem 1rem;color:#15803d;background:rgba(22,163,74,.08);border-color:rgba(22,163,74,.22);">
-            <strong><i class="fas fa-check-circle"></i> Succès :</strong>
-            {{ session('success') }}
-        </div>
-    @endif
+ 
 
-    @if(session('error'))
-        <div class="lc-panel" style="padding:.85rem 1rem;color:#b91c1c;background:rgba(220,38,38,.08);border-color:rgba(220,38,38,.22);">
-            <strong><i class="fas fa-exclamation-triangle"></i> Erreur :</strong>
-            {{ session('error') }}
-        </div>
-    @endif
+   
 
-    @if($errors->any())
-        <div class="lc-panel" style="padding:.85rem 1rem;color:#b91c1c;background:rgba(220,38,38,.08);border-color:rgba(220,38,38,.22);">
-            <strong><i class="fas fa-exclamation-circle"></i> Validation :</strong>
-            <ul style="margin:.5rem 0 0 1.2rem;">
-                @foreach($errors->all() as $error)
-                    <li style="font-size:.78rem;">{{ $error }}</li>
-                @endforeach
-            </ul>
-        </div>
-    @endif
 
-    @if(!empty($pageWarnings))
-        @foreach($pageWarnings as $warning)
-            <div class="lc-panel" style="padding:.85rem 1rem;color:#b45309;background:rgba(245,158,11,.08);border-color:rgba(245,158,11,.25);">
-                <strong><i class="fas fa-exclamation-triangle"></i> Attention :</strong>
-                {{ $warning }}
-            </div>
-        @endforeach
-    @endif
 
-    @if(!empty($pageError))
-        <div class="lc-panel" style="padding:.85rem 1rem;color:#b45309;background:rgba(245,158,11,.08);border-color:rgba(245,158,11,.25);">
-            <strong><i class="fas fa-exclamation-triangle"></i> Attention :</strong>
-            {{ $pageError }}
-        </div>
-    @endif
-
+ 
     @if($contractTypes->isEmpty())
         <div class="lc-panel" style="padding:.85rem 1rem;color:#b91c1c;background:rgba(220,38,38,.08);border-color:rgba(220,38,38,.22);">
             <strong><i class="fas fa-ban"></i> Types de contrats indisponibles :</strong>

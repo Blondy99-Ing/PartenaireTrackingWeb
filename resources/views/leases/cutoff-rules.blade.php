@@ -733,12 +733,6 @@
 
 
 
-    @foreach(($pageWarnings ?? []) as $warning)
-        <div class="lco-alert warn">
-            <i class="fas fa-circle-info"></i>
-            <span>{{ $warning }}</span>
-        </div>
-    @endforeach
 
     {{-- ── HERO HEADER ─────────────────────────────────────────── --}}
     <div class="lco-hero">
