@@ -493,19 +493,21 @@ table.dataTable {
 
     <div style="display:flex;flex-direction:column;gap:1rem;">
 
-        <div style="border-bottom:1px solid var(--color-border-subtle);padding-bottom:0.75rem;">
-            <nav class="nav-tabs">
-                <a href="{{ route('partner.drivers.index') }}" class="nav-tab active">
-                    <i class="fas fa-users"></i> Chauffeurs
-                </a>
-                <a href="{{ route('partner.affectations.index') }}" class="nav-tab">
-                    <i class="fas fa-link"></i> Associations
-                </a>
-                <a href="{{ route('partner.affectations.history') }}" class="nav-tab">
-                    <i class="fas fa-clock-rotate-left"></i> Historique
-                </a>
-            </nav>
-        </div>
+        {{--
+<div style="border-bottom:1px solid var(--color-border-subtle);padding-bottom:0.75rem;">
+    <nav class="nav-tabs">
+        <a href="{{ route('partner.drivers.index') }}" class="nav-tab active">
+            <i class="fas fa-users"></i> Chauffeurs
+        </a>
+        <a href="{{ route('partner.affectations.index') }}" class="nav-tab">
+            <i class="fas fa-link"></i> Associations
+        </a>
+        <a href="{{ route('partner.affectations.history') }}" class="nav-tab">
+            <i class="fas fa-clock-rotate-left"></i> Historique
+        </a>
+    </nav>
+</div>
+--}}
 
         @if(session('status'))
             <div style="padding:0.75rem 1rem;border-radius:0.5rem;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);color:#16a34a;font-size:0.82rem;display:flex;align-items:center;gap:0.5rem;">
