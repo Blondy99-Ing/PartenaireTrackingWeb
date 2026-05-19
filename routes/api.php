@@ -28,12 +28,13 @@ Route::prefix('v1')->group(function () {
     | Partner API
     |--------------------------------------------------------------------------
     */
-    Route::prefix('partner')->middleware('auth:sanctum')->group(function () {
-        Route::get('users', [PartnerUserController::class, 'index']);
-        Route::post('users', [PartnerUserController::class, 'store']);
-        Route::put('users/{id}', [PartnerUserController::class, 'update']);
-        Route::delete('users/{id}', [PartnerUserController::class, 'destroy']);
-    });
+Route::prefix('partner')->middleware(['auth:sanctum', 'partner.only'])->group(function () {
+    Route::get('users', [PartnerUserController::class, 'index']);
+    Route::post('users', [PartnerUserController::class, 'store']);
+    Route::put('users/{id}', [PartnerUserController::class, 'update']);
+    Route::delete('users/{id}', [PartnerUserController::class, 'destroy']);
+});
+
 });
 
 /*

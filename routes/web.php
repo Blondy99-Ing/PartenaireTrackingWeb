@@ -25,7 +25,7 @@ use App\Http\Controllers\Partner\PartnerDriverController;
 
 
 
-Route::middleware(['auth:web'])->group(function () {
+Route::middleware(['auth:web', 'partner.only'])->group(function () {
 
     // ── Dashboard ──────────────────────────────────────────────────────
     // Le middleware rebuild.dashboard garantit que Redis est rempli

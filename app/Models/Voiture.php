@@ -171,11 +171,11 @@ class Voiture extends Model
         return $this->hasMany(Trajet::class, 'vehicle_id');
     }
 
-    public function historiqueChauffeursPartner(): HasMany
-    {
-        return $this->hasMany(HistoriqueAssociationChauffeurVoiturePartner::class, 'voiture_id')
-            ->orderByDesc('start_at');
-    }
+public function historiqueChauffeursPartner(): HasMany
+{
+    return $this->hasMany(HistoriqueAssociationChauffeurVoiturePartner::class, 'voiture_id')
+        ->orderByDesc('started_at');
+}
 
 
 

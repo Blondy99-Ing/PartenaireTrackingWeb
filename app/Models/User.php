@@ -169,17 +169,80 @@ protected $fillable = [
     public function historiqueAffectationsVoituresPartner(): HasMany
     {
         return $this->hasMany(HistoriqueAssociationChauffeurVoiturePartner::class, 'chauffeur_id')
-            ->orderByDesc('start_at');
+            ->orderByDesc('started_at');
     }
 
 
 
 
     // relation avec le partenaire 
-    public function partner(): BelongsTo
+public function partner(): BelongsTo
 {
-    return $this->belongsTo(Partner::class, 'partner_id');
+    return $this->belongsTo(User::class, 'partner_id');
 }
+
+
+
+/**
+ * Alias explicite pour éviter la confusion avec la table partners.
+ */
+public function partnerUser(): BelongsTo
+{
+    return $this->belongsTo(User::class, 'partner_id');
+}
+
+/**
+ * Chauffeurs / utilisateurs secondaires rattachés à ce partenaire.
+ */
+public function drivers(): HasMany
+{
+    return $this->hasMany(User::class, 'partner_id');
+}
+
+/**
+ * Vérifie si ce compte est un vrai partenaire.
+ */
+public function isPartnerAccount(): bool
+{
+    return is_null($this->partner_id);
+}
+
+/**
+ * Vérifie si ce compte est un chauffeur / utilisateur secondaire.
+ */
+public function isDriverAccount(): bool
+{
+    return !is_null($this->partner_id);
+}
+
+/**
+ * Retourne l'identifiant tenant effectif.
+ *
+ * - Partenaire : son propre id
+ * - Chauffeur : son partner_id
+ */
+public function tenantPartnerId(): int
+{
+    return (int) ($this->partner_id ?: $this->id);
+}
+
+/**
+ * Nom affichable propre.
+ */
+public function displayName(): string
+{
+    return trim(($this->prenom ?? '') . ' ' . ($this->nom ?? '')) ?: ($this->phone ?? 'Utilisateur');
+}
+
+
+
+
+
+
+
+
+
+
 
 public function createdPartners(): HasMany
 {

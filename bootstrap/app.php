@@ -14,11 +14,14 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->alias([
             'rebuild.dashboard' => \App\Http\Middleware\RebuildDashboardCache::class,
+            'partner.only' => \App\Http\Middleware\EnsurePartnerAccount::class,
         ]);
 
         $middleware->web(append: [
             \App\Http\Middleware\RefreshKeycloakToken::class,
         ]);
+
+        
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

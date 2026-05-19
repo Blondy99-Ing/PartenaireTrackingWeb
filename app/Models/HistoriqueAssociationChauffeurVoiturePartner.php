@@ -14,6 +14,7 @@ class HistoriqueAssociationChauffeurVoiturePartner extends Model
         'voiture_id',
         'chauffeur_id',
         'assigned_by',
+        'created_by',
         'started_at',
         'ended_at',
         'note',
