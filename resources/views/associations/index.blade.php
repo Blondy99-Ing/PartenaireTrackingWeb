@@ -419,7 +419,7 @@ table.dataTable {
          ============================================================ --}}
     <div style="border-bottom:1px solid var(--color-border-subtle);padding-bottom:0.75rem;">
         <nav class="nav-tabs">
-            <a href="{{ route('users.index') }}" class="nav-tab">
+            <a href="{{ route('partner.drivers.index') }}" class="nav-tab">
                 <i class="fas fa-users"></i> Chauffeurs
             </a>
             <a href="{{ route('partner.affectations.index') }}"
@@ -471,7 +471,7 @@ table.dataTable {
                 <a href="{{ route('tracking.vehicles') }}" class="btn-secondary" style="font-size:0.78rem;white-space:nowrap;">
                     <i class="fas fa-car"></i> Véhicules
                 </a>
-                <a href="{{ route('users.index') }}" class="btn-secondary" style="font-size:0.78rem;white-space:nowrap;">
+                <a href="{{ route('partner.drivers.index') }}" class="btn-secondary" style="font-size:0.78rem;white-space:nowrap;">
                     <i class="fas fa-users"></i> Chauffeurs
                 </a>
             </div>

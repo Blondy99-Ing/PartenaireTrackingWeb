@@ -3,56 +3,42 @@
 namespace App\Http\Controllers\Users;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Support\Facades\Auth;
-use App\Models\User;
 use App\Models\Voiture;
 use App\Services\GpsControlService;
-use Illuminate\Support\Facades\Route;
-
+use Illuminate\Support\Facades\Auth;
 
 class ProfileController extends Controller
 {
-   
-    private GpsControlService $gps;
+    public function __construct(private GpsControlService $gps) {}
 
-    public function __construct(GpsControlService $gps)
-    {
-        $this->gps = $gps;
-    }
-
-    
     public function show()
     {
-            $user = Auth::user();
+        $user = Auth::user();
 
-            // Charger ses véhicules + dernière position
-            $voitures = Voiture::with('latestLocation')
-                ->whereHas('utilisateur', fn($q) => $q->where('user_id', $user->id))
-                ->get();
+        $voitures = Voiture::with('latestLocation')
+            ->whereHas('utilisateur', fn ($q) => $q->where('user_id', $user->id))
+            ->get();
 
-            // Ajouter statut moteur et online/offline
-            $voitures = $voitures->map(function($v) {
+        $voitures = $voitures->map(function ($v) {
+            $status = $this->gps->getEngineStatusFromCachedLocation((string) $v->mac_id_gps);
 
-                // Nouvelle méthode correcte
-                $status = $this->gps->getEngineStatus($v->mac_id_gps);
+            $engineState = $status['decoded']['engineState'] ?? 'UNKNOWN';
+            $connectivity = $status['connectivity'] ?? [];
 
-                $v->engine_on = $status['engine_on'] ?? false;
+            $v->engine_on = in_array($engineState, ['ON', 'OFF'], true);
+            $v->engine_cut = $engineState === 'CUT';
+            $v->engine_state = $engineState;
+            $v->gps_status = ($connectivity['is_online'] ?? null) === true ? 'Connected' : 'Disconnected';
 
-                // Attention : gps_status = offline / online
-                $v->gps_status = ($status['online'] ?? false) ? 'Connected' : 'Disconnected';
+            return $v;
+        });
 
-                return $v;
-            });
-
-            return view('users.profile', [
-                'user' => $user,
-                'voitures' => $voitures,
-                'vehiclesCount' => $voitures->count(),
-            ]);
+        return view('users.profile', [
+            'user' => $user,
+            'voitures' => $voitures,
+            'vehiclesCount' => $voitures->count(),
+        ]);
     }
-
-
-
 
     /**
      * Retourne les dernières positions des véhicules de l'utilisateur
@@ -63,7 +49,7 @@ class ProfileController extends Controller
         $user = Auth::user();
 
         $voitures = Voiture::with('latestLocation')
-            ->whereHas('utilisateur', fn($q) => $q->where('user_id', $user->id))
+            ->whereHas('utilisateur', fn ($q) => $q->where('user_id', $user->id))
             ->get();
 
         $data = $voitures->map(function ($v) {
@@ -82,8 +68,4 @@ class ProfileController extends Controller
             'vehicles' => $data,
         ]);
     }
-
-
 }
-
-

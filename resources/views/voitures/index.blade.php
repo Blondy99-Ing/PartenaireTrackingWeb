@@ -481,14 +481,14 @@ table.dataTable {
                         {{-- Actions --}}
                         <td>
                             <div style="display:flex;align-items:center;justify-content:flex-end;gap:0.3rem;">
-                                {{-- Localiser --}}
-                                <button
-                                    type="button"
+                                {{-- Localiser : ouvre le dashboard, onglet Flotte, avec ce véhicule sélectionné --}}
+                                <a
+                                    href="{{ route('dashboard', ['tab' => 'flotte', 'vehicle_id' => $voiture->id]) }}#flotte"
                                     class="tbl-action locate"
-                                    onclick="goToProfile({{ auth()->id() }}, {{ $voiture->id }})"
-                                    title="Localiser {{ $voiture->immatriculation }}">
+                                    title="Localiser {{ $voiture->immatriculation }} sur le dashboard"
+                                    aria-label="Localiser {{ $voiture->immatriculation }} sur le dashboard">
                                     <i class="fas fa-map-marker-alt"></i>
-                                </button>
+                                </a>
 
                                 {{-- Associer chauffeur --}}
                                 <button
@@ -823,10 +823,19 @@ table.dataTable {
     console.log('[AffectModal:vehicles] ready ✅');
 })();
 
-/* Localisation */
+/* Localisation
+ * Compatibilité : certains anciens boutons peuvent encore appeler goToProfile().
+ * Maintenant, Localiser ouvre le dashboard dans l’onglet Flotte avec le véhicule sélectionné.
+ */
+function goToDashboardVehicle(vehicleId) {
+    if (!vehicleId) return;
+
+    const baseUrl = @json(route('dashboard'));
+    window.location.href = `${baseUrl}?tab=flotte&vehicle_id=${encodeURIComponent(vehicleId)}#flotte`;
+}
+
 function goToProfile(userId, vehicleId) {
-    if (!userId || !vehicleId) return;
-    window.location.href = `/users/${userId}/profile?vehicle_id=${vehicleId}`;
+    goToDashboardVehicle(vehicleId);
 }
 </script>
 @endpush

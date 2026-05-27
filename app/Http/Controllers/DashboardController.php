@@ -22,32 +22,42 @@ class DashboardController extends Controller
     // Page principale
     // ─────────────────────────────────────────────────────────────
 
-    public function index()
-    {
-        $partnerId = (int) auth()->id();
+ public function index()
+{
+    $partnerId = (int) auth()->id();
 
-        $stats = $this->cache->getStatsFromRedis($partnerId) ?: $this->cache->rebuildStats($partnerId);
+    /*
+     * Important :
+     * Les associations véhicule -> partenaire peuvent être modifiées
+     * depuis un autre projet. Donc l'observer local ne se déclenche pas.
+     *
+     * Avant de lire Redis, on vérifie que la liste Redis correspond encore
+     * à la vraie liste en base.
+     */
+    $this->cache->ensurePartnerAssociationsFresh($partnerId);
 
-        $vehicles = $this->cache->getFleetFromRedis($partnerId);
-        if (empty($vehicles)) {
-            $vehicles = $this->cache->rebuildFleet($partnerId);
-        }
+    $stats = $this->cache->getStatsFromRedis($partnerId) ?: $this->cache->rebuildStats($partnerId);
 
-        $alerts = $this->cache->getAlertsFromRedis($partnerId);
-        if (empty($alerts)) {
-            $alerts = $this->cache->rebuildAlerts($partnerId, 10);
-        }
-
-        return view('dashboards.index', [
-            'usersCount'        => (int) ($stats['usersCount'] ?? 0),
-            'vehiclesCount'     => (int) ($stats['vehiclesCount'] ?? 0),
-            'associationsCount' => (int) ($stats['associationsCount'] ?? 0),
-            'alertsCount'       => (int) ($stats['alertsCount'] ?? 0),
-            'alertStats'        => (array) ($stats['alertsByType'] ?? []),
-            'vehicles'          => $vehicles,
-            'alerts'            => $alerts,
-        ]);
+    $vehicles = $this->cache->getFleetFromRedis($partnerId);
+    if (empty($vehicles)) {
+        $vehicles = $this->cache->rebuildFleet($partnerId);
     }
+
+    $alerts = $this->cache->getAlertsFromRedis($partnerId);
+    if (empty($alerts)) {
+        $alerts = $this->cache->rebuildAlerts($partnerId, 10);
+    }
+
+    return view('dashboards.index', [
+        'usersCount'        => (int) ($stats['usersCount'] ?? 0),
+        'vehiclesCount'     => (int) ($stats['vehiclesCount'] ?? 0),
+        'associationsCount' => (int) ($stats['associationsCount'] ?? 0),
+        'alertsCount'       => (int) ($stats['alertsCount'] ?? 0),
+        'alertStats'        => (array) ($stats['alertsByType'] ?? []),
+        'vehicles'          => $vehicles,
+        'alerts'            => $alerts,
+    ]);
+}
 
     // ─────────────────────────────────────────────────────────────
     // Stream SSE
@@ -88,8 +98,13 @@ class DashboardController extends Controller
             $lastVersion = $this->cache->getVersion($partnerId);
 
             while (!connection_aborted()) {
-                $version = $this->cache->getVersion($partnerId);
 
+               if ($this->cache->shouldCheckExternalAssociationsNow($partnerId, 5)) {
+                    $this->cache->ensurePartnerAssociationsFresh($partnerId);
+                }
+
+                $version = $this->cache->getVersion($partnerId);
+  
                 if ($version !== $lastVersion) {
                     $lastVersion = $version;
 

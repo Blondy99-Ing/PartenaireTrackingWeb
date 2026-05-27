@@ -24,8 +24,14 @@ class DashboardCacheService
     private int $ttlFleet  = 600;
     private int $ttlAlerts = 600;
 
-    private int $gpsOfflineMinutes = 10;
+    private int $gpsOfflineMinutes;
     private float $movingThreshold = 5.0;
+
+    public function __construct()
+    {
+        // 18GPS documentation: online/offline is judged with a 25-minute signal threshold.
+        $this->gpsOfflineMinutes = (int) env('GPS_OFFLINE_THRESHOLD_MINUTES', 25);
+    }
 
     private function kStats(int $partnerId): string      { return "dash:p:$partnerId:stats"; }
     private function kFleetH(int $partnerId): string     { return "dash:p:$partnerId:fleet:h"; }
@@ -34,6 +40,10 @@ class DashboardCacheService
     private function kDebounce(int $partnerId): string   { return "dash:p:$partnerId:debounce"; }
     private function kAlertsLock(int $partnerId): string { return "dash:p:$partnerId:alerts:lock"; }
     private function kVehicleIds(int $partnerId): string { return "dash:p:$partnerId:vehicle_ids"; }
+    private function kAssocCheckLock(int $partnerId): string
+{
+    return "dash:p:$partnerId:assoc:check:lock";
+}
     private function kFleetReset(int $partnerId): string { return "dash:p:$partnerId:fleet:reset"; }
 
     private function kDirtyVehicles(int $partnerId): string { return "dash:p:$partnerId:dirty:vehicles"; }
@@ -92,6 +102,63 @@ class DashboardCacheService
     {
         Redis::del($this->kVehicleIds($partnerId));
     }
+
+
+    public function shouldCheckExternalAssociationsNow(int $partnerId, int $seconds = 5): bool
+{
+    return (bool) Redis::set(
+        $this->kAssocCheckLock($partnerId),
+        '1',
+        'EX',
+        max(1, $seconds),
+        'NX'
+    );
+}
+
+/**
+ * Lit les vrais véhicules du partenaire directement depuis MySQL,
+ * sans utiliser le cache Redis.
+ */
+public function freshPartnerVehicleIdsFromDb(int $partnerId): array
+{
+    return AssociationUserVoiture::query()
+        ->join('users', 'users.id', '=', 'association_user_voitures.user_id')
+        ->whereNull('users.partner_id')
+        ->where('association_user_voitures.user_id', $partnerId)
+        ->pluck('association_user_voitures.voiture_id')
+        ->map(fn ($x) => (int) $x)
+        ->unique()
+        ->values()
+        ->all();
+}
+
+/**
+ * Vérifie si Redis correspond encore à la vraie association en base.
+ *
+ * Cas traité :
+ * - véhicule nouvellement associé au partenaire ;
+ * - véhicule retiré du partenaire ;
+ * - véhicule déplacé d’un partenaire A vers un partenaire B depuis un autre projet.
+ */
+public function ensurePartnerAssociationsFresh(int $partnerId): bool
+{
+    $freshIds = $this->freshPartnerVehicleIdsFromDb($partnerId);
+    $cachedIds = $this->partnerVehicleIds($partnerId);
+
+    sort($freshIds);
+    sort($cachedIds);
+
+    if ($freshIds === $cachedIds) {
+        return false;
+    }
+
+    $this->invalidateVehicleIds($partnerId);
+
+    $this->rebuildStats($partnerId);
+    $this->rebuildFleet($partnerId);
+
+    return true;
+}
 
     public function partnerIdsForVehicle(int $voitureId): array
     {
@@ -329,8 +396,7 @@ class DashboardCacheService
 
         return $payload;
     }
-
-    public function rebuildFleet(int $partnerId): array
+public function rebuildFleet(int $partnerId): array
     {
         $vehicleIds = $this->partnerVehicleIds($partnerId);
 
@@ -384,10 +450,8 @@ class DashboardCacheService
         $hashPayload = [];
 
         foreach ($voitures as $v) {
-            $loc = $latestByMac[(string) $v->mac_id_gps] ?? null;
-            if (!$loc) {
-                continue;
-            }
+            // A vehicle must remain visible even when it has never sent a GPS point.
+            $loc = $latestByMac[(string) $v->mac_id_gps] ?? [];
 
             $chauffeurRow = $assignmentsGrouped->get((int) $v->id)?->first();
             $chauffeur = $chauffeurRow?->chauffeur;
@@ -415,6 +479,7 @@ class DashboardCacheService
 
         return $fleet;
     }
+
 
     public function rebuildFleetForVehicleAssociations(Voiture $voiture): void
     {
@@ -835,8 +900,7 @@ class DashboardCacheService
         $chauffeur = $voiture->chauffeurActuelPourPartner($partnerId);
         return $this->buildVehicleRowWithDriver($partnerId, $voiture, $locationData, $existingRow, $chauffeur);
     }
-
-    private function buildVehicleRowWithDriver(
+private function buildVehicleRowWithDriver(
         int $partnerId,
         Voiture $voiture,
         array $locationData,
@@ -846,22 +910,24 @@ class DashboardCacheService
         $lat = $locationData['latitude'] ?? null;
         $lon = $locationData['longitude'] ?? null;
 
-        if ($lat === null || $lon === null) {
-            return null;
-        }
+        $lat = is_numeric($lat) ? (float) $lat : null;
+        $lon = is_numeric($lon) ? (float) $lon : null;
 
         $driverLabel = $chauffeur
             ? trim(($chauffeur->prenom ?? '') . ' ' . ($chauffeur->nom ?? ''))
             : 'Non associé';
 
         $lastSeen = $locationData['heart_time'] ?? $locationData['sys_time'] ?? $locationData['datetime'] ?? null;
-        $gpsOnline = $this->isGpsOnline($lastSeen);
+        $hasLocation = !empty($locationData) && ($lat !== null || $lon !== null || $lastSeen !== null);
+        $gpsOnline = $hasLocation ? $this->isGpsOnlineFromLocation($locationData) : null;
 
         $engineDecoded = app(\App\Services\GpsControlService::class)->decodeEngineStatus($locationData['status'] ?? null);
         $engineCut = ($engineDecoded['engineState'] ?? 'UNKNOWN') === 'CUT';
 
         $previousLiveStatus = (array) ($existingRow['live_status'] ?? []);
-        $liveStatus = $this->buildLiveStatusFromLocation($locationData, $previousLiveStatus);
+        $liveStatus = $hasLocation
+            ? $this->buildLiveStatusFromLocation($locationData, $previousLiveStatus)
+            : $this->buildNoSignalLiveStatus();
 
         return [
             'id'              => (int) $voiture->id,
@@ -873,21 +939,23 @@ class DashboardCacheService
                 'label' => $driverLabel,
                 'id'    => $chauffeur?->id,
             ],
-            'lat' => (float) $lat,
-            'lon' => (float) $lon,
+            'lat' => $lat,
+            'lon' => $lon,
             'engine' => [
-                'cut'         => $engineCut,
-                'engineState' => $engineDecoded['engineState'] ?? 'UNKNOWN',
+                'cut'         => $hasLocation ? $engineCut : null,
+                'engineState' => $hasLocation ? ($engineDecoded['engineState'] ?? 'UNKNOWN') : 'UNKNOWN',
             ],
             'gps' => [
                 'online'    => $gpsOnline,
-                'state'     => $gpsOnline === true ? 'ONLINE' : 'OFFLINE',
+                'state'     => $hasLocation ? ($gpsOnline === true ? 'ONLINE' : 'OFFLINE') : 'NO_LOCATION',
                 'last_seen' => $lastSeen ? (string) $lastSeen : null,
+                'message'   => $hasLocation ? null : 'GPS jamais reçu',
             ],
             'live_status' => $liveStatus,
             'loc_id' => (int) ($locationData['id'] ?? 0),
         ];
     }
+
 
     private function isNewerLocIdThanCached(int $partnerId, int $vehicleId, int $incomingLocId): bool
     {
@@ -903,10 +971,18 @@ class DashboardCacheService
             return true;
         }
     }
-
-    private function applyDynamicLiveStatusOnRow(array $vehicle): array
+private function applyDynamicLiveStatusOnRow(array $vehicle): array
     {
         $oldLiveStatus = (array) ($vehicle['live_status'] ?? []);
+
+        if (($oldLiveStatus['ui_status'] ?? null) === 'NO_LOCATION') {
+            $vehicle['gps']['online'] = null;
+            $vehicle['gps']['state'] = 'NO_LOCATION';
+            $vehicle['gps']['last_seen'] = $vehicle['gps']['last_seen'] ?? null;
+            $vehicle['gps']['message'] = $vehicle['gps']['message'] ?? 'GPS jamais reçu';
+            return $vehicle;
+        }
+
         if (!empty($oldLiveStatus)) {
             $newLiveStatus = $this->recomputeOfflineLiveStatusFromRedis($oldLiveStatus);
             $vehicle['live_status'] = $newLiveStatus;
@@ -924,7 +1000,7 @@ class DashboardCacheService
         return $vehicle;
     }
 
-    private function isGpsOnline($lastSeen): ?bool
+private function isGpsOnline($lastSeen): ?bool
     {
         $ms = $this->toMs($lastSeen);
         if (!$ms) {
@@ -934,6 +1010,24 @@ class DashboardCacheService
         $diffMs = now()->getTimestampMs() - $ms;
         return $diffMs <= ($this->gpsOfflineMinutes * 60 * 1000);
     }
+
+    private function isGpsOnlineFromLocation(array $location): ?bool
+    {
+        $heartMs = $this->toMs($location['heart_time'] ?? null);
+        $serverMs = $this->toMs($location['server_time'] ?? $location['sys_time'] ?? null);
+
+        if (!$heartMs) {
+            return null;
+        }
+
+        // 18GPS doc: online/offline = server_time - heart_time.
+        // If sys_time is unavailable, use app time as fallback only.
+        $referenceMs = $serverMs ?: now()->getTimestampMs();
+        $diffMs = $referenceMs - $heartMs;
+
+        return $diffMs <= ($this->gpsOfflineMinutes * 60 * 1000);
+    }
+
 
     private function durationHuman(?int $seconds): ?string
     {
@@ -1011,8 +1105,7 @@ class DashboardCacheService
             return null;
         }
     }
-
-    private function buildLiveStatusFromLocation(array $location, ?array $previousLiveStatus = null): array
+private function buildLiveStatusFromLocation(array $location, ?array $previousLiveStatus = null): array
     {
         $offlineThresholdMinutes = $this->gpsOfflineMinutes;
         $offlineThresholdMs = $offlineThresholdMinutes * 60 * 1000;
@@ -1022,11 +1115,12 @@ class DashboardCacheService
 
         $heartMs = $this->toMs($location['heart_time'] ?? null);
         $gpsMs   = $this->toMs($location['datetime'] ?? null);
-        $sysMs   = $this->toMs($location['sys_time'] ?? null);
+        $sysMs   = $this->toMs($location['server_time'] ?? $location['sys_time'] ?? null);
 
-        $nowMs       = now()->getTimestampMs();
+        $nowMs = now()->getTimestampMs();
+        $referenceMs = $sysMs ?: $nowMs;
         $onlineRefMs = $heartMs ?: $gpsMs ?: $sysMs;
-        $isOnline    = $onlineRefMs ? (($nowMs - $onlineRefMs) < $offlineThresholdMs) : false;
+        $isOnline = $heartMs ? (($referenceMs - $heartMs) < $offlineThresholdMs) : false;
 
         $prevMovementState  = (string) ($previousLiveStatus['movement_state'] ?? '');
         $prevStoppedSinceMs = isset($previousLiveStatus['stopped_since_ms']) ? (int) $previousLiveStatus['stopped_since_ms'] : null;
@@ -1098,6 +1192,36 @@ class DashboardCacheService
             'offline_threshold_minutes' => $offlineThresholdMinutes,
         ];
     }
+
+    private function buildNoSignalLiveStatus(): array
+    {
+        return [
+            'ui_status' => 'NO_LOCATION',
+            'movement_state' => 'NO_LOCATION',
+            'connectivity_state' => 'NO_LOCATION',
+            'is_online' => null,
+            'is_moving' => null,
+            'speed' => null,
+            'speed_raw' => null,
+            'moving_threshold' => $this->movingThreshold,
+            'stopped_since_ms' => null,
+            'stopped_since_seconds' => null,
+            'stopped_since_human' => null,
+            'offline_since_ms' => null,
+            'offline_since_seconds' => null,
+            'offline_since_human' => null,
+            'datetime' => null,
+            'heart_time' => null,
+            'sys_time' => null,
+            'heart_time_ms' => null,
+            'datetime_ms' => null,
+            'sys_time_ms' => null,
+            'updated_at_ms' => now()->getTimestampMs(),
+            'offline_threshold_minutes' => $this->gpsOfflineMinutes,
+            'message' => 'GPS jamais reçu',
+        ];
+    }
+
 
     private function recomputeOfflineLiveStatusFromRedis(array $liveStatus): array
     {
@@ -1186,4 +1310,19 @@ class DashboardCacheService
             default     => ucfirst(str_replace('_', ' ', $type)),
         };
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 }

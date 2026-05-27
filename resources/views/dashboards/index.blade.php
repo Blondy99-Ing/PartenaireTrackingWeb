@@ -2247,6 +2247,60 @@ $alertTypesMeta = [
         document.querySelector(`#vehList .item[data-id="${id}"]`)?.classList.add('sel');
     }
 
+    function scrollVehicleIntoView(id) {
+        const el = document.querySelector(`#vehList .item[data-id="${id}"]`);
+        if (!el) return;
+
+        el.scrollIntoView({
+            behavior: 'smooth',
+            block: 'center',
+        });
+    }
+
+    function requestedVehicleIdFromUrl() {
+        const params = new URLSearchParams(window.location.search || '');
+        return params.get('vehicle_id') || params.get('voiture_id') || null;
+    }
+
+    function shouldOpenFleetFromUrl() {
+        const params = new URLSearchParams(window.location.search || '');
+        const tab = String(params.get('tab') || '').toLowerCase();
+        const hash = String(window.location.hash || '').replace('#', '').toLowerCase();
+
+        return tab === 'flotte' || hash === 'flotte' || !!requestedVehicleIdFromUrl();
+    }
+
+    function applyRequestedVehicleSelectionFromUrl() {
+        if (!shouldOpenFleetFromUrl()) return;
+
+        const requestedId = requestedVehicleIdFromUrl();
+
+        window.switchTab('flotte');
+
+        if (!requestedId) return;
+
+        const vehicleExists = vehicles.some(v => String(v.id) === String(requestedId));
+        if (!vehicleExists) {
+            console.warn('[Dashboard] Véhicule demandé introuvable dans la flotte actuelle.', requestedId);
+            return;
+        }
+
+        selectedVehicleId = parseInt(requestedId, 10);
+        followSelectedVehicle = true;
+
+        renderVehicleList();
+        selectVehicleInList(selectedVehicleId);
+        scrollVehicleIntoView(selectedVehicleId);
+        updateFollowSelectedPill();
+        openVehicleModal(selectedVehicleId);
+
+        if (map && markers[String(selectedVehicleId)]) {
+            focusVehicle(selectedVehicleId, true);
+        } else {
+            updateSelectedVehicleIndicator();
+        }
+    }
+
     function getAlertVehicleId(a) {
         if (!a) return null;
 
@@ -2278,6 +2332,7 @@ $alertTypesMeta = [
         moveFollowPillNearMapType();
         renderVehicleMarkers(true);
         updateFollowSelectedPill();
+        applyRequestedVehicleSelectionFromUrl();
         startSSE();
         setTimeout(measureHeights, 250);
         map.addListener('click', () => document.getElementById('mapTypeMenu')?.classList.remove('show'));
@@ -3524,6 +3579,7 @@ $alertTypesMeta = [
         bindAutoFilters();
         renderVehicleList();
         updateFollowSelectedPill();
+        applyRequestedVehicleSelectionFromUrl();
         loadGoogleMaps();
         measureHeights();
         loadAlerts();
