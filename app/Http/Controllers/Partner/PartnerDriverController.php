@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Throwable;
+use App\Support\UserMessages;
 
 class PartnerDriverController extends Controller
 {
@@ -43,12 +44,10 @@ class PartnerDriverController extends Controller
                 'error' => $e->getMessage(),
             ]);
 
-            return back()->withErrors([
-                'general' => app()->environment('local')
-                    ? $e->getMessage()
-                    : 'Impossible de récupérer la liste des chauffeurs.',
-            ]);
-        }
+        return back()->withErrors([
+            'general' => UserMessages::SERVER_ERROR,
+        ]);
+   }
     }
 
     /**
@@ -87,7 +86,7 @@ class PartnerDriverController extends Controller
             return back()
                 ->withInput($request->except(['password', 'password_confirmation']))
                 ->withErrors([
-                    'general' => $e->getMessage(),
+                    'general' => 'Ce numéro ou cette adresse email est déjà utilisé.',
                 ]);
         } catch (UniqueConstraintViolationException $e) {
             throw ValidationException::withMessages(
@@ -102,13 +101,11 @@ class PartnerDriverController extends Controller
                 'error' => $e->getMessage(),
             ]);
 
-            return back()
-                ->withInput($request->except(['password', 'password_confirmation']))
-                ->withErrors([
-                    'general' => app()->environment('local')
-                        ? $e->getMessage()
-                        : 'Création chauffeur impossible. Aucun chauffeur local n’a été conservé.',
-                ]);
+          return back()
+            ->withInput($request->except(['password', 'password_confirmation']))
+            ->withErrors([
+                'general' => 'Impossible de créer le chauffeur actuellement.',
+            ]);
         }
     }
 
@@ -179,7 +176,7 @@ class PartnerDriverController extends Controller
             return back()
                 ->withInput($request->except(['password', 'password_confirmation']))
                 ->withErrors([
-                    'general' => $e->getMessage(),
+                    'general' => 'Ce numéro ou cette adresse email est déjà utilisé.',
                 ]);
         } catch (UniqueConstraintViolationException $e) {
             throw ValidationException::withMessages(
@@ -195,13 +192,11 @@ class PartnerDriverController extends Controller
                 'error' => $e->getMessage(),
             ]);
 
-            return back()
-                ->withInput($request->except(['password', 'password_confirmation']))
-                ->withErrors([
-                    'general' => app()->environment('local')
-                        ? $e->getMessage()
-                        : 'Impossible de mettre à jour ce chauffeur.',
-                ]);
+           return back()
+            ->withInput($request->except(['password', 'password_confirmation']))
+            ->withErrors([
+                'general' => 'Impossible de mettre à jour ce chauffeur actuellement.',
+            ]);
         }
     }
 
@@ -234,9 +229,7 @@ class PartnerDriverController extends Controller
             ]);
 
             return back()->withErrors([
-                'general' => app()->environment('local')
-                    ? $e->getMessage()
-                    : 'Impossible de supprimer ce chauffeur.',
+                'general' => 'Impossible de supprimer ce chauffeur actuellement.',
             ]);
         }
     }

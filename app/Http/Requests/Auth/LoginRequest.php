@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use App\Support\UserMessages;
 
 class LoginRequest extends FormRequest
 {
@@ -153,10 +154,9 @@ class LoginRequest extends FormRequest
                 ]);
 
                 throw ValidationException::withMessages([
-                    $this->loginFieldName() => 'Mot de passe local correct, mais création du compte Keycloak impossible : '
-                        . $provisionException->getMessage(),
+                    $this->loginFieldName() => UserMessages::LOGIN_FAILED,
                 ]);
-            }
+                            }
 
             /**
              * 4. On relance le login Keycloak.
@@ -180,10 +180,10 @@ class LoginRequest extends FormRequest
                     'error' => $secondException->getMessage(),
                 ]);
 
-                throw ValidationException::withMessages([
-                    $this->loginFieldName() => 'Compte Keycloak créé, mais connexion impossible. Veuillez réessayer.',
+               throw ValidationException::withMessages([
+                    $this->loginFieldName() => UserMessages::LOGIN_FAILED,
                 ]);
-            }
+             }
         }
 
         /**
@@ -202,7 +202,7 @@ class LoginRequest extends FormRequest
             ]);
 
             throw ValidationException::withMessages([
-                $this->loginFieldName() => 'Connexion Keycloak réussie, mais synchronisation locale impossible.',
+                $this->loginFieldName() => UserMessages::LOGIN_FAILED,
             ]);
         }
 

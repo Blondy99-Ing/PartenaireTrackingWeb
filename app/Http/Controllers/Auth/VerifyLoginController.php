@@ -12,6 +12,9 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
+use App\Support\UserMessages;
+use App\Services\Keycloak\KeycloakAdminService;
+
 
 class VerifyLoginController extends Controller
 {
@@ -149,7 +152,7 @@ class VerifyLoginController extends Controller
             return back()
                 ->with('show_forgot', true)
                 ->with($this->sessKey('pwd_reset_modal'), true)
-                ->withErrors(['login' => "Impossible d’envoyer le code. {$sendError}"])
+                ->withErrors(['login' => UserMessages::OTP_SEND_FAILED])
                 ->withInput();
         }
 
@@ -183,7 +186,7 @@ class VerifyLoginController extends Controller
         if (!$sess || empty($sess['channel']) || empty($sess['normalized'])) {
             return back()
                 ->with('show_forgot', true)
-                ->withErrors(['login' => 'Veuillez saisir votre email ou téléphone.']);
+                ->withErrors(['login' => 'Veuillez renseigner votre email ou numéro de téléphone.']);
         }
 
         $channel = $sess['channel'];
@@ -223,7 +226,7 @@ class VerifyLoginController extends Controller
             return back()
                 ->with('show_forgot', true)
                 ->with($this->sessKey('pwd_reset_modal'), true)
-                ->withErrors(['otp_code' => "Limite de renvoi atteinte ({$maxResends})."]);
+                ->withErrors(['otp_code' => UserMessages::TOO_MANY_ATTEMPTS]);
         }
 
         $user = !empty($data['user_id']) ? User::find($data['user_id']) : null;
@@ -232,7 +235,7 @@ class VerifyLoginController extends Controller
             return back()
                 ->with('show_forgot', true)
                 ->with($this->sessKey('pwd_reset_modal'), true)
-                ->withErrors(['otp_code' => 'Session invalide. Recommencez.']);
+                ->withErrors(['otp_code' => UserMessages::SESSION_EXPIRED]);
         }
 
         $code = (string) random_int(100000, 999999);
@@ -298,7 +301,7 @@ class VerifyLoginController extends Controller
             return back()
                 ->with('show_forgot', true)
                 ->with($this->sessKey('pwd_reset_modal'), true)
-                ->withErrors(['otp_code' => "Impossible de renvoyer le code. {$sendError}"]);
+                ->withErrors(['otp_code' => UserMessages::OTP_SEND_FAILED]);
         }
 
         return back()
@@ -325,7 +328,7 @@ class VerifyLoginController extends Controller
             return back()
                 ->with('show_forgot', true)
                 ->with($this->sessKey('pwd_reset_modal'), true)
-                ->withErrors(['otp_code' => 'Session expirée. Recommencez.']);
+                ->withErrors(['otp_code' => UserMessages::SESSION_EXPIRED]);
         }
 
         $channel = $sess['channel'];
@@ -355,7 +358,7 @@ class VerifyLoginController extends Controller
             return back()
                 ->with('show_forgot', true)
                 ->with($this->sessKey('pwd_reset_modal'), true)
-                ->withErrors(['otp_code' => "Trop d’essais ({$maxAttempts}). Renvoyez un nouveau code."]);
+                ->withErrors(['otp_code' => UserMessages::TOO_MANY_ATTEMPTS]);
         }
 
         $code = (string) $request->input('otp_code');
@@ -416,39 +419,66 @@ class VerifyLoginController extends Controller
         return view('auth.otp-reset-password', ['token' => $token]);
     }
 
-    public function resetPassword(Request $request)
-    {
-        $request->validate([
-            'token' => ['required', 'string'],
-            'password' => ['required', 'string', 'min:8', 'confirmed'],
-        ]);
+ public function resetPassword(Request $request)
+{
+    $request->validate([
+        'token' => ['required', 'string'],
+        'password' => ['required', 'string', 'min:8', 'confirmed'],
+    ]);
 
-        $token = (string) $request->input('token');
-        $data = Cache::get($this->resetTokenCacheKey($token));
+    $token = (string) $request->input('token');
+    $plainPassword = (string) $request->input('password');
 
-        if (!$data) {
-            return redirect()
-                ->route('login')
-                ->with('status', 'Jeton expiré. Recommencez la procédure.');
-        }
+    $data = Cache::get($this->resetTokenCacheKey($token));
 
-        $user = User::find($data['user_id'] ?? null);
-        if (!$user) {
-            return redirect()
-                ->route('login')
-                ->with('status', 'Compte introuvable.');
-        }
+    if (!$data) {
+        return redirect()
+            ->route('login')
+            ->with('status', UserMessages::SESSION_EXPIRED);
+    }
 
-        $user->password = Hash::make((string) $request->input('password'));
+    $user = User::find($data['user_id'] ?? null);
+
+    if (!$user) {
+        return redirect()
+            ->route('login')
+            ->with('status', UserMessages::LOGIN_FAILED);
+    }
+
+    try {
+        $user->password = Hash::make($plainPassword);
+        $user->setRememberToken(Str::random(60));
         $user->save();
+
+        if (!empty($user->keycloak_id)) {
+            app(KeycloakAdminService::class)->resetUserPassword(
+                $user->keycloak_id,
+                $plainPassword,
+                false
+            );
+        }
 
         Cache::forget($this->resetTokenCacheKey($token));
 
         return redirect()
             ->route('login')
             ->with('status', 'Mot de passe mis à jour. Vous pouvez vous connecter.');
-    }
 
+    } catch (\Throwable $e) {
+        Log::error('[PASSWORD_RESET_SYNC_FAILED]', [
+            'user_id' => $user->id ?? null,
+            'keycloak_id' => $user->keycloak_id ?? null,
+            'error' => $e->getMessage(),
+        ]);
+
+        return redirect()
+            ->back()
+            ->withInput()
+            ->withErrors([
+                'password' => UserMessages::SERVER_ERROR,
+            ]);
+    }
+}
     /* ========================= Helpers ========================= */
 
     private function detectChannelAndNormalize(string $raw): array

@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
+use App\Support\UserMessages;
 
 class RefreshKeycloakToken
 {
@@ -43,14 +44,14 @@ class RefreshKeycloakToken
             if ($request->expectsJson()) {
                 return response()->json([
                     'ok' => false,
-                    'message' => 'Session expirée. Veuillez vous reconnecter.',
+                    'message' => UserMessages::SESSION_EXPIRED,
                 ], 401);
             }
 
             return redirect()
                 ->route('login')
                 ->withErrors([
-                    'login' => 'Session expirée. Veuillez vous reconnecter.',
+                    'login' => UserMessages::SESSION_EXPIRED,
                 ]);
         }
 

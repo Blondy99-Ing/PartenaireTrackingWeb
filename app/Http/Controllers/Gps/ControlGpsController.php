@@ -67,7 +67,7 @@ class ControlGpsController extends Controller
         if ($ids->isEmpty()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Aucun id fourni',
+                'message' => 'Aucun véhicule sélectionné.',
                 'data' => [],
             ], 422);
         }
@@ -94,7 +94,7 @@ class ControlGpsController extends Controller
             if (!$v) {
                 $out[$id] = [
                     'success' => false,
-                    'message' => 'VEHICLE_NOT_ALLOWED',
+                    'message' => UserMessages::ACCESS_DENIED,
                 ];
                 continue;
             }
@@ -130,12 +130,12 @@ class ControlGpsController extends Controller
 
         $allowed = $user->voitures()->where('voitures.id', $voiture->id)->exists();
         if (!$allowed) {
-            return response()->json(['success' => false, 'message' => 'VEHICLE_NOT_ALLOWED'], 403);
+            return response()->json(['success' => false, 'message' => UserMessages::ACCESS_DENIED], 403);
         }
 
         $mac = trim((string) $voiture->mac_id_gps);
         if ($mac === '') {
-            return response()->json(['success' => false, 'message' => 'NO_MAC_ID'], 422);
+            return response()->json(['success' => false, 'message' => UserMessages::VEHICLE_UNAVAILABLE], 422);
         }
 
         $status = $this->getLiveEngineStatusWithAccountRetry($mac, true);
@@ -150,11 +150,15 @@ class ControlGpsController extends Controller
             return response()->json($local);
         }
 
+        Log::warning('[ENGINE_STATUS_FAILED]', [
+            'vehicle_id' => $voiture->id,
+            'mac_id' => $mac,
+            'provider_status' => $status,
+        ]);
+
         return response()->json([
             'success' => false,
-            'message' => $status['message'] ?? 'ENGINE_STATUS_FAILED',
-            'macid' => $mac,
-            'raw' => $status,
+            'message' => UserMessages::VEHICLE_UNAVAILABLE,
         ], 502);
     }
 
@@ -170,12 +174,12 @@ class ControlGpsController extends Controller
 
         $allowed = $user->voitures()->where('voitures.id', $voiture->id)->exists();
         if (!$allowed) {
-            return response()->json(['success' => false, 'message' => 'VEHICLE_NOT_ALLOWED'], 403);
+            return response()->json(['success' => false, 'message' => UserMessages::ACCESS_DENIED], 403);
         }
 
         $mac = trim((string) $voiture->mac_id_gps);
         if ($mac === '') {
-            return response()->json(['success' => false, 'message' => 'NO_MAC_ID'], 422);
+           return response()->json(['success' => false, 'message' => UserMessages::VEHICLE_UNAVAILABLE], 422);
         }
 
         $action = strtolower(trim((string) $request->input('action', '')));
@@ -225,12 +229,17 @@ class ControlGpsController extends Controller
         }
 
         if (!$parsed['ok']) {
-            return response()->json([
-                'success' => false,
-                'message' => $parsed['message'],
-                'return_msg' => $parsed['returnMsg'],
-                'provider' => $providerResp,
-            ], 422);
+            Log::warning('[ENGINE_COMMAND_FAILED]', [
+            'vehicle_id' => $voiture->id,
+            'mac_id' => $mac,
+            'parsed' => $parsed,
+            'provider_response' => $providerResp,
+        ]);
+
+        return response()->json([
+            'success' => false,
+            'message' => UserMessages::VEHICLE_UNAVAILABLE,
+        ], 422);
         }
 
         $cmdNo = $parsed['cmdNo'];

@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
+use App\Support\UserMessages;
 
 class KeycloakAuthService
 {
@@ -49,8 +50,8 @@ class KeycloakAuthService
         $json = $response->json();
 
         if (! is_array($json) || empty($json['access_token'])) {
-            throw ValidationException::withMessages([
-                'login' => ['Réponse Keycloak invalide.'],
+           throw ValidationException::withMessages([
+                'login' => [UserMessages::LOGIN_FAILED],
             ]);
         }
 

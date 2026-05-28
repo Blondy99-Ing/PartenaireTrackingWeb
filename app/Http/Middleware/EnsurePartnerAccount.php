@@ -6,6 +6,7 @@ use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
+use App\Support\UserMessages;
 
 class EnsurePartnerAccount
 {
@@ -24,7 +25,7 @@ class EnsurePartnerAccount
             if ($request->expectsJson()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Utilisateur non authentifié.',
+                    'message' => UserMessages::SESSION_EXPIRED,
                 ], 401);
             }
 
@@ -44,11 +45,11 @@ class EnsurePartnerAccount
             if ($request->expectsJson()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Accès réservé au compte partenaire.',
+                    'message' => UserMessages::ACCESS_DENIED,
                 ], 403);
             }
 
-            abort(403, 'Accès réservé au compte partenaire.');
+           abort(403, UserMessages::ACCESS_DENIED);
         }
 
         return $next($request);

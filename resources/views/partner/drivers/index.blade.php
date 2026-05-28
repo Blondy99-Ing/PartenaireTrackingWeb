@@ -562,7 +562,6 @@ table.dataTable {
                         <th>Ville</th>
                         <th>Quartier</th>
                         <th>Email</th>
-                        <th>Synchronisation</th>
                         <th style="text-align:right;">Actions</th>
                     </tr>
                 </thead>
@@ -642,6 +641,7 @@ table.dataTable {
                                 {{ $user->email ?? '—' }}
                             </td>
 
+                             {{--
                             <td>
                                 <div style="display:flex;flex-direction:column;gap:0.25rem;">
                                     <span class="sync-badge {{ $statusClass($keycloakStatus) }}"
@@ -657,6 +657,7 @@ table.dataTable {
                                     </span>
                                 </div>
                             </td>
+                            --}}
 
                             <td>
                                 <div style="display:flex;align-items:center;justify-content:flex-end;gap:0.3rem;">

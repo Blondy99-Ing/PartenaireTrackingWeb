@@ -1777,6 +1777,7 @@
                 </li>
 
                 {{-- Suivi & Flotte (dropdown) --}}
+                {{--
                 <li>
                     <button
                         class="nav-dropdown-toggle {{ request()->is('tracking*') || request()->is('contrat*') || request()->is('lease*') ? 'active' : '' }}"
@@ -1838,7 +1839,9 @@
 
                 </li>
             </ul>
+           
             </li>
+             --}}
 
 
             </ul>

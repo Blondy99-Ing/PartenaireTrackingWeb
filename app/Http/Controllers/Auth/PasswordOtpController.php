@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use App\Support\UserMessages;
 
 class PasswordOtpController extends Controller
 {
@@ -44,7 +45,7 @@ class PasswordOtpController extends Controller
             if (!$user) {
                 return response()->json([
                     'success' => false,
-                    'message' => "Cet email n'existe pas."
+                    'message' => 'Si le compte existe, un code sera envoyé.'
                 ], 422);
             }
 
@@ -97,7 +98,7 @@ class PasswordOtpController extends Controller
         if (!$user) {
             return response()->json([
                 'success' => false,
-                'message' => "Ce numéro n'existe pas."
+                'message' => 'Si le compte existe, un code sera envoyé.'
             ], 422);
         }
 
@@ -132,7 +133,7 @@ class PasswordOtpController extends Controller
         if (($send['ok'] ?? false) === false || $providerStatus === 'error') {
             return response()->json([
                 'success' => false,
-                'message' => $providerMsg ?: "Échec d'envoi SMS. Veuillez réessayer."
+                'message' => UserMessages::OTP_SEND_FAILED
             ], 422);
         }
 
@@ -156,7 +157,7 @@ class PasswordOtpController extends Controller
         if (!$identifier || $otp === '') {
             return response()->json([
                 'success' => false,
-                'message' => "Veuillez fournir identifier et otp."
+                'message' => 'Veuillez renseigner les informations demandées.'
             ], 422);
         }
 
@@ -239,7 +240,7 @@ class PasswordOtpController extends Controller
         if (!$data) {
             return response()->json([
                 'success' => false,
-                'message' => "reset_token invalide ou expiré."
+                'message' => UserMessages::SESSION_EXPIRED
             ], 422);
         }
 
@@ -247,7 +248,7 @@ class PasswordOtpController extends Controller
         if (!$user) {
             return response()->json([
                 'success' => false,
-                'message' => "Utilisateur introuvable."
+                'message' => UserMessages::SERVER_ERROR
             ], 404);
         }
 
