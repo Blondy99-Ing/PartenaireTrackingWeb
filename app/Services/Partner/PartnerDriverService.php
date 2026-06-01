@@ -6,7 +6,6 @@ use App\Models\Role;
 use App\Models\User;
 use App\Services\Keycloak\KeycloakAdminService;
 use App\Services\Keycloak\KeycloakUserProvisioningService;
-use App\Services\Recouvrement\RecouvrementDriverApiService;
 use App\Support\Phone;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\UploadedFile;
@@ -21,37 +20,15 @@ use Throwable;
 
 class PartnerDriverService
 {
-    /**
-     * Rôle local dans la base Tracking.
-     */
     private const DRIVER_LOCAL_ROLE_SLUG = 'utilisateur_secondaire';
-
     private const SIMPLE_PARTNER = 'SIMPLE_PARTNER';
-
     private const LEASE_PARTNER = 'LEASE_PARTNER';
-
-    /**
-     * Rôle Keycloak dans le client tracking_app.
-     *
-     * Important :
-     * Ce rôle doit exister exactement avec ce nom dans Keycloak,
-     * dans le client tracking_app.
-     */
     private const TRACKING_KEYCLOAK_ROLE = 'utilisateur_secondaire';
-
-    /**
-     * Rôle Keycloak dans le client recouvrement_app.
-     *
-     * Important :
-     * Ce rôle doit exister exactement avec ce nom dans Keycloak,
-     * dans le client recouvrement_app.
-     */
     private const RECOUVREMENT_KEYCLOAK_ROLE = 'DRIVER';
 
     public function __construct(
         private KeycloakAdminService $keycloakAdminService,
-        private KeycloakUserProvisioningService $keycloakUserProvisioningService,
-        private RecouvrementDriverApiService $recouvrementDriverApiService
+        private KeycloakUserProvisioningService $keycloakUserProvisioningService
     ) {}
 
     public function listDrivers(User $partner)
@@ -59,9 +36,7 @@ class PartnerDriverService
         return User::query()
             ->with('role')
             ->where('partner_id', $partner->id)
-            ->whereHas('role', function ($q) {
-                $q->where('slug', self::DRIVER_LOCAL_ROLE_SLUG);
-            })
+            ->whereHas('role', fn ($q) => $q->where('slug', self::DRIVER_LOCAL_ROLE_SLUG))
             ->latest()
             ->get();
     }
@@ -91,23 +66,12 @@ class PartnerDriverService
         DB::beginTransaction();
 
         try {
-            /**
-             * 1. Création locale du chauffeur dans la transaction MySQL.
-             */
             $driver = $this->createLocalDriverInsideTransaction(
                 partner: $partner,
                 data: $data,
                 roleId: $roleId
             );
 
-            /**
-             * 2. Création ou récupération du user Keycloak via le service central.
-             *
-             * Règle métier :
-             * - le chauffeur local vient d'être créé avec users.partner_id = $partner->id ;
-             * - donc Keycloak reçoit compte_id = $driver->partner_id ;
-             * - donc compte_id = id du partenaire connecté.
-             */
             $keycloakResult = $this->keycloakUserProvisioningService->provisionDriverCreatedByPartner(
                 user: $driver,
                 plainPassword: $data['password']
@@ -122,11 +86,6 @@ class PartnerDriverService
 
             $driver->refresh();
 
-            /**
-             * 4. Si partenaire LEASE_PARTNER :
-             *    - attribution rôle DRIVER sur recouvrement_app
-             *    - création chauffeur dans recouvrement
-             */
             if ($this->isLeasePartner($partner)) {
                 $this->keycloakAdminService->assignClientRoleToUser(
                     keycloakUserId: $driver->keycloak_id,
@@ -134,42 +93,32 @@ class PartnerDriverService
                     roleName: self::RECOUVREMENT_KEYCLOAK_ROLE
                 );
 
-                $recouvrementResponse = $this->recouvrementDriverApiService->createDriver(
-                    partner: $partner,
-                    driver: $driver,
-                    plainPassword: $data['password'],
-                    keycloakId: $driver->keycloak_id
-                );
-
                 $driver->forceFill([
-                    'recouvrement_driver_id' => $this->extractRecouvrementDriverId($recouvrementResponse),
-                    'recouvrement_sync_status' => 'SYNCED',
+                    'recouvrement_driver_id' => null,
+                    'recouvrement_sync_status' => 'KEYCLOAK_ROLE_ASSIGNED',
                     'last_synced_at' => now(),
                     'sync_error' => null,
                 ])->save();
+
+                Log::info('[DRIVER_RECOUVREMENT_ROLE_ASSIGNED_ONLY]', [
+                    'partner_id' => $partner->id,
+                    'driver_id' => $driver->id,
+                    'keycloak_id' => $driver->keycloak_id,
+                    'client' => config('services.keycloak.recouvrement_client_id', 'recouvrement_app'),
+                    'role' => self::RECOUVREMENT_KEYCLOAK_ROLE,
+                ]);
+            } else {
+                $driver->forceFill([
+                    'recouvrement_sync_status' => 'NOT_REQUIRED',
+                ])->save();
             }
 
-            /**
-             * 5. Tout a réussi : commit.
-             */
             DB::commit();
 
             return $driver->fresh('role');
         } catch (Throwable $e) {
-            /**
-             * 6. Une étape a échoué : rollback MySQL.
-             */
             DB::rollBack();
 
-            /**
-             * 7. Compensation Keycloak.
-             *
-             * Si on a créé un user Keycloak pendant cette opération,
-             * on tente de le supprimer.
-             *
-             * Si le user existait déjà avant, on ne le supprime pas
-             * pour éviter de casser un compte légitime.
-             */
             if ($createdKeycloakUserId && $createdKeycloakUserWasNew) {
                 try {
                     $this->keycloakAdminService->deleteUser($createdKeycloakUserId);
@@ -235,11 +184,6 @@ class PartnerDriverService
             $driver->email = $data['email'] ?? null;
             $driver->ville = $data['ville'] ?? null;
             $driver->quartier = $data['quartier'] ?? null;
-
-            /**
-             * Dans ton projet, le username Keycloak du chauffeur est le téléphone.
-             * Si le téléphone change, on garde keycloak_username synchronisé.
-             */
             $driver->keycloak_username = $data['phone'];
 
             $plainPassword = null;
@@ -259,20 +203,6 @@ class PartnerDriverService
                 throw $e;
             }
 
-            /**
-             * 1. Synchronisation Keycloak.
-             *
-             * On met à jour :
-             * - username ;
-             * - email ;
-             * - firstName ;
-             * - lastName ;
-             * - attributes ;
-             * - compte_id ;
-             * - local_partner_id ;
-             * - business_type ;
-             * - local_role.
-             */
             if ($driver->keycloak_id) {
                 $this->keycloakAdminService->updateUserFromLocalUser($driver);
 
@@ -282,6 +212,18 @@ class PartnerDriverService
                         $plainPassword,
                         false
                     );
+                }
+
+                if ($this->isLeasePartner($partner)) {
+                    $this->keycloakAdminService->assignClientRoleToUser(
+                        keycloakUserId: $driver->keycloak_id,
+                        clientId: config('services.keycloak.recouvrement_client_id', 'recouvrement_app'),
+                        roleName: self::RECOUVREMENT_KEYCLOAK_ROLE
+                    );
+
+                    $driver->recouvrement_sync_status = 'KEYCLOAK_ROLE_ASSIGNED';
+                } else {
+                    $driver->recouvrement_sync_status = 'NOT_REQUIRED';
                 }
 
                 $driver->forceFill([
@@ -299,44 +241,6 @@ class PartnerDriverService
                     'partner_id' => $partner->id,
                     'driver_id' => $driver->id,
                 ]);
-            }
-
-            /**
-             * 2. Synchronisation recouvrement uniquement pour les partenaires LEASE_PARTNER.
-             *
-             * Règle :
-             * - SIMPLE_PARTNER : pas de synchronisation recouvrement ;
-             * - LEASE_PARTNER : on met à jour le chauffeur dans recouvrement.
-             */
-            if ($this->isLeasePartner($partner)) {
-                if ($driver->recouvrement_driver_id) {
-                    $this->recouvrementDriverApiService->updateDriver(
-                        partner: $partner,
-                        driver: $driver,
-                        plainPassword: $plainPassword
-                    );
-
-                    $driver->forceFill([
-                        'recouvrement_sync_status' => 'SYNCED',
-                        'last_synced_at' => now(),
-                        'sync_error' => null,
-                    ])->save();
-                } else {
-                    $driver->forceFill([
-                        'recouvrement_sync_status' => 'PENDING',
-                        'sync_error' => 'Modification locale faite, mais recouvrement_driver_id absent.',
-                    ])->save();
-
-                    Log::warning('[PARTNER_DRIVER_UPDATE_RECOUVREMENT_SKIPPED_NO_ID]', [
-                        'partner_id' => $partner->id,
-                        'driver_id' => $driver->id,
-                        'keycloak_id' => $driver->keycloak_id,
-                    ]);
-                }
-            } else {
-                $driver->forceFill([
-                    'recouvrement_sync_status' => 'NOT_REQUIRED',
-                ])->save();
             }
 
             DB::commit();
@@ -369,10 +273,6 @@ class PartnerDriverService
                 Storage::disk($disk)->delete($driver->photo);
             }
 
-            /**
-             * Suppression locale uniquement.
-             * Ne pas supprimer Keycloak sans décision métier claire.
-             */
             $driver->delete();
         });
     }
@@ -395,31 +295,13 @@ class PartnerDriverService
             'quartier' => $data['quartier'] ?? null,
             'photo' => $photoPath,
             'password' => Hash::make($data['password']),
-
-            /**
-             * Rôle local Tracking.
-             */
             'role_id' => $roleId,
-
-            /**
-             * Le chauffeur appartient au user partenaire.
-             */
             'partner_id' => $partner->id,
             'created_by' => $partner->id,
-
             'user_unique_id' => $this->generateUserUniqueId(),
-
-            /**
-             * Username Keycloak = téléphone E.164.
-             */
             'keycloak_username' => $data['phone'],
             'keycloak_sync_status' => 'PENDING',
-
-            /**
-             * Recouvrement uniquement pour LEASE_PARTNER.
-             */
-            'recouvrement_sync_status' => $this->isLeasePartner($partner) ? 'PENDING' : 'NOT_REQUIRED',
-
+            'recouvrement_sync_status' => $this->isLeasePartner($partner) ? 'PENDING_ROLE_ASSIGNMENT' : 'NOT_REQUIRED',
             'sync_error' => null,
         ];
 
@@ -445,9 +327,7 @@ class PartnerDriverService
             ->with('role')
             ->where('id', $driverId)
             ->where('partner_id', $partner->id)
-            ->whereHas('role', function ($q) {
-                $q->where('slug', self::DRIVER_LOCAL_ROLE_SLUG);
-            })
+            ->whereHas('role', fn ($q) => $q->where('slug', self::DRIVER_LOCAL_ROLE_SLUG))
             ->firstOrFail();
     }
 
@@ -497,15 +377,6 @@ class PartnerDriverService
         } while (User::where('user_unique_id', $id)->exists());
 
         return $id;
-    }
-
-    private function extractRecouvrementDriverId(array $response): ?string
-    {
-        return data_get($response, 'id')
-            ?? data_get($response, 'data.id')
-            ?? data_get($response, 'user.id')
-            ?? data_get($response, 'chauffeur.id')
-            ?? data_get($response, 'devMsg.id');
     }
 
     private function throwConflictFromDuplicate(string $message): void
