@@ -378,6 +378,48 @@ private function extractRows(mixed $response): array
     }
 
     /**
+     * Endpoint API recouvrement : POST /contrats/{parent}/sous-contrats/
+     *
+     * Rôle :
+     * Crée un sous-contrat lorsque le contrat principal existe déjà côté
+     * recouvrement. Tracking garde ensuite le lien local dans
+     * lease_contract_links via LeaseContractLinkService.
+     */
+    public function createSubContract(int $parentContractId, array $payload): array
+    {
+        if ($parentContractId <= 0) {
+            throw new RuntimeException('ID contrat parent invalide pour la création du sous-contrat.');
+        }
+
+        $apiPayload = [
+            'type_contrat' => (int) $payload['type_contrat'],
+            'montant_total' => (string) $payload['montant_total'],
+            'montant_paye' => (string) ($payload['montant_paye'] ?? 0),
+            'montant_par_paiement' => (string) $payload['montant_par_paiement'],
+            'frequence' => mb_strtoupper((string) $payload['frequence'], 'UTF-8'),
+            'date_debut' => (string) $payload['date_debut'],
+            'date_fin' => (string) $payload['date_fin'],
+            'prochaine_echeance' => (string) $payload['prochaine_echeance'],
+            'specificites' => $payload['specificites'] ?? new \stdClass(),
+        ];
+
+        Log::info('[LEASE_API_CREATE_SUB_CONTRACT_START]', [
+            'parent_contract_id' => $parentContractId,
+            'payload' => $apiPayload,
+        ]);
+
+        $response = $this->post("/contrats/{$parentContractId}/sous-contrats/", $apiPayload);
+
+        Log::info('[LEASE_API_CREATE_SUB_CONTRACT_DONE]', [
+            'parent_contract_id' => $parentContractId,
+            'response_shape' => $this->describeArrayShape($response),
+            'response_id' => data_get($response, 'id') ?? data_get($response, 'data.id'),
+        ]);
+
+        return $response;
+    }
+
+    /**
      * Endpoint API recouvrement : PUT /contrats/{id}/
      *
      * Rôle :
@@ -1800,6 +1842,7 @@ protected function cutoffStatusUiType(?string $status): string
             'immatriculation' => (string) $payload['immatriculation'],
             'vin' => (string) ($payload['vin'] ?? ''),
             'montant_total' => (string) $payload['montant_total'],
+            'montant_paye' => (string) ($payload['montant_paye'] ?? 0),
             'montant_par_paiement' => (string) $payload['montant_par_paiement'],
             'frequence' => mb_strtoupper((string) $payload['frequence'], 'UTF-8'),
             'date_debut' => (string) $payload['date_debut'],
@@ -1830,6 +1873,7 @@ protected function cutoffStatusUiType(?string $status): string
                 return [
                     'type_contrat' => (int) $row['type_contrat'],
                     'montant_total' => (string) $row['montant_total'],
+                    'montant_paye' => (string) ($row['montant_paye'] ?? 0),
                     'montant_par_paiement' => (string) $row['montant_par_paiement'],
                     'frequence' => mb_strtoupper((string) $row['frequence'], 'UTF-8'),
                     'date_debut' => (string) $row['date_debut'],

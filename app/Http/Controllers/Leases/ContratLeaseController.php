@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Leases;
 
 use App\Exceptions\LeaseApiException;
 use App\Http\Controllers\Controller;
+use App\Models\LeaseContractLink;
+use App\Services\Leases\LeaseContractCutoffRuleApplicationService;
 use App\Services\Leases\LeaseContractLinkService;
 use App\Services\Leases\LeaseCutoffRuleService;
 use App\Services\Leases\PartnerLeaseApiService;
@@ -31,7 +33,8 @@ class ContratLeaseController extends Controller
     public function __construct(
         private readonly PartnerLeaseApiService $leaseApiService,
         private readonly LeaseCutoffRuleService $cutoffRuleService,
-        private readonly LeaseContractLinkService $contractLinkService
+        private readonly LeaseContractLinkService $contractLinkService,
+        private readonly LeaseContractCutoffRuleApplicationService $ruleApplicationService
     ) {
     }
 
@@ -151,25 +154,50 @@ class ContratLeaseController extends Controller
 
         $validated = $this->validateContractPayload($request, creating: true);
         $vehicleId = $validated['vehicle_id'] ?? null;
-        $apiPayload = $this->buildRecouvrementPayload($validated, updating: false);
+        $isSubContract = ! empty($validated['parent']);
 
         try {
-            Log::info('[LEASE_CONTRACT_STORE_API_PAYLOAD]', [
-                'payload' => $apiPayload,
-                'vehicle_id_local_tracking' => $vehicleId,
-            ]);
+            if ($isSubContract) {
+                $apiPayload = $this->buildSubContractPayload($validated);
 
-            $created = $this->leaseApiService->createContract($apiPayload);
-            $this->syncContractLinkAfterWrite($validated, $apiPayload, $created);
+                Log::info('[LEASE_SUB_CONTRACT_STORE_API_PAYLOAD]', [
+                    'parent_contract_id' => (int) $validated['parent'],
+                    'payload' => $apiPayload,
+                ]);
+
+                $created = $this->leaseApiService->createSubContract(
+                    (int) $validated['parent'],
+                    $apiPayload
+                );
+
+                $this->contractLinkService->syncSubContractFromParent(
+                    actor: auth()->user(),
+                    parentContractId: (int) $validated['parent'],
+                    payload: $apiPayload,
+                    apiResponse: $created
+                );
+            } else {
+                $apiPayload = $this->buildRecouvrementPayload($validated, updating: false);
+
+                Log::info('[LEASE_CONTRACT_STORE_API_PAYLOAD]', [
+                    'payload' => $apiPayload,
+                    'vehicle_id_local_tracking' => $vehicleId,
+                ]);
+
+                $created = $this->leaseApiService->createContract($apiPayload);
+                $this->syncContractLinkAfterWrite($validated, $apiPayload, $created);
+            }
+
+            $this->applyCutoffRuleAfterContractCreation($validated, $created);
 
             return redirect()
                 ->route('lease.contrat')
-                ->with('success', ! empty($validated['parent'])
+                ->with('success', $isSubContract
                     ? 'Sous-contrat enregistré avec succès.'
                     : 'Contrat enregistré avec succès.');
         } catch (Throwable $e) {
             $this->reportLeaseError('LEASE_CONTRACT_STORE_FAILED', $e, [
-                'payload' => $apiPayload,
+                'validated' => $validated,
                 'vehicle_id_local_tracking' => $vehicleId,
             ]);
 
@@ -306,6 +334,7 @@ class ContratLeaseController extends Controller
             'immatriculation' => ['required', 'string', 'max:100'],
             'vin' => ['nullable', 'string', 'max:100'],
             'montant_total' => ['required', 'numeric', 'min:0'],
+            'montant_paye' => ['nullable', 'numeric', 'min:0'],
             'montant_restant' => ['nullable', 'numeric', 'min:0'],
             'montant_par_paiement' => ['required', 'numeric', 'min:0'],
             'frequence' => ['required', Rule::in(['JOURNALIER', 'HEBDOMADAIRE', 'MENSUEL'])],
@@ -314,9 +343,20 @@ class ContratLeaseController extends Controller
             'prochaine_echeance' => ['required', 'date'],
             'statut' => ['nullable', Rule::in(['ACTIF', 'SUSPENDU', 'SOLDE', 'CONTENTIEUX', 'actif', 'suspendu', 'solde', 'contentieux'])],
             'specificites' => ['nullable'],
+            'apply_default_cutoff_rule' => ['nullable', 'boolean'],
+            'customize_cutoff_rule' => ['nullable', 'boolean'],
+            'custom_rule_is_enabled' => ['nullable', 'boolean'],
+            'custom_rule_cutoff_time' => ['nullable', 'date_format:H:i'],
+            'custom_rule_timezone' => ['nullable', 'string', 'max:64'],
+            'custom_rule_grace_days' => ['nullable', 'integer', 'min:0', 'max:365'],
+            'custom_rule_active_days' => ['nullable', 'array'],
+            'custom_rule_active_days.*' => ['string', Rule::in(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])],
+            'custom_rule_only_when_stopped' => ['nullable', 'boolean'],
+            'custom_rule_notify_before_cutoff' => ['nullable', 'boolean'],
             'sous_contrats' => ['nullable', 'array'],
             'sous_contrats.*.type_contrat' => ['required_with:sous_contrats', 'integer'],
             'sous_contrats.*.montant_total' => ['required_with:sous_contrats', 'numeric', 'min:0'],
+            'sous_contrats.*.montant_paye' => ['nullable', 'numeric', 'min:0'],
             'sous_contrats.*.montant_par_paiement' => ['required_with:sous_contrats', 'numeric', 'min:0'],
             'sous_contrats.*.frequence' => ['required_with:sous_contrats', Rule::in(['JOURNALIER', 'HEBDOMADAIRE', 'MENSUEL'])],
             'sous_contrats.*.date_debut' => ['required_with:sous_contrats', 'date'],
@@ -347,6 +387,7 @@ class ContratLeaseController extends Controller
             'immatriculation' => (string) $validated['immatriculation'],
             'vin' => (string) ($validated['vin'] ?? ''),
             'montant_total' => (string) $validated['montant_total'],
+            'montant_paye' => (string) ($validated['montant_paye'] ?? 0),
             'montant_par_paiement' => (string) $validated['montant_par_paiement'],
             'frequence' => mb_strtoupper((string) $validated['frequence'], 'UTF-8'),
             'date_debut' => (string) $validated['date_debut'],
@@ -371,6 +412,7 @@ class ContratLeaseController extends Controller
             ->map(fn (array $row) => [
                 'type_contrat' => (int) $row['type_contrat'],
                 'montant_total' => (string) $row['montant_total'],
+                'montant_paye' => (string) ($row['montant_paye'] ?? 0),
                 'montant_par_paiement' => (string) $row['montant_par_paiement'],
                 'frequence' => mb_strtoupper((string) $row['frequence'], 'UTF-8'),
                 'date_debut' => (string) $row['date_debut'],
@@ -386,6 +428,70 @@ class ContratLeaseController extends Controller
         }
 
         return $payload;
+    }
+
+    private function buildSubContractPayload(array $validated): array
+    {
+        return [
+            'type_contrat' => (int) $validated['type_contrat'],
+            'montant_total' => (string) $validated['montant_total'],
+            'montant_paye' => (string) ($validated['montant_paye'] ?? 0),
+            'montant_par_paiement' => (string) $validated['montant_par_paiement'],
+            'frequence' => mb_strtoupper((string) $validated['frequence'], 'UTF-8'),
+            'date_debut' => (string) $validated['date_debut'],
+            'date_fin' => (string) $validated['date_fin'],
+            'prochaine_echeance' => (string) $validated['prochaine_echeance'],
+            'specificites' => $this->normalizeSpecificites($validated['specificites'] ?? null),
+        ];
+    }
+
+    private function applyCutoffRuleAfterContractCreation(array $validated, array $apiResponse): void
+    {
+        if (empty($validated['apply_default_cutoff_rule']) && empty($validated['customize_cutoff_rule'])) {
+            return;
+        }
+
+        $sourceContractId = (int) (
+            data_get($apiResponse, 'id')
+            ?? data_get($apiResponse, 'data.id')
+            ?? data_get($apiResponse, 'contrat.id')
+            ?? 0
+        );
+
+        if ($sourceContractId <= 0) {
+            Log::warning('[LEASE_CUTOFF_RULE_APPLY_SKIPPED_NO_CONTRACT_ID]', [
+                'api_response_keys' => array_keys($apiResponse),
+            ]);
+
+            return;
+        }
+
+        $actor = auth()->user();
+        $partnerId = (int) ($actor->partner_id ?: $actor->id);
+
+        $contractLink = LeaseContractLink::query()
+            ->where('partner_id', $partnerId)
+            ->where('source_contract_id', $sourceContractId)
+            ->first();
+
+        if (! $contractLink) {
+            Log::warning('[LEASE_CUTOFF_RULE_APPLY_SKIPPED_LINK_NOT_FOUND]', [
+                'partner_id' => $partnerId,
+                'source_contract_id' => $sourceContractId,
+            ]);
+
+            return;
+        }
+
+        if (! empty($validated['customize_cutoff_rule'])) {
+            $this->ruleApplicationService->applyCustomRule($actor, $contractLink, $validated);
+
+            return;
+        }
+
+        if (! empty($validated['apply_default_cutoff_rule'])) {
+            $this->ruleApplicationService->applyDefaultRule($actor, $contractLink);
+        }
     }
 
     private function syncContractLinkAfterWrite(array $validated, array $apiPayload, array $apiResponse): void

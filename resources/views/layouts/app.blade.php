@@ -1775,21 +1775,9 @@
                         <span class="nav-label">Moteur</span>
                     </a>
                 </li>
-                <li class="nav-item">
-                    <a class="nav-link disabled text-muted"
-                    href="#"
-                    tabindex="-1"
-                    aria-disabled="true"
-                    onclick="return false;"
-                    style="pointer-events: none; opacity: 0.55; cursor: not-allowed;">
-                        <i class="fas fa-file-contract me-2"></i>
-                        Leases
-                    
-                    </a>
-                </li>
-
+                
                 {{-- Suivi & Flotte (dropdown) --}}
-                {{--
+           
                 <li>
                     <button
                         class="nav-dropdown-toggle {{ request()->is('tracking*') || request()->is('contrat*') || request()->is('lease*') ? 'active' : '' }}"
@@ -1853,7 +1841,7 @@
             </ul>
            
             </li>
-             --}}
+             
 
 
             </ul>

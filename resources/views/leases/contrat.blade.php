@@ -1010,6 +1010,71 @@
         grid-column:1 / -1;
     }
 
+    .lc-rule-card {
+        grid-column: 1 / -1;
+        border: 1px solid rgba(245,130,32,.18);
+        background: rgba(245,130,32,.06);
+        border-radius: 1rem;
+        padding: .85rem;
+    }
+
+    .lc-rule-title {
+        display:flex;
+        align-items:center;
+        gap:.45rem;
+        font-weight:900;
+        font-size:.78rem;
+        color:var(--color-text,#111827);
+        margin-bottom:.35rem;
+    }
+
+    .lc-rule-help {
+        margin:0 0 .7rem;
+        color:var(--color-secondary-text,#6b7280);
+        font-size:.68rem;
+        line-height:1.45;
+    }
+
+    .lc-checkbox-line {
+        display:flex;
+        align-items:center;
+        gap:.45rem;
+        color:var(--color-text,#111827);
+        font-size:.72rem;
+        font-weight:800;
+    }
+
+    .lc-days-list {
+        display:flex;
+        flex-wrap:wrap;
+        gap:.4rem;
+    }
+
+    .lc-day-pill {
+        display:inline-flex;
+        align-items:center;
+        gap:.3rem;
+        border-radius:999px;
+        background:var(--color-card,#fff);
+        border:1px solid var(--color-border-subtle,#e5e7eb);
+        padding:.35rem .55rem;
+        font-size:.67rem;
+        font-weight:850;
+        color:var(--color-text,#111827);
+    }
+
+    .lc-rule-custom-box {
+        display:none;
+        grid-column: 1 / -1;
+        margin-top:.65rem;
+        border-top:1px dashed rgba(245,130,32,.25);
+        padding-top:.75rem;
+    }
+
+    .lc-rule-custom-box.open {
+        display:block;
+    }
+
     .lc-field label {
         font-size:.62rem;
         font-weight:900;
@@ -1503,6 +1568,11 @@
                         </div>
 
                         <div class="lc-field">
+                            <label>Montant payé</label>
+                            <input type="number" class="lc-input" name="montant_paye" step="0.01" min="0" value="0">
+                        </div>
+
+                        <div class="lc-field">
                             <label>Montant par paiement</label>
                             <input type="number" class="lc-input" name="montant_par_paiement" step="0.01" required>
                         </div>
@@ -1529,6 +1599,83 @@
                         <div class="lc-field">
                             <label>Prochaine échéance</label>
                             <input type="date" class="lc-input" name="prochaine_echeance" id="createProchaineEcheance" required>
+                        </div>
+
+                        <div class="lc-rule-card">
+                            <div class="lc-rule-title"><i class="fas fa-power-off"></i> Règle de coupure du contrat</div>
+                            <p class="lc-rule-help">Choisissez si ce contrat doit reprendre la règle par défaut de son type, ou s’il doit avoir une règle personnalisée.</p>
+
+                            <div class="lc-form-grid">
+                                <div class="lc-field full">
+                                    <label class="lc-checkbox-line">
+                                        <input type="checkbox" name="apply_default_cutoff_rule" value="1" checked>
+                                        Appliquer la règle de coupure par défaut
+                                    </label>
+                                </div>
+
+                                <div class="lc-field full">
+                                    <label class="lc-checkbox-line">
+                                        <input type="checkbox" name="customize_cutoff_rule" value="1" data-toggle-custom-rule>
+                                        Personnaliser la règle de coupure pour ce contrat
+                                    </label>
+                                </div>
+
+                                <div class="lc-rule-custom-box" data-custom-rule-box>
+                                    <div class="lc-form-grid">
+                                        <div class="lc-field">
+                                            <label>Règle active</label>
+                                            <select class="lc-select" name="custom_rule_is_enabled">
+                                                <option value="1" selected>Oui</option>
+                                                <option value="0">Non</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="lc-field">
+                                            <label>Heure de coupure</label>
+                                            <input type="time" class="lc-input" name="custom_rule_cutoff_time">
+                                        </div>
+
+                                        <div class="lc-field">
+                                            <label>Jours de grâce</label>
+                                            <input type="number" class="lc-input" name="custom_rule_grace_days" min="0" max="365" value="0">
+                                        </div>
+
+                                        <div class="lc-field full">
+                                            <label>Jours actifs</label>
+                                            <div class="lc-days-list">
+                                                @foreach([
+                                                    'monday' => 'Lun',
+                                                    'tuesday' => 'Mar',
+                                                    'wednesday' => 'Mer',
+                                                    'thursday' => 'Jeu',
+                                                    'friday' => 'Ven',
+                                                    'saturday' => 'Sam',
+                                                    'sunday' => 'Dim',
+                                                ] as $dayValue => $dayLabel)
+                                                    <label class="lc-day-pill">
+                                                        <input type="checkbox" name="custom_rule_active_days[]" value="{{ $dayValue }}" @checked($dayValue !== 'sunday')>
+                                                        {{ $dayLabel }}
+                                                    </label>
+                                                @endforeach
+                                            </div>
+                                        </div>
+
+                                        <div class="lc-field">
+                                            <label class="lc-checkbox-line">
+                                                <input type="checkbox" name="custom_rule_only_when_stopped" value="1" checked>
+                                                Couper seulement à l’arrêt
+                                            </label>
+                                        </div>
+
+                                        <div class="lc-field">
+                                            <label class="lc-checkbox-line">
+                                                <input type="checkbox" name="custom_rule_notify_before_cutoff" value="1">
+                                                Notifier avant coupure
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
                         <div class="lc-field full">
@@ -1601,6 +1748,11 @@
                     </div>
 
                     <div class="lc-field">
+                        <label>Montant payé</label>
+                        <input type="number" class="lc-input" name="montant_paye" step="0.01" min="0" value="0">
+                    </div>
+
+                    <div class="lc-field">
                         <label>Montant par paiement</label>
                         <input type="number" class="lc-input" name="montant_par_paiement" step="0.01" required>
                     </div>
@@ -1629,10 +1781,87 @@
                         <input type="date" class="lc-input" name="prochaine_echeance" id="addSubProchaineEcheance" required>
                     </div>
 
-                    <div class="lc-field full">
-                        <label>Spécificités</label>
-                        <textarea class="lc-textarea" name="specificites" rows="4"></textarea>
-                    </div>
+                        <div class="lc-rule-card">
+                            <div class="lc-rule-title"><i class="fas fa-power-off"></i> Règle de coupure du contrat</div>
+                            <p class="lc-rule-help">Choisissez si ce contrat doit reprendre la règle par défaut de son type, ou s’il doit avoir une règle personnalisée.</p>
+
+                            <div class="lc-form-grid">
+                                <div class="lc-field full">
+                                    <label class="lc-checkbox-line">
+                                        <input type="checkbox" name="apply_default_cutoff_rule" value="1" checked>
+                                        Appliquer la règle de coupure par défaut
+                                    </label>
+                                </div>
+
+                                <div class="lc-field full">
+                                    <label class="lc-checkbox-line">
+                                        <input type="checkbox" name="customize_cutoff_rule" value="1" data-toggle-custom-rule>
+                                        Personnaliser la règle de coupure pour ce contrat
+                                    </label>
+                                </div>
+
+                                <div class="lc-rule-custom-box" data-custom-rule-box>
+                                    <div class="lc-form-grid">
+                                        <div class="lc-field">
+                                            <label>Règle active</label>
+                                            <select class="lc-select" name="custom_rule_is_enabled">
+                                                <option value="1" selected>Oui</option>
+                                                <option value="0">Non</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="lc-field">
+                                            <label>Heure de coupure</label>
+                                            <input type="time" class="lc-input" name="custom_rule_cutoff_time">
+                                        </div>
+
+                                        <div class="lc-field">
+                                            <label>Jours de grâce</label>
+                                            <input type="number" class="lc-input" name="custom_rule_grace_days" min="0" max="365" value="0">
+                                        </div>
+
+                                        <div class="lc-field full">
+                                            <label>Jours actifs</label>
+                                            <div class="lc-days-list">
+                                                @foreach([
+                                                    'monday' => 'Lun',
+                                                    'tuesday' => 'Mar',
+                                                    'wednesday' => 'Mer',
+                                                    'thursday' => 'Jeu',
+                                                    'friday' => 'Ven',
+                                                    'saturday' => 'Sam',
+                                                    'sunday' => 'Dim',
+                                                ] as $dayValue => $dayLabel)
+                                                    <label class="lc-day-pill">
+                                                        <input type="checkbox" name="custom_rule_active_days[]" value="{{ $dayValue }}" @checked($dayValue !== 'sunday')>
+                                                        {{ $dayLabel }}
+                                                    </label>
+                                                @endforeach
+                                            </div>
+                                        </div>
+
+                                        <div class="lc-field">
+                                            <label class="lc-checkbox-line">
+                                                <input type="checkbox" name="custom_rule_only_when_stopped" value="1" checked>
+                                                Couper seulement à l’arrêt
+                                            </label>
+                                        </div>
+
+                                        <div class="lc-field">
+                                            <label class="lc-checkbox-line">
+                                                <input type="checkbox" name="custom_rule_notify_before_cutoff" value="1">
+                                                Notifier avant coupure
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="lc-field full">
+                            <label>Spécificités</label>
+                            <textarea class="lc-textarea" name="specificites" rows="4"></textarea>
+                        </div>
                 </div>
             </div>
         </div>
@@ -1920,6 +2149,11 @@
                 <div class="lc-field">
                     <label>Montant total</label>
                     <input type="number" class="lc-input" data-sub-total step="0.01">
+                </div>
+
+                <div class="lc-field">
+                    <label>Montant payé</label>
+                    <input type="number" class="lc-input" data-sub-paid step="0.01" min="0" value="0">
                 </div>
 
                 <div class="lc-field">
@@ -2582,6 +2816,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         $('[data-sub-type]', card).setAttribute('name', `sous_contrats[${index}][type_contrat]`);
         $('[data-sub-total]', card).setAttribute('name', `sous_contrats[${index}][montant_total]`);
+        $('[data-sub-paid]', card).setAttribute('name', `sous_contrats[${index}][montant_paye]`);
         $('[data-sub-installment]', card).setAttribute('name', `sous_contrats[${index}][montant_par_paiement]`);
         $('[data-sub-frequency]', card).setAttribute('name', `sous_contrats[${index}][frequence]`);
         $('[data-sub-start]', card).setAttribute('name', `sous_contrats[${index}][date_debut]`);
@@ -2609,6 +2844,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
         $('#createSubList').appendChild(card);
     }
+
+    document.addEventListener('change', function (event) {
+        const toggle = event.target.closest('[data-toggle-custom-rule]');
+        if (!toggle) return;
+
+        const root = toggle.closest('form') || toggle.closest('[data-subform]') || document;
+        const box = root.querySelector('[data-custom-rule-box]');
+
+        if (box) {
+            box.classList.toggle('open', toggle.checked);
+        }
+    });
 
     function boot() {
         $('#contractSearch')?.addEventListener('input', renderList);

@@ -32,7 +32,6 @@ class LeaseCutoffHistory extends Model
         'contract_kind',
         'trigger_label',
         'trigger_payload',
-        'rule_id',
         'contract_rule_id',
         'scheduled_for',
         'detected_at',
@@ -60,7 +59,6 @@ class LeaseCutoffHistory extends Model
         'parent_contract_id' => 'integer',
         'type_contrat_id' => 'integer',
         'trigger_payload' => 'array',
-        'rule_id' => 'integer',
         'contract_rule_id' => 'integer',
         'scheduled_for' => 'datetime',
         'detected_at' => 'datetime',
@@ -82,11 +80,7 @@ class LeaseCutoffHistory extends Model
         return $this->belongsTo(Voiture::class, 'vehicle_id');
     }
 
-    /** Ancienne règle véhicule, conservée pour lecture historique. */
-    public function rule(): BelongsTo
-    {
-        return $this->belongsTo(LeaseCutoffRule::class, 'rule_id');
-    }
+   
 
     /** Nouvelle règle spécifique ayant autorisé la décision. */
     public function contractRule(): BelongsTo

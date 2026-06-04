@@ -21,7 +21,8 @@ use App\Http\Controllers\Leases\ContratLeaseController;
 use App\Http\Controllers\Leases\LeaseCutoffRuleController;
 use App\Http\Controllers\Leases\LeaseCutoffHistoryController;
 use App\Http\Controllers\Leases\DashbaordLeaseController;
-use App\Http\Controllers\Partner\PartnerDriverController;
+use App\Http\Controllers\Partner\PartnerDriverController;use App\Http\Controllers\Settings\LeaseSettingsController;
+use App\Http\Controllers\Api\Internal\Lease\SubContractTypeController;
 
 
 
@@ -131,6 +132,32 @@ Route::post('contrats/bulk-cutoff-policy', [ContratLeaseController::class, 'bulk
     ->name('lease.contrat.bulk-cutoff-policy');
 
 
+//parametre 
+Route::get('/settings/lease', [LeaseSettingsController::class, 'index'])
+    ->name('settings.lease.index');
+
+
+// Paramètres Lease
+Route::get('/settings/lease', [LeaseSettingsController::class, 'index'])
+    ->name('settings.lease.index');
+
+Route::post('/settings/lease/contract-types', [LeaseSettingsController::class, 'storeContractType'])
+    ->name('settings.lease.contract-types.store');
+
+//type de contrats
+Route::prefix('internal-api/lease')
+    ->name('internal.lease.')
+    ->group(function () {
+        Route::get('/sub-contract-types', [SubContractTypeController::class, 'index'])
+            ->name('sub-contract-types.index');
+
+        Route::post('/sub-contract-types', [SubContractTypeController::class, 'store'])
+            ->name('sub-contract-types.store');
+    });
+
+//modification de mot de passe
+Route::put('/settings/security/password', [LeaseSettingsController::class, 'updatePassword'])
+    ->name('settings.security.password.update');
 
 
 
@@ -138,6 +165,8 @@ Route::post('contrats/bulk-cutoff-policy', [ContratLeaseController::class, 'bulk
 // regle de coupure automatique de vehicule en leases 
 Route::get('lease/cutoff-rules', [LeaseCutoffRuleController::class, 'index'])
     ->name('lease.cutoff-rules.index');
+    Route::put('/settings/lease/cutoff-default-rules', [LeaseSettingsController::class, 'updateCutoffDefaultRules'])
+    ->name('settings.lease.cutoff-default-rules.update');
 
 // mise à jour de coupure globale
 Route::post('/leases/global-cutoff', [\App\Http\Controllers\Leases\LeaseController::class, 'updateGlobalCutoff'])
