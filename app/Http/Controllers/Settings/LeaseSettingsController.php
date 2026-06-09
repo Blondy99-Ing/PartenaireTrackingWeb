@@ -13,27 +13,43 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules\Password;
 use App\Services\Leases\LeaseCutoffDefaultRuleService;
+use App\Services\GeofenceZoneService;
+use App\Services\VehicleTimeZoneService;
+
 
 
 class LeaseSettingsController extends Controller
 {
-    public function __construct(
-        private readonly LeaseContractTypeService $contractTypeService,
-        private readonly LeaseCutoffDefaultRuleService $defaultRuleService,
-    ) {}
+    
+
+
+public function __construct(
+    private readonly LeaseContractTypeService $contractTypeService,
+    private readonly LeaseCutoffDefaultRuleService $defaultRuleService,
+    private readonly GeofenceZoneService $geofenceZoneService,
+    private readonly VehicleTimeZoneService $vehicleTimeZoneService,
+) {}
 
 public function index(): View
 {
     $partner = auth()->user();
 
     return view('settings.lease', [
-        'partner' => $partner,
-        'contractTypes' => $this->contractTypeService->getAllContractTypes(),
-        'mainContractTypes' => $this->contractTypeService->getMainContractTypes(),
-        'subContractTypes' => $this->contractTypeService->getSubContractTypes(),
-        'defaultRules' => $this->defaultRuleService->getRulesForPartner($partner),
-        'defaultActiveDays' => $this->defaultRuleService->defaultActiveDays(),
-    ]);
+    'partner' => $partner,
+
+    'contractTypes' => $this->contractTypeService->getAllContractTypes(),
+    'mainContractTypes' => $this->contractTypeService->getMainContractTypes(),
+    'subContractTypes' => $this->contractTypeService->getSubContractTypes(),
+
+    'defaultRules' => $this->defaultRuleService->getRulesForPartner($partner),
+    'defaultActiveDays' => $this->defaultRuleService->defaultActiveDays(),
+
+    'geofences' => $this->geofenceZoneService->geofencesForUser($partner),
+    'vehicles' => $this->geofenceZoneService->vehiclesForUser($partner),
+
+    'timeZoneVehicles' => $this->vehicleTimeZoneService->vehiclesForUser($partner),
+]);
+
 }
 
     public function storeContractType(Request $request): RedirectResponse

@@ -14,6 +14,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
+use Carbon\Carbon;
 use Illuminate\View\View;
 use stdClass;
 use Throwable;
@@ -32,9 +33,9 @@ class ContratLeaseController extends Controller
 {
     public function __construct(
         private readonly PartnerLeaseApiService $leaseApiService,
-        private readonly LeaseCutoffRuleService $cutoffRuleService,
         private readonly LeaseContractLinkService $contractLinkService,
-        private readonly LeaseContractCutoffRuleApplicationService $ruleApplicationService
+        private readonly LeaseContractCutoffRuleApplicationService $ruleApplicationService,
+        private readonly LeaseCutoffRuleService $cutoffRuleService
     ) {
     }
 
@@ -102,25 +103,27 @@ class ContratLeaseController extends Controller
         }
 
         try {
-            if (! empty($contracts) && ! empty($contractTypes) && auth()->check()) {
-                $contracts = $this->attachCutoffPoliciesToContracts($contracts, $contractTypes);
-            }
-        } catch (Throwable $e) {
-            $this->reportLeaseError('LEASE_CONTRACT_ATTACH_CUTOFF_POLICIES_FAILED', $e);
-            $pageWarnings[] = 'Les contrats sont affichés, mais les règles de coupure existantes n’ont pas pu être chargées.';
-        }
-
-        try {
             if (! empty($contracts) && auth()->check()) {
                 /**
-                 * On synchronise les lignes plates renvoyées par recouvrement.
-                 * Le service sait distinguer parent=null et parent=<id>.
+                 * Synchroniser avant d'attacher les règles : sinon les contrats ou sous-contrats
+                 * fraîchement remontés par Recouvrement n'ont pas encore leur LeaseContractLink,
+                 * donc l'interface affiche une coupure absente alors que la ligne locale vient
+                 * juste d'être créée.
                  */
                 $this->contractLinkService->syncFetchedContracts(auth()->user(), $contracts);
             }
         } catch (Throwable $e) {
             $this->reportLeaseError('LEASE_CONTRACT_LINK_SYNC_FETCHED_FAILED', $e);
             $pageWarnings[] = 'Les contrats sont affichés, mais la synchronisation locale Tracking n’a pas pu être finalisée.';
+        }
+
+        try {
+            if (! empty($contracts) && ! empty($contractTypes) && auth()->check()) {
+                $contracts = $this->attachCutoffPoliciesToContracts($contracts, $contractTypes);
+            }
+        } catch (Throwable $e) {
+            $this->reportLeaseError('LEASE_CONTRACT_ATTACH_CUTOFF_POLICIES_FAILED', $e);
+            $pageWarnings[] = 'Les contrats sont affichés, mais les règles de coupure existantes n’ont pas pu être chargées.';
         }
 
         $contractsForView = $this->groupContractsForView($contracts);
@@ -152,7 +155,7 @@ class ContratLeaseController extends Controller
             'actor_id' => auth()->id(),
         ]);
 
-        $validated = $this->validateContractPayload($request, creating: true);
+        $validated = $this->prepareContractPayloadForPersistence($this->validateContractPayload($request, creating: true));
         $vehicleId = $validated['vehicle_id'] ?? null;
         $isSubContract = ! empty($validated['parent']);
 
@@ -188,13 +191,15 @@ class ContratLeaseController extends Controller
                 $this->syncContractLinkAfterWrite($validated, $apiPayload, $created);
             }
 
-            $this->applyCutoffRuleAfterContractCreation($validated, $created);
+            $ruleWarning = $this->tryApplyCutoffRuleAfterContractCreation($validated, $created);
 
-            return redirect()
+            $redirect = redirect()
                 ->route('lease.contrat')
                 ->with('success', $isSubContract
                     ? 'Sous-contrat enregistré avec succès.'
                     : 'Contrat enregistré avec succès.');
+
+            return $ruleWarning ? $redirect->with('warning', $ruleWarning) : $redirect;
         } catch (Throwable $e) {
             $this->reportLeaseError('LEASE_CONTRACT_STORE_FAILED', $e, [
                 'validated' => $validated,
@@ -218,16 +223,19 @@ class ContratLeaseController extends Controller
             'actor_id' => auth()->id(),
         ]);
 
-        $validated = $this->validateContractPayload($request, creating: false);
+        $validated = $this->prepareContractPayloadForPersistence($this->validateContractPayload($request, creating: false));
         $apiPayload = $this->buildRecouvrementPayload($validated, updating: true);
 
         try {
             $response = $this->leaseApiService->updateContract($id, $apiPayload);
             $this->syncContractLinkAfterWrite($validated, $apiPayload, $response ?: ['id' => $id, ...$apiPayload]);
+            $ruleWarning = $this->tryApplyCutoffRuleAfterContractCreation($validated, $response ?: ['id' => $id, ...$apiPayload]);
 
-            return redirect()
+            $redirect = redirect()
                 ->route('lease.contrat')
                 ->with('success', 'Contrat modifié avec succès.');
+
+            return $ruleWarning ? $redirect->with('warning', $ruleWarning) : $redirect;
         } catch (Throwable $e) {
             $this->reportLeaseError('LEASE_CONTRACT_UPDATE_FAILED', $e, [
                 'contract_id' => $id,
@@ -262,64 +270,115 @@ class ContratLeaseController extends Controller
     }
 
     /**
-     * Sauvegarde les règles de coupure Tracking pour le véhicule lié au contrat.
+     * Sauvegarde la règle de coupure du contrat/sous-contrat réel affiché.
+     *
+     * Important : on ne sauvegarde plus une règle abstraite "véhicule + type".
+     * Le POST doit cibler le source_contract_id recouvrement, puis on retrouve
+     * le LeaseContractLink exact et on enregistre lease_cutoff_contract_rules.
      */
     public function updateCutoffPolicy(Request $request): RedirectResponse
     {
-        $payload = $this->extractCutoffPayload($request);
+        $validated = $request->validate([
+            'contract_id' => ['required', 'integer'],
+            'cutoff.is_enabled' => ['nullable', 'boolean'],
+            'cutoff.cutoff_time' => ['nullable', 'date_format:H:i'],
+            'cutoff.timezone' => ['nullable', 'string', 'max:64'],
+            'cutoff.grace_days' => ['nullable', 'integer', 'min:0', 'max:365'],
+            'cutoff.active_days' => ['nullable', 'array'],
+            'cutoff.active_days.*' => ['string', Rule::in(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])],
+            'cutoff.only_when_stopped' => ['nullable', 'boolean'],
+            'cutoff.notify_before_cutoff' => ['nullable', 'boolean'],
+        ], [
+            'contract_id.required' => 'Aucun contrat réel n’est sélectionné pour la règle de coupure.',
+            'cutoff.cutoff_time.date_format' => 'L’heure de coupure doit être au format HH:MM.',
+        ]);
 
-        $validated = validator($payload, $this->cutoffValidationRules(), $this->cutoffValidationMessages())->validate();
+        $actor = auth()->user();
+        $partnerId = (int) ($actor->partner_id ?: $actor->id);
 
-        try {
-            $this->cutoffRuleService->saveContractTypePolicyForVehicle(
-                user: auth()->user(),
-                vehicleId: (int) $validated['vehicle_id'],
-                payload: Arr::except($validated, ['vehicle_id', 'contract_id'])
-            );
+        $contractLink = LeaseContractLink::query()
+            ->where('partner_id', $partnerId)
+            ->where('source_contract_id', (int) $validated['contract_id'])
+            ->where(function ($query) {
+                $query->whereNull('status')->orWhere('status', '!=', 'DELETED');
+            })
+            ->first();
 
-            return redirect()
-                ->route('lease.contrat')
-                ->with('success', 'Règles de coupure enregistrées.');
-        } catch (Throwable $e) {
-            $this->reportLeaseError('LEASE_CONTRACT_CUTOFF_POLICY_FAILED', $e, ['payload' => $payload]);
-
-            return back()
-                ->withInput()
-                ->with('error', $this->clientErrorMessage($e, 'Impossible d’enregistrer les règles de coupure.'));
+        if (! $contractLink) {
+            return back()->with('error', 'Impossible d’enregistrer la règle : le contrat/sous-contrat n’est pas encore synchronisé localement. Rafraîchissez la page puis réessayez.');
         }
+
+        $cutoff = $validated['cutoff'] ?? [];
+
+        $this->cutoffRuleService->saveRules($actor, [[
+            'contract_rules' => [[
+                'contract_link_id' => $contractLink->id,
+                'is_enabled' => (bool) ($cutoff['is_enabled'] ?? false),
+                'cutoff_time' => $cutoff['cutoff_time'] ?? null,
+                'timezone' => $cutoff['timezone'] ?? 'Africa/Douala',
+                'grace_days' => (int) ($cutoff['grace_days'] ?? 0),
+                'active_days' => $cutoff['active_days'] ?? ['monday','tuesday','wednesday','thursday','friday','saturday'],
+                'only_when_stopped' => (bool) ($cutoff['only_when_stopped'] ?? true),
+                'notify_before_cutoff' => (bool) ($cutoff['notify_before_cutoff'] ?? false),
+            ]],
+        ]]);
+
+        return redirect()
+            ->route('lease.contrat')
+            ->with('success', 'Règle de coupure du contrat mise à jour.');
     }
 
     /**
-     * Applique la même politique de coupure à plusieurs véhicules.
+     * Applique une règle en lot uniquement aux contrats réels sélectionnés.
+     * Le formulaire doit fournir contract_ids[] ; on résout ensuite les links exacts.
      */
     public function bulkUpdateCutoffPolicies(Request $request): RedirectResponse
     {
-        $payload = $this->extractCutoffPayload($request);
-        $payload['vehicle_ids'] = array_values(array_unique(array_filter(array_map('intval', $request->input('vehicle_ids', [])))));
+        $validated = $request->validate([
+            'contract_ids' => ['required', 'array', 'min:1'],
+            'contract_ids.*' => ['integer'],
+            'cutoff.is_enabled' => ['nullable', 'boolean'],
+            'cutoff.cutoff_time' => ['nullable', 'date_format:H:i'],
+            'cutoff.timezone' => ['nullable', 'string', 'max:64'],
+            'cutoff.grace_days' => ['nullable', 'integer', 'min:0', 'max:365'],
+            'cutoff.active_days' => ['nullable', 'array'],
+            'cutoff.active_days.*' => ['string', Rule::in(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])],
+            'cutoff.only_when_stopped' => ['nullable', 'boolean'],
+            'cutoff.notify_before_cutoff' => ['nullable', 'boolean'],
+        ]);
 
-        $validated = validator($payload, [
-            'vehicle_ids' => ['required', 'array', 'min:1'],
-            'vehicle_ids.*' => ['integer', 'exists:voitures,id'],
-            ...Arr::except($this->cutoffValidationRules(), ['vehicle_id', 'contract_id']),
-        ], $this->cutoffValidationMessages())->validate();
+        $actor = auth()->user();
+        $partnerId = (int) ($actor->partner_id ?: $actor->id);
+        $cutoff = $validated['cutoff'] ?? [];
 
-        try {
-            $this->cutoffRuleService->saveBulkContractTypePolicies(
-                user: auth()->user(),
-                vehicleIds: $validated['vehicle_ids'],
-                payload: Arr::except($validated, ['vehicle_ids', 'contract_id'])
-            );
+        $links = LeaseContractLink::query()
+            ->where('partner_id', $partnerId)
+            ->whereIn('source_contract_id', collect($validated['contract_ids'])->map(fn ($id) => (int) $id)->all())
+            ->where(function ($query) {
+                $query->whereNull('status')->orWhere('status', '!=', 'DELETED');
+            })
+            ->get();
 
-            return redirect()
-                ->route('lease.contrat')
-                ->with('success', 'Règles appliquées au lot sélectionné.');
-        } catch (Throwable $e) {
-            $this->reportLeaseError('LEASE_CONTRACT_BULK_CUTOFF_POLICY_FAILED', $e, ['payload' => $payload]);
-
-            return back()
-                ->withInput()
-                ->with('error', $this->clientErrorMessage($e, 'Impossible d’appliquer les règles au lot.'));
+        if ($links->isEmpty()) {
+            return back()->with('error', 'Aucun contrat sélectionné n’est synchronisé localement. Rafraîchissez la page puis réessayez.');
         }
+
+        $this->cutoffRuleService->saveRules($actor, [[
+            'contract_rules' => $links->map(fn (LeaseContractLink $link) => [
+                'contract_link_id' => $link->id,
+                'is_enabled' => (bool) ($cutoff['is_enabled'] ?? false),
+                'cutoff_time' => $cutoff['cutoff_time'] ?? null,
+                'timezone' => $cutoff['timezone'] ?? 'Africa/Douala',
+                'grace_days' => (int) ($cutoff['grace_days'] ?? 0),
+                'active_days' => $cutoff['active_days'] ?? ['monday','tuesday','wednesday','thursday','friday','saturday'],
+                'only_when_stopped' => (bool) ($cutoff['only_when_stopped'] ?? true),
+                'notify_before_cutoff' => (bool) ($cutoff['notify_before_cutoff'] ?? false),
+            ])->all(),
+        ]]);
+
+        return redirect()
+            ->route('lease.contrat')
+            ->with('success', $links->count() . ' règle(s) de coupure mise(s) à jour.');
     }
 
     private function validateContractPayload(Request $request, bool $creating = true): array
@@ -339,7 +398,7 @@ class ContratLeaseController extends Controller
             'montant_par_paiement' => ['required', 'numeric', 'min:0'],
             'frequence' => ['required', Rule::in(['JOURNALIER', 'HEBDOMADAIRE', 'MENSUEL'])],
             'date_debut' => ['required', 'date'],
-            'date_fin' => ['required', 'date', 'after_or_equal:date_debut'],
+            'date_fin' => ['nullable', 'date', 'after_or_equal:date_debut'],
             'prochaine_echeance' => ['required', 'date'],
             'statut' => ['nullable', Rule::in(['ACTIF', 'SUSPENDU', 'SOLDE', 'CONTENTIEUX', 'actif', 'suspendu', 'solde', 'contentieux'])],
             'specificites' => ['nullable'],
@@ -360,7 +419,7 @@ class ContratLeaseController extends Controller
             'sous_contrats.*.montant_par_paiement' => ['required_with:sous_contrats', 'numeric', 'min:0'],
             'sous_contrats.*.frequence' => ['required_with:sous_contrats', Rule::in(['JOURNALIER', 'HEBDOMADAIRE', 'MENSUEL'])],
             'sous_contrats.*.date_debut' => ['required_with:sous_contrats', 'date'],
-            'sous_contrats.*.date_fin' => ['required_with:sous_contrats', 'date'],
+            'sous_contrats.*.date_fin' => ['nullable', 'date'],
             'sous_contrats.*.prochaine_echeance' => ['required_with:sous_contrats', 'date'],
             'sous_contrats.*.specificites' => ['nullable'],
         ], [
@@ -377,6 +436,72 @@ class ContratLeaseController extends Controller
             'sous_contrats.*.montant_total.required_with' => 'Chaque sous-contrat doit avoir un montant total.',
             'sous_contrats.*.montant_par_paiement.required_with' => 'Chaque sous-contrat doit avoir un montant par paiement.',
         ]);
+    }
+
+    /**
+     * Normalise les montants puis calcule date_fin côté serveur.
+     * La vue le fait aussi pour aider l'utilisateur, mais le backend reste
+     * l'autorité afin d'éviter une date manuelle incohérente.
+     */
+    private function prepareContractPayloadForPersistence(array $validated): array
+    {
+        $validated['montant_paye'] = (string) ($validated['montant_paye'] ?? 0);
+        $validated['montant_restant'] = (string) max(
+            0,
+            (float) ($validated['montant_total'] ?? 0) - (float) ($validated['montant_paye'] ?? 0)
+        );
+
+        $validated['date_fin'] = $this->calculateEndDate(
+            dateDebut: (string) $validated['date_debut'],
+            montantTotal: (float) $validated['montant_total'],
+            montantPaye: (float) ($validated['montant_paye'] ?? 0),
+            montantParPaiement: (float) $validated['montant_par_paiement'],
+            frequence: (string) $validated['frequence']
+        );
+
+        $validated['sous_contrats'] = collect($validated['sous_contrats'] ?? [])
+            ->filter(fn ($row) => is_array($row) && ! empty($row['type_contrat']))
+            ->map(function (array $row) {
+                $row['montant_paye'] = (string) ($row['montant_paye'] ?? 0);
+                $row['date_fin'] = $this->calculateEndDate(
+                    dateDebut: (string) ($row['date_debut'] ?? now()->toDateString()),
+                    montantTotal: (float) ($row['montant_total'] ?? 0),
+                    montantPaye: (float) ($row['montant_paye'] ?? 0),
+                    montantParPaiement: (float) ($row['montant_par_paiement'] ?? 0),
+                    frequence: (string) ($row['frequence'] ?? 'JOURNALIER')
+                );
+
+                return $row;
+            })
+            ->values()
+            ->all();
+
+        return $validated;
+    }
+
+    private function calculateEndDate(
+        string $dateDebut,
+        float $montantTotal,
+        float $montantPaye,
+        float $montantParPaiement,
+        string $frequence
+    ): string {
+        $start = Carbon::parse($dateDebut)->startOfDay();
+        $remaining = max(0, $montantTotal - $montantPaye);
+
+        if ($remaining <= 0 || $montantParPaiement <= 0) {
+            return $start->toDateString();
+        }
+
+        $numberOfPayments = (int) ceil($remaining / $montantParPaiement);
+        $periodsToAdd = max(0, $numberOfPayments - 1);
+
+        return match (mb_strtoupper($frequence, 'UTF-8')) {
+            'JOURNALIER' => $start->copy()->addDays($periodsToAdd)->toDateString(),
+            'HEBDOMADAIRE' => $start->copy()->addWeeks($periodsToAdd)->toDateString(),
+            'MENSUEL' => $start->copy()->addMonthsNoOverflow($periodsToAdd)->toDateString(),
+            default => $start->copy()->addDays($periodsToAdd)->toDateString(),
+        };
     }
 
     private function buildRecouvrementPayload(array $validated, bool $updating): array
@@ -445,20 +570,37 @@ class ContratLeaseController extends Controller
         ];
     }
 
+
+    /**
+     * La création/modification du contrat ne doit jamais être bloquée par un
+     * problème de règle de coupure. On logge l'incident et on laisse l'utilisateur
+     * corriger depuis les détails du contrat ou les settings.
+     */
+    private function tryApplyCutoffRuleAfterContractCreation(array $validated, array $apiResponse): ?string
+    {
+        try {
+            $this->applyCutoffRuleAfterContractCreation($validated, $apiResponse);
+
+            return null;
+        } catch (Throwable $e) {
+            $this->reportLeaseError('LEASE_CUTOFF_RULE_APPLY_AFTER_WRITE_FAILED', $e, [
+                'api_response' => $apiResponse,
+                'validated_keys' => array_keys($validated),
+            ]);
+
+            return 'Le contrat a été enregistré, mais la règle de coupure n’a pas pu être appliquée automatiquement. Vous pouvez la vérifier depuis les détails du contrat.';
+        }
+    }
+
     private function applyCutoffRuleAfterContractCreation(array $validated, array $apiResponse): void
     {
         if (empty($validated['apply_default_cutoff_rule']) && empty($validated['customize_cutoff_rule'])) {
             return;
         }
 
-        $sourceContractId = (int) (
-            data_get($apiResponse, 'id')
-            ?? data_get($apiResponse, 'data.id')
-            ?? data_get($apiResponse, 'contrat.id')
-            ?? 0
-        );
+        $sourceContractIds = $this->collectContractIdsFromApiResponse($apiResponse);
 
-        if ($sourceContractId <= 0) {
+        if (empty($sourceContractIds)) {
             Log::warning('[LEASE_CUTOFF_RULE_APPLY_SKIPPED_NO_CONTRACT_ID]', [
                 'api_response_keys' => array_keys($apiResponse),
             ]);
@@ -469,30 +611,91 @@ class ContratLeaseController extends Controller
         $actor = auth()->user();
         $partnerId = (int) ($actor->partner_id ?: $actor->id);
 
-        $contractLink = LeaseContractLink::query()
+        $contractLinks = LeaseContractLink::query()
             ->where('partner_id', $partnerId)
-            ->where('source_contract_id', $sourceContractId)
-            ->first();
+            ->whereIn('source_contract_id', $sourceContractIds)
+            ->where(function ($query) {
+                $query->whereNull('status')->orWhere('status', '!=', 'DELETED');
+            })
+            ->orderByRaw("CASE WHEN contract_kind = 'MAIN' THEN 0 ELSE 1 END")
+            ->get()
+            ->keyBy('source_contract_id');
 
-        if (! $contractLink) {
+        if ($contractLinks->isEmpty()) {
             Log::warning('[LEASE_CUTOFF_RULE_APPLY_SKIPPED_LINK_NOT_FOUND]', [
                 'partner_id' => $partnerId,
-                'source_contract_id' => $sourceContractId,
+                'source_contract_ids' => $sourceContractIds,
             ]);
 
             return;
         }
 
-        if (! empty($validated['customize_cutoff_rule'])) {
-            $this->ruleApplicationService->applyCustomRule($actor, $contractLink, $validated);
+        $mainSourceId = (int) ($sourceContractIds[0] ?? 0);
 
-            return;
-        }
+        foreach ($sourceContractIds as $sourceContractId) {
+            /** @var LeaseContractLink|null $contractLink */
+            $contractLink = $contractLinks->get((int) $sourceContractId);
 
-        if (! empty($validated['apply_default_cutoff_rule'])) {
-            $this->ruleApplicationService->applyDefaultRule($actor, $contractLink);
+            if (! $contractLink) {
+                continue;
+            }
+
+            /**
+             * La personnalisation du formulaire principal ne doit pas être recopiée
+             * aveuglément aux sous-contrats : chaque sous-contrat garde une règle
+             * indépendante. Pour les sous-contrats créés avec le contrat principal,
+             * seule la règle par défaut peut être appliquée automatiquement.
+             */
+            if (! empty($validated['customize_cutoff_rule']) && (int) $contractLink->source_contract_id === $mainSourceId) {
+                $this->ruleApplicationService->applyCustomRule($actor, $contractLink, $validated);
+                continue;
+            }
+
+            if (! empty($validated['apply_default_cutoff_rule'])) {
+                $this->ruleApplicationService->applyDefaultRule($actor, $contractLink);
+            }
         }
     }
+
+    /**
+     * Extrait l'identifiant du contrat principal et, quand l'API les retourne,
+     * ceux des sous-contrats créés en même temps. Cela permet d'appliquer les
+     * règles par défaut aux sous-contrats réels sans inventer de ligne.
+     */
+    private function collectContractIdsFromApiResponse(array $apiResponse): array
+    {
+        $ids = [];
+
+        $mainId = data_get($apiResponse, 'id')
+            ?? data_get($apiResponse, 'data.id')
+            ?? data_get($apiResponse, 'contrat.id');
+
+        if ((int) $mainId > 0) {
+            $ids[] = (int) $mainId;
+        }
+
+        foreach (['sous_contrats', 'sub_contracts', 'subContracts', 'data.sous_contrats', 'data.sub_contracts', 'contrat.sous_contrats', 'contrat.sub_contracts'] as $path) {
+            $rows = data_get($apiResponse, $path, []);
+
+            if (! is_array($rows)) {
+                continue;
+            }
+
+            foreach ($rows as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+
+                $id = data_get($row, 'id') ?? data_get($row, 'contrat.id') ?? data_get($row, 'source_contract_id');
+                if ((int) $id > 0) {
+                    $ids[] = (int) $id;
+                }
+            }
+        }
+
+        return collect($ids)->filter()->unique()->values()->all();
+    }
+
 
     private function syncContractLinkAfterWrite(array $validated, array $apiPayload, array $apiResponse): void
     {
@@ -675,10 +878,9 @@ class ContratLeaseController extends Controller
     }
 
     /**
-     * Ajoute les règles de coupure Tracking existantes aux contrats récupérés.
-     * Les règles sont volontairement portées par le véhicule, pas par le contrat
-     * recouvrement : un même véhicule peut dire que Téléphone coupe, Parapluie ne
-     * coupe pas, Moto coupe, etc.
+     * Ajoute la règle de coupure effective connue localement à chaque contrat réel,
+     * y compris les sous-contrats. L'interface doit raisonner par contrat/sous-contrat,
+     * jamais par véhicule + matrice de types.
      */
     private function attachCutoffPoliciesToContracts(array $contracts, array $contractTypes): array
     {
@@ -686,36 +888,99 @@ class ContratLeaseController extends Controller
             return $contracts;
         }
 
-        $vehicleIds = collect($contracts)
-            ->pluck('vehicle_id')
-            ->filter(fn ($id) => (int) $id > 0)
-            ->map(fn ($id) => (int) $id)
-            ->unique()
-            ->values()
-            ->all();
+        $actor = auth()->user();
+        $partnerId = (int) ($actor->partner_id ?: $actor->id);
+        $sourceContractIds = $this->collectSourceContractIdsRecursive($contracts);
 
-        if (empty($vehicleIds)) {
+        if (empty($sourceContractIds)) {
             return $contracts;
         }
 
-        $policiesByVehicle = $this->cutoffRuleService->getPolicyMapForVehicles(
-            user: auth()->user(),
-            vehicleIds: $vehicleIds,
-            contractTypes: $contractTypes
-        );
+        $linksBySourceId = LeaseContractLink::query()
+            ->with('cutoffRule')
+            ->where('partner_id', $partnerId)
+            ->whereIn('source_contract_id', $sourceContractIds)
+            ->get()
+            ->keyBy('source_contract_id');
 
+        return $this->attachCutoffPoliciesRecursive($contracts, $linksBySourceId);
+    }
+
+    private function collectSourceContractIdsRecursive(array $contracts): array
+    {
+        $ids = [];
+
+        foreach ($contracts as $contract) {
+            if (! is_array($contract)) {
+                continue;
+            }
+
+            $id = $this->extractContractId($contract);
+            if ($id > 0) {
+                $ids[] = $id;
+            }
+
+            foreach (['sub_contracts', 'sous_contrats', 'sousContrats'] as $key) {
+                if (! empty($contract[$key]) && is_array($contract[$key])) {
+                    $ids = array_merge($ids, $this->collectSourceContractIdsRecursive($contract[$key]));
+                }
+            }
+
+            if (! empty($contract['raw']) && is_array($contract['raw'])) {
+                foreach (['sub_contracts', 'sous_contrats', 'sousContrats'] as $key) {
+                    if (! empty($contract['raw'][$key]) && is_array($contract['raw'][$key])) {
+                        $ids = array_merge($ids, $this->collectSourceContractIdsRecursive($contract['raw'][$key]));
+                    }
+                }
+            }
+        }
+
+        return collect($ids)->map(fn ($id) => (int) $id)->filter()->unique()->values()->all();
+    }
+
+    private function attachCutoffPoliciesRecursive(array $contracts, $linksBySourceId): array
+    {
         return collect($contracts)
-            ->map(function (array $contract) use ($policiesByVehicle) {
-                $vehicleId = (int) ($contract['vehicle_id'] ?? 0);
+            ->map(function (array $contract) use ($linksBySourceId) {
+                $sourceId = $this->extractContractId($contract);
+                $link = $linksBySourceId->get($sourceId);
+                $rule = $link?->cutoffRule;
 
-                if ($vehicleId > 0 && isset($policiesByVehicle[$vehicleId])) {
-                    $contract['cutoff'] = $policiesByVehicle[$vehicleId];
+                $contract['contract_link_id'] = $link?->id;
+                $contract['cutoff'] = $this->formatCutoffForView($rule);
+
+                foreach (['sub_contracts', 'sous_contrats', 'sousContrats'] as $key) {
+                    if (! empty($contract[$key]) && is_array($contract[$key])) {
+                        $contract[$key] = $this->attachCutoffPoliciesRecursive($contract[$key], $linksBySourceId);
+                    }
+                }
+
+                if (! empty($contract['raw']) && is_array($contract['raw'])) {
+                    foreach (['sub_contracts', 'sous_contrats', 'sousContrats'] as $key) {
+                        if (! empty($contract['raw'][$key]) && is_array($contract['raw'][$key])) {
+                            $contract['raw'][$key] = $this->attachCutoffPoliciesRecursive($contract['raw'][$key], $linksBySourceId);
+                        }
+                    }
                 }
 
                 return $contract;
             })
             ->values()
             ->all();
+    }
+
+    private function formatCutoffForView(?\App\Models\LeaseCutoffContractRule $rule): array
+    {
+        return [
+            'rule_id' => $rule?->id,
+            'enabled' => (bool) ($rule?->is_enabled ?? false),
+            'cutoff_time' => $rule?->effectiveCutoffTime(),
+            'timezone' => $rule?->effectiveTimezone(),
+            'grace_days' => (int) ($rule?->grace_days ?? 0),
+            'active_days' => $rule?->active_days ?? [],
+            'only_when_stopped' => (bool) ($rule?->only_when_stopped ?? true),
+            'notify_before_cutoff' => (bool) ($rule?->notify_before_cutoff ?? false),
+        ];
     }
 
     private function normalizeFlatSubContractForView(array $child, array $parent): array
@@ -742,6 +1007,8 @@ class ContratLeaseController extends Controller
             'prochaine_echeance' => $child['prochaine_echeance'] ?? $raw['prochaine_echeance'] ?? null,
             'statut' => $child['statut'] ?? mb_strtolower((string) ($raw['statut'] ?? 'ACTIF'), 'UTF-8'),
             'specificites' => $child['specificites'] ?? $raw['specificites'] ?? null,
+            'cutoff' => $child['cutoff'] ?? $raw['cutoff'] ?? [],
+            'contract_link_id' => $child['contract_link_id'] ?? $raw['contract_link_id'] ?? null,
             'raw' => $raw,
         ];
     }

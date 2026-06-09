@@ -913,6 +913,8 @@
             ['label' => 'Attente arrêt',   'val' => $summary['waiting_stop'] ?? 0,   'dot' => '#c2410c', 'key' => 'WAITING_STOP'],
             ['label' => 'Cmd. envoyée',    'val' => $summary['command_sent'] ?? 0,   'dot' => '#6d28d9', 'key' => 'COMMAND_SENT'],
             ['label' => 'Annulés / payés', 'val' => $summary['cancelled_paid'] ?? 0,'dot' => '#4b5563', 'key' => 'CANCELLED_PAID'],
+            ['label' => 'Pardon avant',    'val' => $summary['cancelled_forgiven_before_cut'] ?? 0, 'dot' => '#0f766e', 'key' => 'CANCELLED_FORGIVEN_BEFORE_CUT'],
+            ['label' => 'Rallumés',        'val' => $summary['reactivated_after_forgiveness'] ?? 0, 'dot' => '#15803d', 'key' => 'REACTIVATED_AFTER_FORGIVENESS'],
             ['label' => 'Échecs finaux',   'val' => $summary['failed'] ?? 0,         'dot' => '#b91c1c', 'key' => 'FAILED'],
         ];
     @endphp
@@ -975,7 +977,7 @@
                             name="search"
                             value="{{ $search }}"
                             class="ch-input ch-input-search"
-                            placeholder="Immatriculation, MAC GPS, chauffeur, motif…"
+                            placeholder="Immatriculation, contrat, sous-contrat, lease, chauffeur, motif…"
                         >
                     </div>
 
@@ -1076,7 +1078,7 @@
                     <tr>
                         <th style="width:38px;">#</th>
                         <th>Véhicule</th>
-                        <th>Chauffeur / Paiement</th>
+                        <th>Contrat / Paiement</th>
                         <th>Statut</th>
                         <th>Planifié</th>
                         <th>Progression</th>
@@ -1096,8 +1098,12 @@
                         'WAITING_STOP'   => 'ch-badge-waiting',
                         'COMMAND_SENT'   => 'ch-badge-sent',
                         'CUT_OFF'        => 'ch-badge-cut',
-                        'CANCELLED_PAID' => 'ch-badge-cancelled',
-                        'FAILED'         => 'ch-badge-failed',
+                        'CANCELLED_PAID',
+                        'CANCELLED_FORGIVEN_BEFORE_CUT',
+                        'REACTIVATED_AFTER_FORGIVENESS' => 'ch-badge-cancelled',
+                        'FAILED',
+                        'REACTIVATION_FAILED_AFTER_FORGIVENESS' => 'ch-badge-failed',
+                        'REACTIVATION_REQUESTED_AFTER_FORGIVENESS' => 'ch-badge-sent',
                         default          => 'ch-badge-pending',
                     };
 
@@ -1107,6 +1113,10 @@
                         'COMMAND_SENT'   => 'Cmd. envoyée',
                         'CUT_OFF'        => 'Coupure conf.',
                         'CANCELLED_PAID' => 'Annulé / payé',
+                        'CANCELLED_FORGIVEN_BEFORE_CUT' => 'Pardon avant coupure',
+                        'REACTIVATION_REQUESTED_AFTER_FORGIVENESS' => 'Rallumage demandé',
+                        'REACTIVATED_AFTER_FORGIVENESS' => 'Rallumé après pardon',
+                        'REACTIVATION_FAILED_AFTER_FORGIVENESS' => 'Échec rallumage',
                         'FAILED'         => 'Échec final',
                         default          => $history->status ?? '—',
                     };
@@ -1117,7 +1127,11 @@
                         'COMMAND_SENT'   => 'fa-paper-plane',
                         'CUT_OFF'        => 'fa-check',
                         'CANCELLED_PAID' => 'fa-ban',
-                        'FAILED'         => 'fa-xmark',
+                        'CANCELLED_FORGIVEN_BEFORE_CUT' => 'fa-shield-heart',
+                        'REACTIVATION_REQUESTED_AFTER_FORGIVENESS' => 'fa-rotate',
+                        'REACTIVATED_AFTER_FORGIVENESS' => 'fa-bolt',
+                        'FAILED',
+                        'REACTIVATION_FAILED_AFTER_FORGIVENESS' => 'fa-xmark',
                         default          => 'fa-circle',
                     };
 
@@ -1129,6 +1143,15 @@
                         ['label' => 'Cmd.',     'val' => $history->cutoff_requested_at, 'done' => (bool) $history->cutoff_requested_at],
                         ['label' => 'Confirmé', 'val' => $history->cutoff_executed_at,  'done' => (bool) $history->cutoff_executed_at],
                     ];
+
+                    $contractKindLabel = $history->contract_kind === 'SUB' ? 'Sous-contrat' : 'Contrat principal';
+                    $contractTypeLabel = $history->type_contrat_label
+                        ?: optional($history->contractLink)->type_contrat_label
+                        ?: '—';
+                    $contractLinkId = $history->contract_link_id ?: optional($history->contractLink)->id;
+                    $ruleTime = optional($history->contractRule)->cutoff_time
+                        ? substr((string) optional($history->contractRule)->cutoff_time, 0, 5)
+                        : null;
 
                     $paymentSnapshot = is_array($history->payment_status_snapshot ?? null)
                         ? $history->payment_status_snapshot
@@ -1167,31 +1190,40 @@
                         </div>
                     </td>
 
-                    {{-- Paiement --}}
+                    {{-- Contrat / Paiement --}}
                     <td>
-                        @if(!empty($paymentSnapshot['chauffeur_nom_complet']) || !empty($paymentSnapshot['reste_a_payer']) || !empty($paymentSnapshot['date_echeance']))
-                            <div class="ch-pay">
-                                @if(!empty($paymentSnapshot['chauffeur_nom_complet']))
-                                    <div class="ch-pay-driver">
-                                        <i class="fas fa-user" style="font-size:.65rem;color:var(--color-text-muted);margin-right:.2rem;"></i>
-                                        {{ $paymentSnapshot['chauffeur_nom_complet'] }}
-                                    </div>
-                                @endif
-                                @if(!empty($paymentSnapshot['reste_a_payer']))
-                                    <div class="ch-pay-amount">
-                                        <i class="fas fa-triangle-exclamation" style="font-size:.65rem;"></i>
-                                        {{ $paymentSnapshot['reste_a_payer'] }} restant
-                                    </div>
-                                @endif
-                                @if(!empty($paymentSnapshot['date_echeance']))
-                                    <div class="ch-pay-due">
-                                        Échéance : {{ $paymentSnapshot['date_echeance'] }}
-                                    </div>
+                        <div class="ch-pay">
+                            <div class="ch-pay-driver">
+                                <i class="fas fa-file-contract" style="font-size:.65rem;color:var(--color-text-muted);margin-right:.2rem;"></i>
+                                {{ $contractTypeLabel }}
+                            </div>
+                            <div class="ch-pay-due">
+                                {{ $contractKindLabel }} · contrat #{{ $history->contract_id ?? '—' }}
+                                @if($contractLinkId)
+                                    · lien #{{ $contractLinkId }}
                                 @endif
                             </div>
-                        @else
-                            <span class="ch-dash">—</span>
-                        @endif
+                            @if($history->lease_id || $history->lease_date_echeance)
+                                <div class="ch-pay-due">
+                                    Lease #{{ $history->lease_id ?? '—' }}
+                                    @if($history->lease_date_echeance)
+                                        · échéance {{ optional($history->lease_date_echeance)->format('d/m/Y') }}
+                                    @endif
+                                </div>
+                            @endif
+                            @if(!empty($paymentSnapshot['chauffeur_nom_complet']))
+                                <div class="ch-pay-driver" style="margin-top:.25rem;">
+                                    <i class="fas fa-user" style="font-size:.65rem;color:var(--color-text-muted);margin-right:.2rem;"></i>
+                                    {{ $paymentSnapshot['chauffeur_nom_complet'] }}
+                                </div>
+                            @endif
+                            @if(!empty($paymentSnapshot['reste_a_payer']))
+                                <div class="ch-pay-amount">
+                                    <i class="fas fa-triangle-exclamation" style="font-size:.65rem;"></i>
+                                    {{ $paymentSnapshot['reste_a_payer'] }} restant
+                                </div>
+                            @endif
+                        </div>
                     </td>
 
                     {{-- Statut --}}
@@ -1274,6 +1306,40 @@
                 <tr class="ch-detail-row" id="{{ $rowId }}">
                     <td colspan="9">
                         <div class="ch-detail-inner" id="inner-{{ $rowId }}">
+
+                            {{-- Contrat / règle utilisée --}}
+                            <div class="ch-detail-section">
+                                <div class="ch-detail-section-title">
+                                    <i class="fas fa-file-signature"></i>
+                                    Contrat & règle de coupure
+                                </div>
+                                <div class="ch-detail-field">
+                                    <span class="ch-detail-field-key">Type</span>
+                                    <span class="ch-detail-field-val">{{ $contractTypeLabel }}</span>
+                                </div>
+                                <div class="ch-detail-field">
+                                    <span class="ch-detail-field-key">Nature</span>
+                                    <span class="ch-detail-field-val">{{ $contractKindLabel }}</span>
+                                </div>
+                                <div class="ch-detail-field">
+                                    <span class="ch-detail-field-key">Contrat / sous-contrat</span>
+                                    <span class="ch-detail-field-val">#{{ $history->contract_id ?? '—' }}</span>
+                                </div>
+                                <div class="ch-detail-field">
+                                    <span class="ch-detail-field-key">Lien local</span>
+                                    <span class="ch-detail-field-val">{{ $contractLinkId ? '#' . $contractLinkId : '—' }}</span>
+                                </div>
+                                <div class="ch-detail-field">
+                                    <span class="ch-detail-field-key">Règle</span>
+                                    <span class="ch-detail-field-val">
+                                        @if($history->contractRule)
+                                            #{{ $history->contractRule->id }} · {{ $history->contractRule->is_enabled ? 'active' : 'inactive' }}{{ $ruleTime ? ' · ' . $ruleTime : '' }}
+                                        @else
+                                            —
+                                        @endif
+                                    </span>
+                                </div>
+                            </div>
 
                             {{-- Suivi technique --}}
                             <div class="ch-detail-section">

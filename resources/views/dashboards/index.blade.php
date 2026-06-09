@@ -1472,6 +1472,16 @@ $alertTypesMeta = [
                                 <div class="k">Position</div>
                                 <div class="v" id="vmPos" style="font-size:.72rem;font-family:var(--font-mono,monospace)">—</div>
                             </div>
+
+                            <div class="tm-box">
+                                <div class="k">Geofence</div>
+                                <div class="v" id="vmGeofence" style="font-size:.72rem">—</div>
+                            </div>
+
+                            <div class="tm-box">
+                                <div class="k">Position zone</div>
+                                <div class="v" id="vmGeofenceStatus" style="font-size:.72rem">—</div>
+                            </div>
                         </div>
                         <div class="tm-actions">
                             <button class="b2" onclick="window.locateVehicleFromModal()">📍 Localiser</button>
@@ -1562,6 +1572,8 @@ $alertTypesMeta = [
     let map = null;
     let sse = null;
     let markers = {};
+    let selectedGeofencePolygon = null;
+    let selectedGeofenceInfoWindow = null;
     let selectedVehicleId = null;
     let selectedVehicleIndicator = null;
     let selectedVehicleIndicatorEl = null;
@@ -1929,6 +1941,7 @@ $alertTypesMeta = [
 
         if (t !== 'flotte') {
             document.getElementById('vehicleModal')?.classList.remove('show');
+            clearSelectedGeofencePolygon();
         }
 
         if (t !== 'alertes') {
@@ -2191,6 +2204,116 @@ $alertTypesMeta = [
         window.doSearch();
     }
 
+
+    function normalizeGeofenceZone(zone) {
+        if (!Array.isArray(zone)) return [];
+
+        return zone.map(point => {
+            if (Array.isArray(point) && point.length >= 2) {
+                return {
+                    lng: parseFloat(point[0]),
+                    lat: parseFloat(point[1]),
+                };
+            }
+
+            if (point && typeof point === 'object') {
+                return {
+                    lat: parseFloat(point.lat),
+                    lng: parseFloat(point.lng),
+                };
+            }
+
+            return null;
+        }).filter(point =>
+            point &&
+            Number.isFinite(point.lat) &&
+            Number.isFinite(point.lng)
+        );
+    }
+
+    function clearSelectedGeofencePolygon() {
+        if (selectedGeofencePolygon) {
+            selectedGeofencePolygon.setMap(null);
+            selectedGeofencePolygon = null;
+        }
+
+        if (selectedGeofenceInfoWindow) {
+            selectedGeofenceInfoWindow.close();
+            selectedGeofenceInfoWindow = null;
+        }
+    }
+
+    function getVehicleGeofencePath(vehicle) {
+        const zone = vehicle?.geofence?.zone || vehicle?.geofence_zone_data?.zone || null;
+        return normalizeGeofenceZone(zone);
+    }
+
+    function drawVehicleGeofence(vehicle, fitBounds = false) {
+        clearSelectedGeofencePolygon();
+
+        const path = getVehicleGeofencePath(vehicle);
+
+        if (!map || path.length < 3) {
+            return;
+        }
+
+        const inside = isVehicleInsideGeofence(vehicle);
+        const color = inside === true ? '#16a34a' : '#dc2626';
+
+        selectedGeofencePolygon = new google.maps.Polygon({
+            paths: path,
+            strokeColor: color,
+            strokeOpacity: 0.95,
+            strokeWeight: 3,
+            fillColor: color,
+            fillOpacity: 0.18,
+            clickable: false,
+            map: map,
+        });
+
+        const bounds = new google.maps.LatLngBounds();
+
+        path.forEach(point => {
+            bounds.extend(new google.maps.LatLng(point.lat, point.lng));
+        });
+
+        if (vehicle?.lat != null && vehicle?.lon != null) {
+            bounds.extend(new google.maps.LatLng(parseFloat(vehicle.lat), parseFloat(vehicle.lon)));
+        }
+
+        if (fitBounds) {
+            map.fitBounds(bounds);
+        }
+    }
+
+    function isVehicleInsideGeofence(vehicle) {
+        const path = getVehicleGeofencePath(vehicle);
+
+        if (!map || path.length < 3) {
+            return null;
+        }
+
+        if (vehicle?.lat == null || vehicle?.lon == null) {
+            return null;
+        }
+
+        const lat = parseFloat(vehicle.lat);
+        const lng = parseFloat(vehicle.lon);
+
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+            return null;
+        }
+
+        if (!google.maps.geometry || !google.maps.geometry.poly) {
+            return null;
+        }
+
+        const point = new google.maps.LatLng(lat, lng);
+        const polygon = new google.maps.Polygon({ paths: path });
+
+        return google.maps.geometry.poly.containsLocation(point, polygon);
+    }
+
     function openVehicleModal(id) {
         const v = vehicles.find(x => String(x.id) === String(id));
         if (!v) return;
@@ -2202,6 +2325,18 @@ $alertTypesMeta = [
         const lat = v.lat != null ? parseFloat(v.lat).toFixed(5) : '—';
         const lng = v.lon != null ? parseFloat(v.lon).toFixed(5) : '—';
         const updated = getVehicleUpdatedAt(v);
+
+        const geofenceName = v.geofence ? (v.geofence.name || 'Geofence') : 'Aucun geofence';
+        const insideGeofence = isVehicleInsideGeofence(v);
+        let geofenceStatus = '—';
+
+        if (insideGeofence === true) {
+            geofenceStatus = 'Dans la zone';
+        } else if (insideGeofence === false) {
+            geofenceStatus = 'Hors zone';
+        }
+
+        drawVehicleGeofence(v, false);
 
         const statusTxt = getVehicleStatusText(v);
         const statusColor = getVehicleStatusColor(v);
@@ -2215,6 +2350,8 @@ $alertTypesMeta = [
         const st = document.getElementById('vmStatus');
         const up = document.getElementById('vmUpdated');
         const p = document.getElementById('vmPos');
+        const gf = document.getElementById('vmGeofence');
+        const gfs = document.getElementById('vmGeofenceStatus');
         const modal = document.getElementById('vehicleModal');
 
         if (t) t.textContent = `Véhicule • ${imm}`;
@@ -2226,6 +2363,11 @@ $alertTypesMeta = [
         if (st) st.innerHTML = `<span style="color:${statusColor}">${esc(statusTxt)}</span>`;
         if (up) up.textContent = updated;
         if (p) p.textContent = lat !== '—' ? `${lat}, ${lng}` : '—';
+        if (gf) gf.textContent = geofenceName;
+        if (gfs) {
+            gfs.textContent = geofenceStatus;
+            gfs.style.color = insideGeofence === true ? '#16a34a' : (insideGeofence === false ? '#dc2626' : '');
+        }
 
         if (modal) {
             modal.dataset.vid = id;
@@ -2235,6 +2377,7 @@ $alertTypesMeta = [
 
     window.closeVehicleModal = () => {
         document.getElementById('vehicleModal')?.classList.remove('show');
+        clearSelectedGeofencePolygon();
     };
 
     window.locateVehicleFromModal = () => {
@@ -2348,7 +2491,14 @@ $alertTypesMeta = [
         }
 
         const s = document.createElement('script');
-        s.src = 'https://maps.googleapis.com/maps/api/js?key=AIzaSyBn88TP5X-xaRCYo5gYxvGnVy_0WYotZWo&callback=initFleetMap';
+
+        /*
+         * IMPORTANT :
+         * On garde la même clé que l'ancien dashboard, car elle est déjà autorisée
+         * pour http://partner.tracking.test/. La seule différence est libraries=geometry,
+         * nécessaire pour tester "Dans la zone / Hors zone".
+         */
+        s.src = 'https://maps.googleapis.com/maps/api/js?key=AIzaSyBn88TP5X-xaRCYo5gYxvGnVy_0WYotZWo&libraries=geometry&callback=initFleetMap';
         s.async = true;
         s.defer = true;
         document.head.appendChild(s);

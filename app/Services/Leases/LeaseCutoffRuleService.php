@@ -191,6 +191,7 @@ class LeaseCutoffRuleService
                     'cutoff_time' => ! empty($payload['cutoff_time']) ? $payload['cutoff_time'] : null,
                     'timezone' => $payload['timezone'] ?? 'Africa/Douala',
                     'grace_days' => (int) ($payload['grace_days'] ?? 0),
+                    'active_days' => $this->normalizeActiveDays($payload['active_days'] ?? ['monday','tuesday','wednesday','thursday','friday','saturday']),
                     'only_when_stopped' => $this->toBool($payload['only_when_stopped'] ?? true),
                     'notify_before_cutoff' => $this->toBool($payload['notify_before_cutoff'] ?? false),
                     'updated_by' => $actorId,
@@ -399,6 +400,19 @@ class LeaseCutoffRuleService
             || (bool) preg_match('/^\d+$/', $label)
             || (bool) preg_match('/^CTR[-_ ]?\d+$/i', $label)
             || (bool) preg_match('/^parent\s*#?\d+$/i', $label);
+    }
+
+
+    private function normalizeActiveDays(array $days): array
+    {
+        $allowed = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+
+        return collect($days)
+            ->map(fn ($day) => strtolower((string) $day))
+            ->filter(fn ($day) => in_array($day, $allowed, true))
+            ->unique()
+            ->values()
+            ->all();
     }
 
     private function toBool(mixed $value): bool

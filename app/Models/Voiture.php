@@ -30,6 +30,8 @@ class Voiture extends Model
         'geofence_longitude',
         'geofence_radius',
         'geofence_zone',
+        'time_zone_start',
+        'time_zone_end',
     ];
 
     /* =========================

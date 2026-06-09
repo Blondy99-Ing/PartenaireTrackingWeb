@@ -2,6 +2,7 @@
 
 namespace App\Services\Leases;
 
+use App\Models\LeaseContractLink;
 use App\Models\LeaseCutoffHistory;
 use App\Models\LeaseCutoffQueue;
 use App\Models\User;
@@ -86,11 +87,23 @@ class LeaseForgivenessService
             throw new RuntimeException("Véhicule local introuvable pour l’immatriculation {$immat}.");
         }
 
+        $contractLink = LeaseContractLink::query()
+            ->where('partner_id', $partnerId)
+            ->where('source_contract_id', $contractId)
+            ->where('vehicle_id', $vehicle->id)
+            ->where('status', '!=', 'DELETED')
+            ->latest('id')
+            ->first();
+
+        $dueDate = $this->extractLeaseDueDate($lease);
+
         $queue = LeaseCutoffQueue::query()
             ->with(['history'])
             ->where('partner_id', $partnerId)
             ->where('lease_id', $leaseId)
             ->where('vehicle_id', $vehicle->id)
+            ->when($contractLink, fn ($query) => $query->where('contract_link_id', $contractLink->id))
+            ->when($dueDate, fn ($query) => $query->whereDate('lease_date_echeance', $dueDate))
             ->orderByDesc('id')
             ->first();
 
@@ -101,6 +114,8 @@ class LeaseForgivenessService
                 ->where('partner_id', $partnerId)
                 ->where('lease_id', $leaseId)
                 ->where('vehicle_id', $vehicle->id)
+                ->when($contractLink, fn ($query) => $query->where('contract_link_id', $contractLink->id))
+                ->when($dueDate, fn ($query) => $query->whereDate('lease_date_echeance', $dueDate))
                 ->orderByDesc('id')
                 ->first();
         }
@@ -136,6 +151,8 @@ class LeaseForgivenessService
                 leaseId: $leaseId,
                 queue: $queue,
                 history: $history,
+                contractLink: $contractLink,
+                dueDate: $dueDate,
                 lease: $lease,
                 engineState: $engineState,
                 reason: $reason
@@ -151,6 +168,8 @@ class LeaseForgivenessService
             leaseId: $leaseId,
             queue: $queue,
             history: $history,
+            contractLink: $contractLink,
+            dueDate: $dueDate,
             lease: $lease,
             engineState: $engineState,
             reason: $reason
@@ -166,6 +185,8 @@ class LeaseForgivenessService
         int $leaseId,
         ?LeaseCutoffQueue $queue,
         ?LeaseCutoffHistory $history,
+        ?LeaseContractLink $contractLink,
+        ?string $dueDate,
         array $lease,
         string $engineState,
         ?string $reason
@@ -184,6 +205,8 @@ class LeaseForgivenessService
             $leaseId,
             $queue,
             $history,
+            $contractLink,
+            $dueDate,
             $lease,
             $engineState,
             $businessReason
@@ -229,7 +252,20 @@ class LeaseForgivenessService
                     'vehicle_id' => $vehicle->id,
                     'contract_id' => $contractId,
                     'lease_id' => $leaseId,
-                    'rule_id' => $queue?->rule_id,
+                    'lease_date_echeance' => $dueDate,
+                    'contract_link_id' => $contractLink?->id,
+                    'parent_contract_id' => $contractLink?->source_parent_contract_id,
+                    'type_contrat_id' => $contractLink?->type_contrat_id,
+                    'type_contrat_label' => $contractLink?->type_contrat_label,
+                    'contract_kind' => $contractLink?->contract_kind,
+                    'trigger_label' => $contractLink?->displayTypeLabel(),
+                    'trigger_payload' => [
+                        'source_contract_id' => $contractId,
+                        'lease_id' => $leaseId,
+                        'date_echeance' => $dueDate,
+                        'origin' => 'manual_forgiveness_before_cut',
+                    ],
+                    'contract_rule_id' => $queue?->contract_rule_id ?? $contractLink?->cutoffRule?->id,
                     'scheduled_for' => $queue?->scheduled_for ?? now(),
                     'detected_at' => now(),
                 ]));
@@ -270,6 +306,8 @@ class LeaseForgivenessService
         int $leaseId,
         ?LeaseCutoffQueue $queue,
         ?LeaseCutoffHistory $history,
+        ?LeaseContractLink $contractLink,
+        ?string $dueDate,
         array $lease,
         string $engineState,
         ?string $reason
@@ -319,6 +357,8 @@ class LeaseForgivenessService
             $leaseId,
             $queue,
             $history,
+            $contractLink,
+            $dueDate,
             $lease,
             $engineState,
             $command,
@@ -363,7 +403,20 @@ class LeaseForgivenessService
                     'vehicle_id' => $vehicle->id,
                     'contract_id' => $contractId,
                     'lease_id' => $leaseId,
-                    'rule_id' => $queue?->rule_id,
+                    'lease_date_echeance' => $dueDate,
+                    'contract_link_id' => $contractLink?->id,
+                    'parent_contract_id' => $contractLink?->source_parent_contract_id,
+                    'type_contrat_id' => $contractLink?->type_contrat_id,
+                    'type_contrat_label' => $contractLink?->type_contrat_label,
+                    'contract_kind' => $contractLink?->contract_kind,
+                    'trigger_label' => $contractLink?->displayTypeLabel(),
+                    'trigger_payload' => [
+                        'source_contract_id' => $contractId,
+                        'lease_id' => $leaseId,
+                        'date_echeance' => $dueDate,
+                        'origin' => 'manual_forgiveness_after_cut',
+                    ],
+                    'contract_rule_id' => $queue?->contract_rule_id ?? $contractLink?->cutoffRule?->id,
                     'scheduled_for' => $queue?->scheduled_for ?? now(),
                     'detected_at' => now(),
                 ]));
@@ -410,8 +463,7 @@ class LeaseForgivenessService
         }
 
         return $history->status === 'CUT_OFF'
-            || $history->cutoff_executed_at !== null
-            || $history->status === 'COMMAND_SENT';
+            || $history->cutoff_executed_at !== null;
     }
 
     private function getEngineState(Voiture $vehicle): string
@@ -456,6 +508,25 @@ class LeaseForgivenessService
         }
 
         return null;
+    }
+
+
+    private function extractLeaseDueDate(array $lease): ?string
+    {
+        $raw = $lease['date_echeance']
+            ?? $lease['prochaine_echeance']
+            ?? $lease['due_date']
+            ?? null;
+
+        if (! $raw) {
+            return null;
+        }
+
+        try {
+            return \Illuminate\Support\Carbon::parse($raw)->toDateString();
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function buildPaymentSnapshot(

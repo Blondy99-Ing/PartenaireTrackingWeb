@@ -2,26 +2,19 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\UserMessages;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
-use App\Support\UserMessages;
 
 class EnsurePartnerAccount
 {
-    /**
-     * Ensure that only a real partner account can access partner routes.
-     *
-     * Business rule:
-     * - Partner account: users.partner_id IS NULL
-     * - Driver / secondary user: users.partner_id IS NOT NULL
-     */
     public function handle(Request $request, Closure $next): Response
     {
         $user = $request->user();
 
-        if (!$user) {
+        if (! $user) {
             if ($request->expectsJson()) {
                 return response()->json([
                     'success' => false,
@@ -32,10 +25,16 @@ class EnsurePartnerAccount
             abort(401);
         }
 
-        if (!is_null($user->partner_id)) {
-            Log::warning('Partner area access denied for non-partner user.', [
+        $roleSlug = optional($user->role)->slug;
+
+        $isMainPartner = is_null($user->partner_id);
+        $isPartnerAdmin = ! is_null($user->partner_id) && $roleSlug === 'partner_admin';
+
+        if (! $isMainPartner && ! $isPartnerAdmin) {
+            Log::warning('Partner area access denied for non-authorized user.', [
                 'user_id' => $user->id,
                 'partner_id' => $user->partner_id,
+                'role' => $roleSlug,
                 'email' => $user->email,
                 'telephone' => $user->telephone ?? null,
                 'route' => $request->route()?->getName(),
@@ -49,7 +48,7 @@ class EnsurePartnerAccount
                 ], 403);
             }
 
-           abort(403, UserMessages::ACCESS_DENIED);
+            abort(403, UserMessages::ACCESS_DENIED);
         }
 
         return $next($request);

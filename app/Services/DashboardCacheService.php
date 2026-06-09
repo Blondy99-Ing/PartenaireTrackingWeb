@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Alert;
 use App\Models\AssociationChauffeurVoiturePartner;
 use App\Models\AssociationUserVoiture;
+use App\Models\GeofenceZone;
 use App\Models\Location;
 use App\Models\User;
 use App\Models\Voiture;
@@ -414,7 +415,7 @@ public function rebuildFleet(int $partnerId): array
 
         $voitures = Voiture::query()
             ->whereIn('id', $vehicleIds)
-            ->select(['id', 'immatriculation', 'marque', 'model', 'mac_id_gps'])
+            ->select(['id', 'immatriculation', 'marque', 'model', 'mac_id_gps', 'geofence_zone'])
             ->get();
 
         $macIds = $voitures->pluck('mac_id_gps')->filter()->unique()->values()->all();
@@ -573,7 +574,7 @@ public function rebuildFleet(int $partnerId): array
 
             $vehicles = Voiture::query()
                 ->whereIn('mac_id_gps', $macs)
-                ->select(['id', 'immatriculation', 'marque', 'model', 'mac_id_gps'])
+                ->select(['id', 'immatriculation', 'marque', 'model', 'mac_id_gps', 'geofence_zone'])
                 ->get();
 
             if ($vehicles->isEmpty()) {
@@ -675,7 +676,7 @@ public function rebuildFleet(int $partnerId): array
         $voitures = Voiture::query()
             ->whereIn('id', $partnerVehicleIds)
             ->whereIn('mac_id_gps', $macs)
-            ->select(['id', 'immatriculation', 'marque', 'model', 'mac_id_gps'])
+            ->select(['id', 'immatriculation', 'marque', 'model', 'mac_id_gps', 'geofence_zone'])
             ->get();
 
         if ($voitures->isEmpty()) {
@@ -929,12 +930,31 @@ private function buildVehicleRowWithDriver(
             ? $this->buildLiveStatusFromLocation($locationData, $previousLiveStatus)
             : $this->buildNoSignalLiveStatus();
 
+        $geofence = null;
+
+        if (!empty($voiture->geofence_zone) && is_numeric($voiture->geofence_zone)) {
+            $zone = GeofenceZone::query()
+                ->where('partner_id', $partnerId)
+                ->where('id', (int) $voiture->geofence_zone)
+                ->first();
+
+            if ($zone) {
+                $geofence = [
+                    'id' => (int) $zone->id,
+                    'name' => $zone->name,
+                    'code' => $zone->code,
+                    'zone' => json_decode($zone->zone, true) ?: [],
+                ];
+            }
+        }
+
         return [
             'id'              => (int) $voiture->id,
             'immatriculation' => $voiture->immatriculation,
             'marque'          => $voiture->marque,
             'model'           => $voiture->model,
             'mac_id_gps'      => $voiture->mac_id_gps,
+            'geofence'       => $geofence,
             'driver' => [
                 'label' => $driverLabel,
                 'id'    => $chauffeur?->id,

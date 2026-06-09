@@ -204,6 +204,16 @@
                         'prochaine_echeance' => $sub['prochaine_echeance'] ?? null,
                         'statut' => $normalizeStatus($sub['statut'] ?? $sub['status'] ?? 'ACTIF'),
                         'specificites' => $sub['specificites'] ?? null,
+                        'contract_link_id' => $sub['contract_link_id'] ?? null,
+                        'cutoff' => [
+                            'rule_id' => $sub['cutoff']['rule_id'] ?? null,
+                            'enabled' => (bool) ($sub['cutoff']['enabled'] ?? $sub['cutoff']['is_enabled'] ?? false),
+                            'grace_days' => (int) ($sub['cutoff']['grace_days'] ?? 0),
+                            'cutoff_time' => $sub['cutoff']['cutoff_time'] ?? null,
+                            'active_days' => $sub['cutoff']['active_days'] ?? [],
+                            'only_when_stopped' => (bool) ($sub['cutoff']['only_when_stopped'] ?? true),
+                            'notify_before_cutoff' => (bool) ($sub['cutoff']['notify_before_cutoff'] ?? false),
+                        ],
                     ];
                 })
                 ->values()
@@ -287,7 +297,8 @@
                 'cutoff' => [
                     'enabled' => (bool) ($cutoff['enabled'] ?? $cutoff['is_enabled'] ?? false),
                     'grace_days' => (int) ($cutoff['grace_days'] ?? 0),
-                    'cutoff_time' => $cutoff['cutoff_time'] ?? '12:00',
+                    'cutoff_time' => $cutoff['cutoff_time'] ?? null,
+                    'active_days' => $cutoff['active_days'] ?? [],
                     'only_when_stopped' => (bool) ($cutoff['only_when_stopped'] ?? true),
                     'notify_before_cutoff' => (bool) ($cutoff['notify_before_cutoff'] ?? false),
                     'contract_types' => $contractTypeRules->values()->all(),
@@ -1593,7 +1604,7 @@
 
                         <div class="lc-field">
                             <label>Date fin</label>
-                            <input type="date" class="lc-input" name="date_fin" id="createDateFin" required>
+                            <input type="date" class="lc-input" name="date_fin" id="createDateFin" readonly required>
                         </div>
 
                         <div class="lc-field">
@@ -1773,7 +1784,7 @@
 
                     <div class="lc-field">
                         <label>Date fin</label>
-                        <input type="date" class="lc-input" name="date_fin" id="addSubDateFin" required>
+                        <input type="date" class="lc-input" name="date_fin" id="addSubDateFin" readonly required>
                     </div>
 
                     <div class="lc-field">
@@ -1942,8 +1953,13 @@
                     </div>
 
                     <div class="lc-field">
+                        <label>Montant payé</label>
+                        <input type="number" class="lc-input" name="montant_paye" id="editPaid" step="0.01" min="0">
+                    </div>
+
+                    <div class="lc-field">
                         <label>Montant restant</label>
-                        <input type="number" class="lc-input" name="montant_restant" id="editRemaining" step="0.01">
+                        <input type="number" class="lc-input" name="montant_restant" id="editRemaining" step="0.01" readonly>
                     </div>
 
                     <div class="lc-field">
@@ -1967,7 +1983,7 @@
 
                     <div class="lc-field">
                         <label>Date fin</label>
-                        <input type="date" class="lc-input" name="date_fin" id="editEndDate" required>
+                        <input type="date" class="lc-input" name="date_fin" id="editEndDate" readonly required>
                     </div>
 
                     <div class="lc-field">
@@ -2029,7 +2045,22 @@
 
                     <div class="lc-field">
                         <label>Délai de grâce</label>
-                        <input type="number" min="0" max="60" class="lc-input" name="cutoff[grace_days]" id="policyGrace">
+                        <input type="number" min="0" max="365" class="lc-input" name="cutoff[grace_days]" id="policyGrace">
+                    </div>
+
+                    <div class="lc-field full">
+                        <label>Jours actifs</label>
+                        <div class="lc-days-list" id="policyActiveDays">
+                            @foreach([
+                                'monday' => 'Lun', 'tuesday' => 'Mar', 'wednesday' => 'Mer', 'thursday' => 'Jeu',
+                                'friday' => 'Ven', 'saturday' => 'Sam', 'sunday' => 'Dim',
+                            ] as $dayValue => $dayLabel)
+                                <label class="lc-day-pill">
+                                    <input type="checkbox" name="cutoff[active_days][]" value="{{ $dayValue }}">
+                                    {{ $dayLabel }}
+                                </label>
+                            @endforeach
+                        </div>
                     </div>
 
                     <div class="lc-field">
@@ -2042,12 +2073,6 @@
                 </div>
             </div>
 
-            <div class="lc-panel" style="box-shadow:none;">
-                <div class="lc-panel-head">
-                    <h2><i class="fas fa-tags"></i> Types autorisés</h2>
-                </div>
-                <div style="padding:1rem;" id="policyTypeList"></div>
-            </div>
         </div>
 
         <div class="lc-drawer-foot">
@@ -2108,12 +2133,6 @@
                 </div>
             </div>
 
-            <div class="lc-panel" style="box-shadow:none;">
-                <div class="lc-panel-head">
-                    <h2><i class="fas fa-tags"></i> Types qui peuvent déclencher la coupure</h2>
-                </div>
-                <div style="padding:1rem;" id="bulkTypePolicyList"></div>
-            </div>
         </div>
 
         <div class="lc-drawer-foot">
@@ -2177,7 +2196,7 @@
 
                 <div class="lc-field">
                     <label>Date fin</label>
-                    <input type="date" class="lc-input" data-sub-end>
+                    <input type="date" class="lc-input" data-sub-end readonly>
                 </div>
 
                 <div class="lc-field">
@@ -2361,7 +2380,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <p class="lc-contract-meta">${contract.chauffeur || '—'} · ${contract.vehicule || '—'}</p>
                                 <p class="lc-contract-meta">
                                     ${(contract.sub_contracts || []).length} sous-contrat(s)
-                                    · coupure ${contract.cutoff?.enabled ? 'activée' : 'désactivée'}
+                                    · règle contrat ${contract.cutoff?.enabled ? 'active' : 'inactive'}
                                 </p>
                             </div>
 
@@ -2481,7 +2500,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             <div>
                 <div class="lc-section-title">
-                    <h4><i class="fas fa-bolt"></i> Règles de coupure</h4>
+                    <h4><i class="fas fa-bolt"></i> Règle de coupure du contrat principal</h4>
                     <button type="button" class="lc-btn soft" id="editPolicyBtn">
                         <i class="fas fa-sliders-h"></i>
                         Modifier
@@ -2512,6 +2531,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (found) closeContractByStatus(found.sub, found.contract, 'SOLDE');
             });
         });
+
+        $$('[data-policy-sub]').forEach(button => {
+            button.addEventListener('click', () => {
+                const subId = Number(button.dataset.policySub);
+                const found = findSub(subId);
+                if (found) openPolicyDrawer(found.sub, found.contract);
+            });
+        });
     }
 
     function renderSubContract(sub) {
@@ -2531,13 +2558,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 <div class="lc-info-grid" style="grid-template-columns:repeat(2,minmax(0,1fr));">
                     <div class="lc-info"><span>Total</span><strong>${money(sub.montant_total)}</strong></div>
+                    <div class="lc-info"><span>Payé</span><strong>${money(sub.total_paye || Math.max(0, Number(sub.montant_total || 0) - Number(sub.montant_restant || 0)))}</strong></div>
                     <div class="lc-info"><span>Restant</span><strong>${money(sub.montant_restant)}</strong></div>
+                    <div class="lc-info"><span>Versement</span><strong>${money(sub.montant_par_paiement)}</strong></div>
+                    <div class="lc-info"><span>Début</span><strong>${sub.date_debut || '—'}</strong></div>
+                    <div class="lc-info"><span>Fin</span><strong>${sub.date_fin || '—'}</strong></div>
+                    <div class="lc-info"><span>Coupure</span><strong>${sub.cutoff?.enabled ? 'Active' : 'Inactive'}</strong></div>
+                    <div class="lc-info"><span>Heure</span><strong>${sub.cutoff?.cutoff_time || '—'}</strong></div>
                 </div>
 
                 <div class="lc-sub-actions">
                     <button type="button" class="lc-sub-action" data-edit-sub="${sub.id}">
                         <i class="fas fa-edit"></i>
                         Modifier
+                    </button>
+
+                    <button type="button" class="lc-sub-action" data-policy-sub="${sub.id}">
+                        <i class="fas fa-bolt"></i>
+                        Coupure
                     </button>
 
                     <button type="button" class="lc-sub-action" data-close-sub="${sub.id}">
@@ -2551,25 +2589,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderPolicySummary(contract) {
         const cutoff = contract.cutoff || {};
-        const rules = cutoff.contract_types || [];
-        const enabledCount = rules.filter(rule => rule.enabled).length;
+        const days = {
+            monday: 'Lun', tuesday: 'Mar', wednesday: 'Mer', thursday: 'Jeu',
+            friday: 'Ven', saturday: 'Sam', sunday: 'Dim'
+        };
+        const activeDays = (cutoff.active_days || []).map(day => days[day] || day).join(', ') || '—';
 
         return `
             <div class="lc-policy-box">
                 <div class="lc-info-grid">
-                    <div class="lc-info"><span>Coupure auto</span><strong>${cutoff.enabled ? 'Activée' : 'Désactivée'}</strong></div>
+                    <div class="lc-info"><span>Règle</span><strong>${cutoff.enabled ? 'Active' : 'Inactive'}</strong></div>
                     <div class="lc-info"><span>Heure</span><strong>${cutoff.cutoff_time || '—'}</strong></div>
-                    <div class="lc-info"><span>Délai défaut</span><strong>${cutoff.grace_days ?? 0} jour(s)</strong></div>
-                    <div class="lc-info"><span>Types autorisés</span><strong>${enabledCount}</strong></div>
+                    <div class="lc-info"><span>Délai grâce</span><strong>${cutoff.grace_days ?? 0} jour(s)</strong></div>
+                    <div class="lc-info"><span>Jours actifs</span><strong>${activeDays}</strong></div>
+                    <div class="lc-info"><span>Sécurité</span><strong>${cutoff.only_when_stopped ? 'Seulement à l’arrêt' : 'Non imposée'}</strong></div>
+                    <div class="lc-info"><span>Notification</span><strong>${cutoff.notify_before_cutoff ? 'Oui' : 'Non'}</strong></div>
                 </div>
-
-                <div style="margin-top:.75rem;display:flex;gap:.4rem;flex-wrap:wrap;">
-                    ${rules.map(rule => `
-                        <span class="lc-status ${rule.enabled ? 'actif' : 'termine'}">
-                            ${rule.label} : ${rule.enabled ? 'coupe' : 'ne coupe pas'}
-                        </span>
-                    `).join('')}
-                </div>
+                <p class="lc-form-help" style="margin-top:.75rem;">
+                    Cette règle concerne uniquement ce contrat ou sous-contrat réel. Les sous-contrats ont leurs propres règles indépendantes.
+                </p>
             </div>
         `;
     }
@@ -2611,7 +2649,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         $('#createDateDebut').value = $('#createDateDebut').value || start;
         $('#createProchaineEcheance').value = $('#createProchaineEcheance').value || start;
-        $('#createDateFin').value = $('#createDateFin').value || addMonths(start, 12);
+        $('#createDateFin').value = calculateContractEndDate(start, $('[name="montant_total"]', $('#createContractForm'))?.value, $('[name="montant_paye"]', $('#createContractForm'))?.value, $('[name="montant_par_paiement"]', $('#createContractForm'))?.value, $('[name="frequence"]', $('#createContractForm'))?.value);
     }
 
     function openAddSubDrawer(contract) {
@@ -2653,11 +2691,12 @@ document.addEventListener('DOMContentLoaded', () => {
         $('#editImmatriculation').value = parent?.vehicule || item.vehicule || '';
         $('#editVin').value = parent?.vin || item.vin || '';
         $('#editTotal').value = item.montant_total || '';
+        $('#editPaid').value = item.total_paye || item.montant_paye || Math.max(0, Number(item.montant_total || 0) - Number(item.montant_restant || 0));
         $('#editRemaining').value = item.montant_restant || '';
         $('#editInstallment').value = item.versement || item.montant_par_paiement || '';
         $('#editFrequency').value = item.frequence || 'JOURNALIER';
         $('#editStartDate').value = item.date_debut || parent?.date_debut || today();
-        $('#editEndDate').value = item.date_fin || '';
+        $('#editEndDate').value = calculateContractEndDate($('#editStartDate').value, $('#editTotal').value, $('#editPaid').value, $('#editInstallment').value, $('#editFrequency').value) || item.date_fin || '';
         $('#editDueDate').value = item.prochaine_echeance || today();
 
         if (typeof item.specificites === 'object' && item.specificites !== null) {
@@ -2692,6 +2731,7 @@ document.addEventListener('DOMContentLoaded', () => {
             immatriculation: parent?.vehicule || item.vehicule || '',
             vin: parent?.vin || item.vin || '',
             montant_total: item.montant_total || 0,
+            montant_paye: item.total_paye || item.montant_paye || Math.max(0, Number(item.montant_total || 0) - Number(item.montant_restant || 0)),
             montant_restant: item.montant_restant || 0,
             montant_par_paiement: item.versement || item.montant_par_paiement || 0,
             frequence: item.frequence || 'JOURNALIER',
@@ -2716,94 +2756,34 @@ document.addEventListener('DOMContentLoaded', () => {
         form.submit();
     }
 
-    function openPolicyDrawer(contract) {
+    function openPolicyDrawer(contract, parent = null) {
         $('#policyContractId').value = contract.id;
         $('#policyVehicleId').value = contract.vehicle_id || '';
-        $('#policyDrawerSubtitle').textContent = `${contract.ref} · ${contract.vehicule} · ${contract.chauffeur}`;
+        $('#policyDrawerSubtitle').textContent = parent ? `${parent.ref} · sous-contrat ${contract.type_label} · ${parent.vehicule}` : `${contract.ref} · ${contract.vehicule} · ${contract.chauffeur}`;
 
         $('#policyEnabled').value = contract.cutoff?.enabled ? '1' : '0';
         $('#policyTime').value = contract.cutoff?.cutoff_time || '';
         $('#policyGrace').value = contract.cutoff?.grace_days ?? 0;
         $('#policyOnlyStopped').value = contract.cutoff?.only_when_stopped ? '1' : '0';
 
-        renderPolicyTypeList(contract.cutoff?.contract_types || []);
+        const activeDays = contract.cutoff?.active_days || [];
+        $$('#policyActiveDays input[type="checkbox"]').forEach(input => {
+            input.checked = activeDays.length ? activeDays.includes(input.value) : input.value !== 'sunday';
+        });
 
         openDrawer($('#policyDrawer'));
-    }
-
-    function renderPolicyTypeList(rules) {
-        $('#policyTypeList').innerHTML = rules.map((rule, index) => `
-            <div class="lc-policy-row">
-                <div>
-                    <div class="lc-policy-name">${rule.label}</div>
-                    <span class="lc-policy-help">Type de contrat recouvrement</span>
-                </div>
-
-                <label class="lc-switch">
-                    <input type="checkbox"
-                           name="cutoff[contract_types][${index}][is_enabled]"
-                           value="1"
-                           ${rule.enabled ? 'checked' : ''}>
-                    <span class="lc-slider"></span>
-                </label>
-
-                <input type="hidden" name="cutoff[contract_types][${index}][type_contrat_id]" value="${rule.type_contrat}">
-                <input type="hidden" name="cutoff[contract_types][${index}][type_contrat_label]" value="${rule.label}">
-
-                <input type="number"
-                       min="0"
-                       max="60"
-                       class="lc-input"
-                       name="cutoff[contract_types][${index}][grace_days]"
-                       value="${rule.grace_days ?? 0}">
-            </div>
-        `).join('');
     }
 
     function openBulkPolicyDrawer() {
         if (!selectedContractIds.size) return;
 
-        const selectedVehicleIds = Array.from(selectedContractIds)
-            .map(id => contracts.find(contract => Number(contract.id) === Number(id))?.vehicle_id)
-            .filter(value => value !== null && value !== undefined && value !== '')
-            .map(value => Number(value));
+        const selectedIds = Array.from(selectedContractIds).map(id => Number(id));
 
-        const uniqueVehicleIds = Array.from(new Set(selectedVehicleIds));
-
-        if (!uniqueVehicleIds.length) {
-            alert('Aucun véhicule Tracking n’est associé aux contrats sélectionnés. Impossible d’appliquer une règle de coupure en lot.');
-            return;
-        }
-
-        $('#bulkSelectedContracts').innerHTML = uniqueVehicleIds
-            .map(id => `<input type="hidden" name="vehicle_ids[]" value="${id}">`)
+        $('#bulkSelectedContracts').innerHTML = selectedIds
+            .map(id => `<input type="hidden" name="contract_ids[]" value="${id}">`)
             .join('');
 
-        $('#bulkPolicySubtitle').textContent = `${selectedContractIds.size} contrat(s) sélectionné(s), ${uniqueVehicleIds.length} véhicule(s) Tracking concerné(s).`;
-
-        $('#bulkTypePolicyList').innerHTML = contractTypes.map((type, index) => `
-            <div class="lc-type-row">
-                <div>
-                    <div class="lc-policy-name">${type.label}</div>
-                    <span class="lc-policy-help">${type.description || ''}</span>
-                </div>
-
-                <label class="lc-switch">
-                    <input type="checkbox" name="cutoff[contract_types][${index}][is_enabled]" value="1">
-                    <span class="lc-slider"></span>
-                </label>
-
-                <input type="hidden" name="cutoff[contract_types][${index}][type_contrat_id]" value="${type.id}">
-                <input type="hidden" name="cutoff[contract_types][${index}][type_contrat_label]" value="${type.label}">
-
-                <input type="number"
-                       min="0"
-                       max="60"
-                       class="lc-input"
-                       name="cutoff[contract_types][${index}][grace_days]"
-                       placeholder="Délai">
-            </div>
-        `).join('');
+        $('#bulkPolicySubtitle').textContent = `${selectedIds.length} contrat(s) réel(s) sélectionné(s). La règle sera enregistrée sur chaque contrat, pas sur le véhicule global.`;
 
         openDrawer($('#bulkPolicyDrawer'));
     }
@@ -2828,7 +2808,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
         $('[data-sub-start]', card).value = start;
         $('[data-sub-due]', card).value = start;
-        $('[data-sub-end]', card).value = addMonths(start, 2);
+        $('[data-sub-end]', card).value = calculateContractEndDate(start, $('[data-sub-total]', card).value, $('[data-sub-paid]', card).value, $('[data-sub-installment]', card).value, $('[data-sub-frequency]', card).value);
+
+        bindAutoEndDate(card, {
+            start: '[data-sub-start]',
+            end: '[data-sub-end]',
+            total: '[data-sub-total]',
+            paid: '[data-sub-paid]',
+            installment: '[data-sub-installment]',
+            frequency: '[data-sub-frequency]',
+        });
 
         const select = $('[data-sub-type]', card);
         const title = $('[data-subform-title]', card);
@@ -2857,6 +2846,98 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+
+    function calculateContractEndDate(dateDebut, total, paid, installment, frequency) {
+        if (!dateDebut) return '';
+
+        const amountTotal = Number(total || 0);
+        const amountPaid = Number(paid || 0);
+        const perPayment = Number(installment || 0);
+        const remaining = Math.max(0, amountTotal - amountPaid);
+        const start = new Date(`${dateDebut}T00:00:00`);
+
+        if (Number.isNaN(start.getTime())) return '';
+        if (remaining <= 0 || perPayment <= 0) return dateDebut;
+
+        const payments = Math.ceil(remaining / perPayment);
+        const periodsToAdd = Math.max(0, payments - 1);
+        const result = new Date(start.getTime());
+
+        switch ((frequency || 'JOURNALIER').toUpperCase()) {
+            case 'HEBDOMADAIRE':
+                result.setDate(result.getDate() + periodsToAdd * 7);
+                break;
+            case 'MENSUEL':
+                result.setMonth(result.getMonth() + periodsToAdd);
+                break;
+            case 'JOURNALIER':
+            default:
+                result.setDate(result.getDate() + periodsToAdd);
+                break;
+        }
+
+        return result.toISOString().slice(0, 10);
+    }
+
+    function bindAutoEndDate(root, selectors) {
+        if (!root) return;
+
+        const start = root.querySelector(selectors.start);
+        const end = root.querySelector(selectors.end);
+        const total = root.querySelector(selectors.total);
+        const paid = root.querySelector(selectors.paid);
+        const installment = root.querySelector(selectors.installment);
+        const frequency = root.querySelector(selectors.frequency);
+
+        if (!start || !end || !total || !installment || !frequency) return;
+
+        const refresh = () => {
+            end.value = calculateContractEndDate(
+                start.value,
+                total.value,
+                paid?.value || 0,
+                installment.value,
+                frequency.value
+            );
+        };
+
+        [start, total, paid, installment, frequency].filter(Boolean).forEach(input => {
+            input.addEventListener('input', refresh);
+            input.addEventListener('change', refresh);
+        });
+
+        refresh();
+    }
+
+    function bootAutoEndDates() {
+        bindAutoEndDate($('#createContractForm'), {
+            start: '[name="date_debut"]',
+            end: '[name="date_fin"]',
+            total: '[name="montant_total"]',
+            paid: '[name="montant_paye"]',
+            installment: '[name="montant_par_paiement"]',
+            frequency: '[name="frequence"]',
+        });
+
+        bindAutoEndDate($('#addSubForm'), {
+            start: '[name="date_debut"]',
+            end: '[name="date_fin"]',
+            total: '[name="montant_total"]',
+            paid: '[name="montant_paye"]',
+            installment: '[name="montant_par_paiement"]',
+            frequency: '[name="frequence"]',
+        });
+
+        bindAutoEndDate($('#editContractForm'), {
+            start: '[name="date_debut"]',
+            end: '[name="date_fin"]',
+            total: '[name="montant_total"]',
+            paid: '[name="montant_paye"]',
+            installment: '[name="montant_par_paiement"]',
+            frequency: '[name="frequence"]',
+        });
+    }
+
     function boot() {
         $('#contractSearch')?.addEventListener('input', renderList);
         $('#statusFilter')?.addEventListener('change', renderList);
@@ -2866,6 +2947,7 @@ document.addEventListener('DOMContentLoaded', () => {
         $('#openCreateBtn')?.addEventListener('click', openCreateDrawer);
         $('#createVehicle')?.addEventListener('change', fillVehicleIdentityFromTracking);
         $('#createAddSubBtn')?.addEventListener('click', addSubForm);
+        bootAutoEndDates();
 
         $('#addSubToCurrentBtn')?.addEventListener('click', () => {
             const contract = currentContract();

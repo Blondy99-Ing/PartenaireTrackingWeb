@@ -121,9 +121,10 @@ class DashboardLeaseService
                 'type_recovery' => $this->buildTypeRecoveryBreakdown($selectedLeases),
             ],
             'tables' => [
-                'drivers_risk' => $this->buildDriversRiskTable($selectedLeases),
+                'drivers_risk' => $this->buildDriversRiskTable($selectedLeases, $cutoffData),
                 'payments_today' => $this->buildPaymentsTable($payments),
                 'cutoffs' => $this->buildCutoffTimeline($cutoffData),
+                'contract_rules' => $this->buildContractRulesTable($cutoffData),
             ],
             'contracts_summary' => $this->buildContractsSummary($contracts),
             'cutoff_summary' => $this->buildCutoffSummary($cutoffData),
@@ -335,16 +336,25 @@ class DashboardLeaseService
         $histories = $cutoffData['histories'];
 
         /**
-         * Interprétation métier du dashboard :
-         * une coupure est considérée comme planifiée dès qu'un contrat ou
-         * sous-contrat réel possède une règle de coupure active. Ce nombre
-         * n'est donc pas limité aux queues déjà créées par le cron.
+         * Nouvelle logique dashboard :
+         * - une coupure "planifiée" est une queue réelle du jour ;
+         * - une règle active n'est pas une coupure planifiée, c'est seulement
+         *   une autorisation métier pour que le cron puisse planifier si le
+         *   lease exact est NON_PAYE ;
+         * - COMMAND_SENT ne veut pas dire coupure confirmée.
          */
         return [
-            'planned' => (int) ($cutoffData['active_rules_count'] ?? 0),
+            'planned' => $queue->where('status', 'PENDING')->count(),
+            'waiting_stop' => $queue->where('status', 'WAITING_STOP')->count(),
             'command_sent' => $queue->where('status', 'COMMAND_SENT')->count() + $histories->where('status', 'COMMAND_SENT')->count(),
             'confirmed' => $histories->where('status', 'CUT_OFF')->count(),
-            'gps_failed' => $histories->where('status', 'FAILED')->count(),
+            'failed' => $queue->where('status', 'FAILED')->count() + $histories->where('status', 'FAILED')->count(),
+            'cancelled_paid' => $histories->whereIn('status', ['CANCELLED_PAID', 'CANCELLED'])->count(),
+            'forgiven_before_cut' => $histories->where('status', 'CANCELLED_FORGIVEN_BEFORE_CUT')->count(),
+            'reactivated' => $histories->whereIn('status', ['REACTIVATION_SENT', 'REACTIVATED'])->count(),
+            'active_rules' => (int) ($cutoffData['active_rules_count'] ?? 0),
+            'disabled_rules' => (int) ($cutoffData['disabled_rules_count'] ?? 0),
+            'contracts_without_rule' => (int) ($cutoffData['contracts_without_rule_count'] ?? 0),
         ];
     }
 
@@ -354,40 +364,70 @@ class DashboardLeaseService
         $end = Carbon::parse($period['end_date'])->endOfDay();
 
         $queue = LeaseCutoffQueue::query()
-            ->with('vehicle')
+            ->with(['vehicle', 'contractRule', 'contractLink'])
             ->where('partner_id', $partnerId)
             ->whereBetween('lease_date_echeance', [$start->toDateString(), $end->toDateString()])
             ->get();
 
         $histories = LeaseCutoffHistory::query()
-            ->with('vehicle')
+            ->with(['vehicle', 'contractRule', 'contractLink'])
             ->where('partner_id', $partnerId)
             ->whereBetween('lease_date_echeance', [$start->toDateString(), $end->toDateString()])
             ->get();
 
         $rules = LeaseCutoffContractRule::query()
+            ->with(['vehicle', 'contractLink'])
             ->where('partner_id', $partnerId)
-            ->where('is_enabled', true)
             ->whereNotNull('contract_link_id')
             ->get();
+
+        $links = LeaseContractLink::query()
+            ->with(['vehicle', 'cutoffRule'])
+            ->where('partner_id', $partnerId)
+            ->where(function ($query) {
+                $query->whereNull('status')->orWhere('status', '!=', 'DELETED');
+            })
+            ->get();
+
+        $linkIdsWithRule = $rules->pluck('contract_link_id')->filter()->unique();
 
         return [
             'queue' => $queue,
             'active_queue' => $queue->whereIn('status', ['PENDING', 'WAITING_STOP', 'COMMAND_SENT'])->values(),
             'histories' => $histories,
-            'active_rules_count' => $rules->count(),
+            'rules' => $rules,
+            'links' => $links,
+            'active_rules_count' => $rules->where('is_enabled', true)->count(),
+            'disabled_rules_count' => $rules->where('is_enabled', false)->count(),
+            'contracts_without_rule_count' => $links->filter(fn (LeaseContractLink $link) => ! $linkIdsWithRule->contains($link->id))->count(),
         ];
     }
 
-    private function buildDriversRiskTable(array $leases): array
+    private function buildDriversRiskTable(array $leases, array $cutoffData): array
     {
+        $rulesBySourceContractId = collect($cutoffData['rules'] ?? [])
+            ->filter(fn (LeaseCutoffContractRule $rule) => $rule->source_contract_id)
+            ->keyBy(fn (LeaseCutoffContractRule $rule) => (int) $rule->source_contract_id);
+
         return collect($leases)
             ->groupBy(fn ($row) => (string) ($row['chauffeur'] ?? 'Chauffeur'))
-            ->map(function (Collection $rows, string $driver) {
+            ->map(function (Collection $rows, string $driver) use ($rulesBySourceContractId) {
                 $unpaid = $rows->filter(fn ($row) => ($row['statut'] ?? null) === 'unpaid');
                 $amountDue = $unpaid->sum(fn ($row) => $this->leaseRemaining($row));
                 $types = $unpaid->map(fn ($row) => $this->displayTypeLabel($row))->filter()->unique()->implode(', ');
                 $vehicle = $rows->pluck('vehicule')->filter()->first() ?: $rows->pluck('immatriculation')->filter()->first() ?: '—';
+
+                $contractIds = $unpaid->map(fn ($row) => (int) ($row['contrat_id'] ?? $row['contract_id'] ?? data_get($row, 'contrat.id') ?? 0))->filter()->unique();
+                $matchingRules = $contractIds->map(fn (int $id) => $rulesBySourceContractId->get($id))->filter();
+                $hasEnabledRule = $matchingRules->contains(fn (LeaseCutoffContractRule $rule) => (bool) $rule->is_enabled);
+                $hasDisabledRule = $matchingRules->contains(fn (LeaseCutoffContractRule $rule) => ! (bool) $rule->is_enabled);
+
+                $cutoffStatus = match (true) {
+                    $hasEnabledRule => ['label' => 'Coupure active', 'badge' => 'danger'],
+                    $hasDisabledRule => ['label' => 'Règle désactivée', 'badge' => 'muted'],
+                    $amountDue > 0 => ['label' => 'Sans règle', 'badge' => 'warning'],
+                    default => ['label' => '—', 'badge' => 'muted'],
+                };
 
                 return [
                     'driver' => $driver ?: '—',
@@ -396,13 +436,51 @@ class DashboardLeaseService
                     'amount_due' => $amountDue,
                     'types' => $types ?: '—',
                     'status' => $amountDue > 0 ? ['label' => 'À suivre', 'badge' => 'warning'] : ['label' => 'À jour', 'badge' => 'success'],
+                    'cutoff_status' => $cutoffStatus,
                     'action' => $amountDue > 0 ? 'Suivre' : 'OK',
                     'last_info' => $this->latestLeaseInfo($rows),
-                    'search' => mb_strtolower($driver . ' ' . $vehicle . ' ' . $types, 'UTF-8'),
+                    'search' => mb_strtolower($driver . ' ' . $vehicle . ' ' . $types . ' ' . $cutoffStatus['label'], 'UTF-8'),
                 ];
             })
             ->filter(fn ($row) => ($row['unpaid_count'] ?? 0) > 0)
             ->sortByDesc('amount_due')
+            ->values()
+            ->all();
+    }
+
+
+    private function buildContractRulesTable(array $cutoffData): array
+    {
+        $links = collect($cutoffData['links'] ?? []);
+        $rulesByLinkId = collect($cutoffData['rules'] ?? [])->keyBy('contract_link_id');
+
+        return $links
+            ->map(function (LeaseContractLink $link) use ($rulesByLinkId) {
+                /** @var LeaseCutoffContractRule|null $rule */
+                $rule = $rulesByLinkId->get($link->id);
+                $vehicle = optional($link->vehicle)->immatriculation
+                    ?: $link->immatriculation
+                    ?: $link->vin
+                    ?: '—';
+                $kind = $link->contract_kind === LeaseContractLink::KIND_SUB ? 'Sous-contrat' : 'Contrat principal';
+                $status = $rule
+                    ? ((bool) $rule->is_enabled ? ['label' => 'Active', 'badge' => 'success'] : ['label' => 'Inactive', 'badge' => 'muted'])
+                    : ['label' => 'Aucune règle', 'badge' => 'warning'];
+
+                return [
+                    'contract' => '#' . $link->source_contract_id,
+                    'vehicle' => $vehicle,
+                    'type' => $this->cleanLabel((string) $link->type_contrat_label, $kind),
+                    'kind' => $kind,
+                    'rule_status' => $status,
+                    'cutoff_time' => $rule?->effectiveCutoffTime() ?: '—',
+                    'grace_days' => $rule?->grace_days ?? 0,
+                    'only_when_stopped' => $rule ? (bool) $rule->only_when_stopped : true,
+                    'search' => mb_strtolower($vehicle . ' ' . $link->source_contract_id . ' ' . $link->type_contrat_label . ' ' . $kind . ' ' . $status['label'], 'UTF-8'),
+                ];
+            })
+            ->sortBy(fn ($row) => ($row['rule_status']['label'] === 'Aucune règle' ? '0' : '1') . $row['vehicle'] . $row['type'])
+            ->take(12)
             ->values()
             ->all();
     }
@@ -639,6 +717,9 @@ class DashboardLeaseService
             'COMMAND_SENT' => 'Commande envoyée.',
             'CUT_OFF' => 'Coupure confirmée.',
             'CANCELLED_PAID', 'CANCELLED' => 'Annulée après régularisation.',
+            'CANCELLED_FORGIVEN_BEFORE_CUT' => 'Pardon avant coupure : non replanifiable.',
+            'REACTIVATION_SENT' => 'Relance demandée après pardon.',
+            'REACTIVATED' => 'Véhicule relancé après pardon.',
             'FAILED' => 'Échec de coupure.',
             default => 'Décision enregistrée.',
         };
@@ -652,6 +733,9 @@ class DashboardLeaseService
             'COMMAND_SENT' => 'Envoyée',
             'CUT_OFF' => 'Confirmée',
             'CANCELLED_PAID', 'CANCELLED' => 'Annulée',
+            'CANCELLED_FORGIVEN_BEFORE_CUT' => 'Pardonné avant',
+            'REACTIVATION_SENT' => 'Relance envoyée',
+            'REACTIVATED' => 'Relancé',
             'FAILED' => 'Échec',
             default => $status ?: '—',
         };
@@ -664,7 +748,8 @@ class DashboardLeaseService
             'WAITING_STOP' => 'info',
             'COMMAND_SENT' => 'info',
             'CUT_OFF' => 'success',
-            'CANCELLED_PAID', 'CANCELLED' => 'muted',
+            'CANCELLED_PAID', 'CANCELLED', 'CANCELLED_FORGIVEN_BEFORE_CUT' => 'muted',
+            'REACTIVATION_SENT', 'REACTIVATED' => 'success',
             'FAILED' => 'danger',
             default => 'muted',
         };

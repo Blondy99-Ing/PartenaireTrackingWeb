@@ -728,6 +728,67 @@ private function extractRows(mixed $response): array
     }
 
     /**
+     * Annule immédiatement les queues actives après paiement confirmé côté recouvrement.
+     *
+     * La coupure ne doit pas attendre le prochain cron si l'utilisateur vient
+     * d'enregistrer un paiement cash depuis Tracking. On conserve une trace dans
+     * l'historique et on retire les lignes actives de la queue locale.
+     */
+    public function cancelActiveCutoffQueuesAfterPayment(int $leaseId, ?int $actorId = null, ?string $actorName = null): int
+    {
+        if ($leaseId <= 0) {
+            return 0;
+        }
+
+        $partnerId = $this->resolvePartnerId();
+        $now = now(config('app.timezone', 'Africa/Douala'));
+        $activeStatuses = ['PENDING', 'WAITING_STOP', 'COMMAND_SENT'];
+        $cancelled = 0;
+
+        DB::transaction(function () use ($leaseId, $partnerId, $now, $activeStatuses, $actorId, $actorName, &$cancelled) {
+            $queues = DB::table('lease_cutoff_queue')
+                ->where('partner_id', $partnerId)
+                ->where('lease_id', $leaseId)
+                ->whereIn('status', $activeStatuses)
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($queues as $queue) {
+                if (! empty($queue->history_id)) {
+                    LeaseCutoffHistory::query()
+                        ->where('id', $queue->history_id)
+                        ->where('partner_id', $partnerId)
+                        ->update([
+                            'status' => 'CANCELLED_PAID',
+                            'reason' => 'Paiement enregistré : coupure automatique annulée immédiatement.',
+                            'forgiven_by_user_id' => null,
+                            'forgiven_by_name' => null,
+                            'forgiven_at' => null,
+                            'notes' => trim((string) (($queue->status ?? '') . ' annulé après paiement cash par ' . ($actorName ?: ('Utilisateur #' . $actorId)))) ?: null,
+                            'updated_at' => $now,
+                        ]);
+                }
+
+                DB::table('lease_cutoff_queue')
+                    ->where('id', $queue->id)
+                    ->delete();
+
+                $cancelled++;
+            }
+        });
+
+        Log::info('[LEASE_CASH_PAYMENT_CANCEL_ACTIVE_CUTOFF_QUEUES_DONE]', [
+            'partner_id' => $partnerId,
+            'lease_id' => $leaseId,
+            'cancelled_count' => $cancelled,
+            'actor_id' => $actorId,
+            'actor_name' => $actorName,
+        ]);
+
+        return $cancelled;
+    }
+
+    /**
      * Construit les indicateurs du bloc coupure automatique sur la page paiements.
      */
     public function buildPaymentCutoffHub(array $leaseData): array
@@ -1094,7 +1155,91 @@ protected function getForgivenessMetaByLeaseId(): array
 protected function getCutoffStatusMetaByLeaseId(): array
 {
     $partnerId = $this->resolvePartnerId();
+    $meta = [];
 
+    /**
+     * 1) Source prioritaire : queue active réelle.
+     * Une coupure planifiée doit venir d'ici, pas seulement d'une règle active.
+     */
+    $activeQueues = DB::table('lease_cutoff_queue as q')
+        ->leftJoin('lease_cutoff_histories as h', 'h.id', '=', 'q.history_id')
+        ->where('q.partner_id', $partnerId)
+        ->whereNotNull('q.lease_id')
+        ->whereIn('q.status', ['PENDING', 'WAITING_STOP', 'COMMAND_SENT'])
+        ->orderByDesc('q.id')
+        ->get([
+            'q.id as queue_id',
+            'q.history_id',
+            'q.lease_id',
+            'q.vehicle_id',
+            'q.contract_id',
+            'q.contract_link_id',
+            'q.parent_contract_id',
+            'q.type_contrat_id',
+            'q.type_contrat_label',
+            'q.contract_kind',
+            'q.trigger_label',
+            'q.trigger_payload',
+            'q.status',
+            'q.scheduled_for',
+            'q.next_check_at',
+            'h.reason',
+            'h.ignition_state',
+            'h.detected_at',
+            'h.cutoff_executed_at',
+            'h.forgiven_by_user_id',
+            'h.forgiven_by_name',
+            'h.forgiven_at',
+            'q.updated_at',
+            'q.created_at',
+        ]);
+
+    foreach ($activeQueues as $row) {
+        $leaseId = (int) $row->lease_id;
+
+        if ($leaseId <= 0 || isset($meta[$leaseId])) {
+            continue;
+        }
+
+        $status = (string) $row->status;
+
+        $meta[$leaseId] = [
+            'queue_id' => $row->queue_id ? (int) $row->queue_id : null,
+            'history_id' => $row->history_id ? (int) $row->history_id : null,
+            'lease_id' => $leaseId,
+            'vehicle_id' => $row->vehicle_id ? (int) $row->vehicle_id : null,
+            'contract_id' => $row->contract_id ? (int) $row->contract_id : null,
+            'contract_link_id' => $row->contract_link_id ? (int) $row->contract_link_id : null,
+            'parent_contract_id' => $row->parent_contract_id ? (int) $row->parent_contract_id : null,
+            'type_contrat_id' => $row->type_contrat_id ? (int) $row->type_contrat_id : null,
+            'type_contrat_label' => $row->type_contrat_label,
+            'contract_kind' => $row->contract_kind,
+            'trigger_label' => $row->trigger_label,
+            'trigger_payload' => is_string($row->trigger_payload)
+                ? json_decode($row->trigger_payload, true)
+                : $row->trigger_payload,
+
+            'status' => $status,
+            'label' => $this->cutoffStatusLabel($status),
+            'ui_type' => $this->cutoffStatusUiType($status),
+            'reason' => $row->reason,
+            'ignition_state' => $row->ignition_state,
+
+            'scheduled_for' => $row->scheduled_for ? Carbon::parse($row->scheduled_for)->toDateTimeString() : null,
+            'next_check_at' => $row->next_check_at ? Carbon::parse($row->next_check_at)->toDateTimeString() : null,
+            'detected_at' => $row->detected_at ? Carbon::parse($row->detected_at)->toDateTimeString() : null,
+            'cutoff_executed_at' => $row->cutoff_executed_at ? Carbon::parse($row->cutoff_executed_at)->toDateTimeString() : null,
+            'forgiven_by_user_id' => $row->forgiven_by_user_id,
+            'forgiven_by_name' => $row->forgiven_by_name,
+            'forgiven_at' => $row->forgiven_at ? Carbon::parse($row->forgiven_at)->toDateTimeString() : null,
+            'updated_at' => $row->updated_at ? Carbon::parse($row->updated_at)->toDateTimeString() : null,
+            'created_at' => $row->created_at ? Carbon::parse($row->created_at)->toDateTimeString() : null,
+        ];
+    }
+
+    /**
+     * 2) Historique : seulement pour les leases sans queue active.
+     */
     $terminalAndProgressStatuses = [
         'PENDING',
         'WAITING_STOP',
@@ -1102,14 +1247,13 @@ protected function getCutoffStatusMetaByLeaseId(): array
         'CUT_OFF',
         'CANCELLED_PAID',
         'FAILED',
-
         'CANCELLED_FORGIVEN_BEFORE_CUT',
         'REACTIVATION_REQUESTED_AFTER_FORGIVENESS',
         'REACTIVATED_AFTER_FORGIVENESS',
         'REACTIVATION_FAILED_AFTER_FORGIVENESS',
     ];
 
-    $rows = LeaseCutoffHistory::query()
+    $historyRows = LeaseCutoffHistory::query()
         ->where('partner_id', $partnerId)
         ->whereNotNull('lease_id')
         ->whereIn('status', $terminalAndProgressStatuses)
@@ -1119,6 +1263,7 @@ protected function getCutoffStatusMetaByLeaseId(): array
             'lease_id',
             'vehicle_id',
             'contract_id',
+            'contract_link_id',
             'parent_contract_id',
             'type_contrat_id',
             'type_contrat_label',
@@ -1136,66 +1281,53 @@ protected function getCutoffStatusMetaByLeaseId(): array
             'forgiven_at',
             'updated_at',
             'created_at',
-        ])
-        ->unique('lease_id')
-        ->mapWithKeys(function (LeaseCutoffHistory $row) {
-            $status = (string) $row->status;
+        ]);
 
-            return [
-                (int) $row->lease_id => [
-                    'history_id' => $row->id,
-                    'lease_id' => (int) $row->lease_id,
-                    'vehicle_id' => $row->vehicle_id,
-                    'contract_id' => $row->contract_id,
-                    'parent_contract_id' => $row->parent_contract_id,
-                    'type_contrat_id' => $row->type_contrat_id,
-                    'type_contrat_label' => $row->type_contrat_label,
-                    'contract_kind' => $row->contract_kind,
-                    'trigger_label' => $row->trigger_label,
-                    'trigger_payload' => $row->trigger_payload,
+    foreach ($historyRows as $row) {
+        $leaseId = (int) $row->lease_id;
 
-                    'status' => $status,
-                    'label' => $this->cutoffStatusLabel($status),
-                    'ui_type' => $this->cutoffStatusUiType($status),
+        if ($leaseId <= 0 || isset($meta[$leaseId])) {
+            continue;
+        }
 
-                    'reason' => $row->reason,
-                    'ignition_state' => $row->ignition_state,
+        $status = (string) $row->status;
 
-                    'scheduled_for' => $row->scheduled_for
-                        ? Carbon::parse($row->scheduled_for)->toDateTimeString()
-                        : null,
-
-                    'detected_at' => $row->detected_at
-                        ? Carbon::parse($row->detected_at)->toDateTimeString()
-                        : null,
-
-                    'cutoff_executed_at' => $row->cutoff_executed_at
-                        ? Carbon::parse($row->cutoff_executed_at)->toDateTimeString()
-                        : null,
-
-                    'forgiven_by_user_id' => $row->forgiven_by_user_id,
-                    'forgiven_by_name' => $row->forgiven_by_name,
-
-                    'forgiven_at' => $row->forgiven_at
-                        ? Carbon::parse($row->forgiven_at)->toDateTimeString()
-                        : null,
-
-                    'updated_at' => $row->updated_at?->toDateTimeString(),
-                    'created_at' => $row->created_at?->toDateTimeString(),
-                ],
-            ];
-        })
-        ->all();
+        $meta[$leaseId] = [
+            'history_id' => (int) $row->id,
+            'lease_id' => $leaseId,
+            'vehicle_id' => $row->vehicle_id,
+            'contract_id' => $row->contract_id,
+            'contract_link_id' => $row->contract_link_id,
+            'parent_contract_id' => $row->parent_contract_id,
+            'type_contrat_id' => $row->type_contrat_id,
+            'type_contrat_label' => $row->type_contrat_label,
+            'contract_kind' => $row->contract_kind,
+            'trigger_label' => $row->trigger_label,
+            'trigger_payload' => $row->trigger_payload,
+            'status' => $status,
+            'label' => $this->cutoffStatusLabel($status),
+            'ui_type' => $this->cutoffStatusUiType($status),
+            'reason' => $row->reason,
+            'ignition_state' => $row->ignition_state,
+            'scheduled_for' => $row->scheduled_for ? Carbon::parse($row->scheduled_for)->toDateTimeString() : null,
+            'detected_at' => $row->detected_at ? Carbon::parse($row->detected_at)->toDateTimeString() : null,
+            'cutoff_executed_at' => $row->cutoff_executed_at ? Carbon::parse($row->cutoff_executed_at)->toDateTimeString() : null,
+            'forgiven_by_user_id' => $row->forgiven_by_user_id,
+            'forgiven_by_name' => $row->forgiven_by_name,
+            'forgiven_at' => $row->forgiven_at ? Carbon::parse($row->forgiven_at)->toDateTimeString() : null,
+            'updated_at' => $row->updated_at?->toDateTimeString(),
+            'created_at' => $row->created_at?->toDateTimeString(),
+        ];
+    }
 
     Log::debug('[LEASE_CUTOFF_STATUS_META_BY_LEASE_ID]', [
         'partner_id' => $partnerId,
-        'count' => count($rows),
-        'lease_ids' => array_slice(array_keys($rows), 0, 20),
+        'count' => count($meta),
+        'lease_ids' => array_slice(array_keys($meta), 0, 20),
     ]);
 
-    return $rows;
+    return $meta;
 }
-
 
 
 /**
@@ -2092,7 +2224,12 @@ protected function cutoffStatusUiType(?string $status): string
             default => 'unpaid',
         };
 
-        if ($forgivenessMeta) {
+        /**
+         * Le pardon est une information de coupure, pas le statut principal du paiement.
+         * Si l'API recouvrement indique PAYE, la ligne doit rester PAYE même s'il existe
+         * un ancien historique de pardon/coupure sur cette échéance.
+         */
+        if ($status !== 'paid' && $forgivenessMeta) {
             $status = match ($forgivenessMeta['history_status'] ?? '') {
                 'CANCELLED_FORGIVEN_BEFORE_CUT' => 'forgiven_before_cut',
                 'REACTIVATION_REQUESTED_AFTER_FORGIVENESS' => 'forgiven_reactivation_pending',
@@ -2379,13 +2516,13 @@ protected function cutoffStatusUiType(?string $status): string
             'coupure_status' => $cutoffStatusMeta['status'] ?? null,
             'coupure_label' => $cutoffStatusMeta['label'] ?? (
                 $coupureAuto
-                    ? 'Planifiée'
-                    : 'Aucune coupure'
+                    ? 'Règle active'
+                    : ($ruleConfigured && ! $ruleEnabled ? 'Règle inactive' : 'Aucune coupure')
             ),
             'coupure_ui_type' => $cutoffStatusMeta['ui_type'] ?? (
                 $coupureAuto
-                    ? 'info'
-                    : 'muted'
+                    ? 'warning'
+                    : ($ruleConfigured && ! $ruleEnabled ? 'muted' : 'muted')
             ),
             'coupure_reason' => $this->shortUserCutoffReason((string) ($cutoffStatusMeta['reason'] ?? $cutoffEligibilityReason), (string) ($cutoffStatusMeta['ignition_state'] ?? '')),
             'coupure_history_id' => $cutoffStatusMeta['history_id'] ?? null,

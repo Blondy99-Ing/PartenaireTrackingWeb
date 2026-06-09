@@ -1965,7 +1965,7 @@ input:checked + .fl-slider:before {
         if (status === 'FAILED') return 'Échec de coupure';
         if (status === 'CANCELLED_PAID') return 'Coupure annulée : paiement régularisé';
         if (status === 'CANCELLED_FORGIVEN_BEFORE_CUT') return 'Coupure annulée : pardon accordé';
-        if (row.coupure_auto) return row.heure_coupure ? `Planifiée à ${row.heure_coupure}` : 'Coupure planifiée';
+        if (row.coupure_auto) return row.heure_coupure ? `Règle active à ${row.heure_coupure} — aucune queue réelle tant que le cron n'a pas planifié` : 'Règle active sans queue réelle';
         if (row.cutoff_eligibility_reason) return row.cutoff_eligibility_reason;
         return 'Aucune règle active';
     }
@@ -1977,8 +1977,8 @@ input:checked + .fl-slider:before {
 
     function cutoffBadge(row) {
         const status = normalizeCutoffStatus(row);
-        const label = row.coupure_label || (row.coupure_auto ? 'Planifiée' : 'Aucune coupure');
-        const type = row.coupure_ui_type || (row.coupure_auto ? 'info' : 'muted');
+        const label = row.coupure_label || (row.coupure_auto ? 'Règle active' : 'Aucune coupure');
+        const type = row.coupure_ui_type || (row.coupure_auto ? 'warning' : 'muted');
 
         const className = {
             danger: 'cut-danger',
@@ -2000,12 +2000,12 @@ input:checked + .fl-slider:before {
             REACTIVATION_REQUESTED_AFTER_FORGIVENESS: 'fa-rotate',
             REACTIVATED_AFTER_FORGIVENESS: 'fa-bolt',
             REACTIVATION_FAILED_AFTER_FORGIVENESS: 'fa-triangle-exclamation',
-        }[status] || (row.coupure_auto ? 'fa-clock' : 'fa-minus-circle');
+        }[status] || (row.coupure_auto ? 'fa-shield-alt' : 'fa-minus-circle');
 
         const detail = row.coupure_executed_at
             || row.coupure_detected_at
             || row.coupure_scheduled_for
-            || row.heure_coupure
+            || (status ? row.heure_coupure : '')
             || '';
 
         const userReason = userCutoffReason(row);
@@ -2026,7 +2026,7 @@ input:checked + .fl-slider:before {
         const value = row.coupure_executed_at
             || row.coupure_detected_at
             || row.coupure_scheduled_for
-            || row.heure_coupure
+            || (status ? row.heure_coupure : '')
             || '';
 
         return value || '—';
@@ -2312,9 +2312,9 @@ input:checked + .fl-slider:before {
                 ? `<span class="method-badge" title="${esc(r.methode_raw || r.methode)}">${esc(r.methode_label || r.methode)}</span>`
                 : `<span style="color:var(--color-secondary-text);font-size:.7rem;">—</span>`;
 
-            const btnPay = !isPaid && !isForgiven
+            const btnPay = !isPaid
                 ? `<button class="tbl-action pay" onclick="window.openPayModal(${Number(r.id)})" title="Enregistrer paiement"><i class="fas fa-coins"></i></button>`
-                : `<button class="tbl-action pay" disabled title="Déjà payé ou pardonné"><i class="fas fa-coins"></i></button>`;
+                : `<button class="tbl-action pay" disabled title="Déjà payé"><i class="fas fa-coins"></i></button>`;
 
             const canForgive = !isForgiven;
             const forgiveTitle = isPaid

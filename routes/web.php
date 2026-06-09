@@ -23,6 +23,8 @@ use App\Http\Controllers\Leases\LeaseCutoffHistoryController;
 use App\Http\Controllers\Leases\DashbaordLeaseController;
 use App\Http\Controllers\Partner\PartnerDriverController;use App\Http\Controllers\Settings\LeaseSettingsController;
 use App\Http\Controllers\Api\Internal\Lease\SubContractTypeController;
+use App\Http\Controllers\Settings\GeofenceSettingsController;
+use App\Http\Controllers\Settings\VehicleTimeZoneSettingsController;
 
 
 
@@ -189,6 +191,34 @@ Route::get('lease/cutoff-history', [LeaseCutoffHistoryController::class, 'index'
 Route::get('/leases/dashboard', [DashbaordLeaseController::class, 'index'])
         ->name('leases.dashboard');
 
+
+
+
+
+// ── Settings Geofences ───────────────────────────────────────────────
+Route::prefix('settings/geofences')
+    ->name('settings.geofences.')
+    ->group(function () {
+        Route::get('/', [GeofenceSettingsController::class, 'index'])
+            ->name('index');
+
+        Route::post('/', [GeofenceSettingsController::class, 'store'])
+            ->name('store');
+
+        Route::put('/{geofence}', [GeofenceSettingsController::class, 'update'])
+            ->name('update');
+
+        Route::delete('/{geofence}', [GeofenceSettingsController::class, 'destroy'])
+            ->name('destroy');
+
+        Route::post('/{geofence}/assign', [GeofenceSettingsController::class, 'assign'])
+            ->name('assign');
+    });
+
+
+    //time_zone
+    Route::put('/settings/time-zone', [VehicleTimeZoneSettingsController::class, 'update'])
+    ->name('settings.timezone.update');
 
 
 

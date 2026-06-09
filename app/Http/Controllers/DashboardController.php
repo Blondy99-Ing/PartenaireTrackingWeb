@@ -24,7 +24,7 @@ class DashboardController extends Controller
 
  public function index()
 {
-    $partnerId = (int) auth()->id();
+    $partnerId = (int) auth()->user()->tenantPartnerId();
 
     /*
      * Important :
@@ -65,7 +65,7 @@ class DashboardController extends Controller
 
     public function dashboardStream(): StreamedResponse
     {
-        $partnerId = (int) auth()->id();
+        $partnerId = (int) auth()->user()->tenantPartnerId();
 
         return response()->stream(function () use ($partnerId) {
             @ini_set('output_buffering', 'off');
@@ -162,7 +162,7 @@ class DashboardController extends Controller
 
     public function rebuildCache()
     {
-        $partnerId = (int) auth()->id();
+        $partnerId = (int) auth()->user()->tenantPartnerId();
         $all = $this->cache->rebuildAll($partnerId);
 
         return response()->json([

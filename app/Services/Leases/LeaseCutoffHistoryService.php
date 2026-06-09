@@ -29,7 +29,7 @@ class LeaseCutoffHistoryService
         $perPage = (int) ($filters['per_page'] ?? 20);
 
         $query = LeaseCutoffHistory::query()
-            ->with(['vehicle', 'rule'])
+            ->with(['vehicle', 'contractRule', 'contractLink'])
             ->where('partner_id', $partnerId)
             ->orderByDesc('scheduled_for')
             ->orderByDesc('id');

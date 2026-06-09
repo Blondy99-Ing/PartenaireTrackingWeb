@@ -46,7 +46,7 @@ class LeaseCutoffQueueProcessorService
         $activeStatuses = ['PENDING', 'WAITING_STOP', 'COMMAND_SENT'];
 
         $items = LeaseCutoffQueue::query()
-            ->with(['vehicle', 'history', 'rule', 'contractRule', 'contractLink'])
+            ->with(['vehicle', 'history', 'contractRule', 'contractLink'])
             ->whereIn('status', $activeStatuses)
             ->whereDate('lease_date_echeance', $targetDate)
             ->where(function ($q) {
@@ -242,19 +242,6 @@ class LeaseCutoffQueueProcessorService
                     'moving_threshold' => $movingThreshold,
                 ]));
 
-                if ($engineState === 'CUT') {
-                    $this->markProcessedCutOff(
-                        $item,
-                        ['source' => 'live_engine_state', 'message' => 'Le moteur apparaît déjà coupé dans l’état live du provider GPS.'],
-                        $speed,
-                        $uiStatus,
-                        'Le moteur est déjà confirmé coupé lors de la vérification live ; aucune nouvelle commande n’a été nécessaire.'
-                    );
-                    $processed++;
-                    Log::info('[LEASE_CUTOFF_PROCESS] Succès : véhicule déjà coupé', $ctx);
-                    continue;
-                }
-
                 if ($item->status === 'COMMAND_SENT') {
                     $maxChecks = (int) env('LEASE_CUTOFF_CONFIRM_MAX_CHECKS', self::DEFAULT_CONFIRM_MAX_CHECKS);
 
@@ -286,6 +273,19 @@ class LeaseCutoffQueueProcessorService
                     );
                     $waiting++;
                     Log::info('[LEASE_CUTOFF_PROCESS] Attente : commande déjà envoyée, pas de renvoi', $ctx);
+                    continue;
+                }
+
+                if ($engineState === 'CUT') {
+                    $this->markProcessedCutOff(
+                        $item,
+                        ['source' => 'live_engine_state_before_send', 'message' => 'Le moteur apparaît déjà coupé dans l’état live du provider GPS avant tout nouvel envoi.'],
+                        $speed,
+                        $uiStatus,
+                        'Le moteur est déjà confirmé coupé lors de la vérification live ; aucune nouvelle commande n’a été nécessaire.'
+                    );
+                    $processed++;
+                    Log::info('[LEASE_CUTOFF_PROCESS] Succès : véhicule déjà coupé avant envoi', $ctx);
                     continue;
                 }
 

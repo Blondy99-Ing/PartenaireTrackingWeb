@@ -214,6 +214,12 @@ class LeaseController extends Controller
                 'recorded_by_name' => $recordedByName,
             ]);
 
+            $cancelledQueuesCount = $leaseApiService->cancelActiveCutoffQueuesAfterPayment(
+                (int) $data['lease_id'],
+                optional($request->user())->id,
+                $recordedByName
+            );
+
             Log::info('[LEASE_CASH_PAYMENT_DONE]', [
                 'user_id' => optional($request->user())->id,
                 'lease_id' => (int) $data['lease_id'],
@@ -224,6 +230,7 @@ class LeaseController extends Controller
                 'ok' => true,
                 'message' => 'Paiement cash enregistré avec succès.',
                 'recorded_by_name' => $recordedByName,
+                'cancelled_cutoff_queues_count' => $cancelledQueuesCount ?? 0,
                 'data' => $result,
             ]);
         } catch (Throwable $e) {

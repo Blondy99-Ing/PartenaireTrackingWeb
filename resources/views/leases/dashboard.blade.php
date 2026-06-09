@@ -269,7 +269,7 @@
 }
 .recouvrement-dashboard .chart-wrap { height: 245px; position: relative; }
 .recouvrement-dashboard .table-grid { grid-template-columns: 1.15fr 1fr; }
-.recouvrement-dashboard .ops-grid { grid-template-columns: .8fr 1.2fr; }
+.recouvrement-dashboard .ops-grid { grid-template-columns: .85fr 1.15fr; }
 
 .recouvrement-dashboard .card-pad { padding: .75rem; }
 .recouvrement-dashboard .card-head {
@@ -612,10 +612,18 @@
                     </div>
                 </div>
                 <div class="metric-grid">
-                    <div class="metric-tile"><span>Planifiées</span><strong>{{ $cutoffSummary['planned'] ?? 0 }}</strong></div>
-                    <div class="metric-tile"><span>Envoyées</span><strong>{{ $cutoffSummary['command_sent'] ?? 0 }}</strong></div>
-                    <div class="metric-tile"><span>Confirmées</span><strong>{{ $cutoffSummary['confirmed'] ?? 0 }}</strong></div>
-                    <div class="metric-tile"><span>Échecs</span><strong>{{ $cutoffSummary['gps_failed'] ?? 0 }}</strong></div>
+                    <div class="metric-tile"><span>Queues planifiées</span><strong>{{ $cutoffSummary['planned'] ?? 0 }}</strong></div>
+                    <div class="metric-tile"><span>Attente sécurité</span><strong>{{ $cutoffSummary['waiting_stop'] ?? 0 }}</strong></div>
+                    <div class="metric-tile"><span>Commandes envoyées</span><strong>{{ $cutoffSummary['command_sent'] ?? 0 }}</strong></div>
+                    <div class="metric-tile"><span>Coupures confirmées</span><strong>{{ $cutoffSummary['confirmed'] ?? 0 }}</strong></div>
+                    <div class="metric-tile"><span>Pardons avant coupure</span><strong>{{ $cutoffSummary['forgiven_before_cut'] ?? 0 }}</strong></div>
+                    <div class="metric-tile"><span>Relances après pardon</span><strong>{{ $cutoffSummary['reactivated'] ?? 0 }}</strong></div>
+                </div>
+                <div class="metric-grid" style="margin-top:.5rem;">
+                    <div class="metric-tile"><span>Règles actives</span><strong>{{ $cutoffSummary['active_rules'] ?? 0 }}</strong></div>
+                    <div class="metric-tile"><span>Règles inactives</span><strong>{{ $cutoffSummary['disabled_rules'] ?? 0 }}</strong></div>
+                    <div class="metric-tile"><span>Sans règle</span><strong>{{ $cutoffSummary['contracts_without_rule'] ?? 0 }}</strong></div>
+                    <div class="metric-tile"><span>Échecs</span><strong>{{ $cutoffSummary['failed'] ?? 0 }}</strong></div>
                 </div>
             </div>
         </div>
@@ -630,7 +638,7 @@
                 </div>
                 <div class="table-scroll">
                     <table class="dashboard-table" id="driversTable">
-                        <thead><tr><th>Chauffeur</th><th>Véhicule</th><th>Impayés</th><th>Montant dû</th><th>Type</th><th>Statut</th></tr></thead>
+                        <thead><tr><th>Chauffeur</th><th>Véhicule</th><th>Impayés</th><th>Montant dû</th><th>Type</th><th>Coupure</th><th>Statut</th></tr></thead>
                         <tbody>
                         @forelse(($tables['drivers_risk'] ?? []) as $row)
                             <tr data-search="{{ $row['search'] ?? '' }}">
@@ -639,10 +647,11 @@
                                 <td class="{{ ($row['unpaid_count'] ?? 0) > 0 ? 'amount-danger' : 'amount-success' }}">{{ $row['unpaid_count'] ?? 0 }}</td>
                                 <td class="{{ ($row['amount_due'] ?? 0) > 0 ? 'amount-danger' : 'amount-success' }}">{{ $money($row['amount_due'] ?? 0) }}</td>
                                 <td>{{ $row['types'] ?? '—' }}</td>
+                                <td><span class="dash-badge {{ $badgeClass($row['cutoff_status']['badge'] ?? null) }}">{{ $row['cutoff_status']['label'] ?? '—' }}</span></td>
                                 <td><span class="dash-badge {{ $badgeClass($row['status']['badge'] ?? null) }}">{{ $row['status']['label'] ?? '—' }}</span></td>
                             </tr>
                         @empty
-                            <tr><td colspan="6"><div class="empty-state">Aucun chauffeur à suivre aujourd’hui.</div></td></tr>
+                            <tr><td colspan="7"><div class="empty-state">Aucun chauffeur à suivre aujourd’hui.</div></td></tr>
                         @endforelse
                         </tbody>
                     </table>
@@ -682,23 +691,41 @@
             <div class="ui-card card-pad">
                 <div class="card-head">
                     <div>
-                        <h2 class="card-title"><i class="fas fa-file-contract"></i> Contrats</h2>
-                        <p class="card-subtitle">Aperçu rapide du portefeuille.</p>
+                        <h2 class="card-title"><i class="fas fa-file-contract"></i> Règles par contrat</h2>
+                        <p class="card-subtitle">Contrat principal et sous-contrats indépendants.</p>
                     </div>
                 </div>
-                <div class="metric-grid">
+                <div class="metric-grid" style="margin-bottom:.55rem;">
                     <div class="metric-tile"><span>Principaux actifs</span><strong>{{ $contractsSummary['main_active'] ?? 0 }}</strong></div>
                     <div class="metric-tile"><span>Sous-contrats actifs</span><strong>{{ $contractsSummary['sub_active'] ?? 0 }}</strong></div>
-                    <div class="metric-tile"><span>Soldés</span><strong>{{ $contractsSummary['sold'] ?? 0 }}</strong></div>
-                    <div class="metric-tile"><span>Suspendus</span><strong>{{ $contractsSummary['suspended'] ?? 0 }}</strong></div>
+                </div>
+                <div class="table-scroll" style="max-height:360px;">
+                    <table class="dashboard-table" id="rulesTable">
+                        <thead><tr><th>Contrat</th><th>Véhicule</th><th>Type</th><th>Nature</th><th>Règle</th><th>Heure</th><th>Sécurité</th></tr></thead>
+                        <tbody>
+                        @forelse(($tables['contract_rules'] ?? []) as $ruleRow)
+                            <tr data-search="{{ $ruleRow['search'] ?? '' }}">
+                                <td>{{ $ruleRow['contract'] ?? '—' }}</td>
+                                <td>{{ $ruleRow['vehicle'] ?? '—' }}</td>
+                                <td>{{ $ruleRow['type'] ?? '—' }}</td>
+                                <td>{{ $ruleRow['kind'] ?? '—' }}</td>
+                                <td><span class="dash-badge {{ $badgeClass($ruleRow['rule_status']['badge'] ?? null) }}">{{ $ruleRow['rule_status']['label'] ?? '—' }}</span></td>
+                                <td>{{ $ruleRow['cutoff_time'] ?? '—' }}</td>
+                                <td>{{ ($ruleRow['only_when_stopped'] ?? true) ? 'Arrêt obligatoire' : 'À revoir' }}</td>
+                            </tr>
+                        @empty
+                            <tr><td colspan="7"><div class="empty-state">Aucun contrat local synchronisé avec une règle de coupure.</div></td></tr>
+                        @endforelse
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
             <div class="ui-card card-pad">
                 <div class="card-head">
                     <div>
-                        <h2 class="card-title"><i class="fas fa-power-off"></i> Dernières coupures</h2>
-                        <p class="card-subtitle">Derniers événements du jour.</p>
+                        <h2 class="card-title"><i class="fas fa-power-off"></i> Dernières décisions coupure</h2>
+                        <p class="card-subtitle">Queues, annulations, pardons et confirmations du jour.</p>
                     </div>
                 </div>
                 <div class="timeline-scroll">
@@ -918,7 +945,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function applySearch() {
         const search = (root.querySelector('[data-filter="search"]')?.value || '').toLowerCase().trim();
-        root.querySelectorAll('[data-search], #driversTable tbody tr, #paymentsTable tbody tr').forEach(row => {
+        root.querySelectorAll('[data-search], #driversTable tbody tr, #paymentsTable tbody tr, #rulesTable tbody tr').forEach(row => {
             const haystack = ((row.dataset.search || '') + ' ' + row.textContent).toLowerCase();
             row.style.display = !search || haystack.includes(search) ? '' : 'none';
         });
