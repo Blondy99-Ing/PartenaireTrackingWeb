@@ -87,6 +87,7 @@ class KeycloakUserProvisioningService
         'utilisateur_principale' => 'utilisateur_principale',
         'call_center' => 'call_center',
         'admin' => 'admin',
+        'partner_admin'           => 'partner_admin',
     ];
 
     public function __construct()

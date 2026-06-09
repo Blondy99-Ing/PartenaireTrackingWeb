@@ -13,7 +13,7 @@ use App\Http\Controllers\Alert\AlertController;
 use App\Http\Controllers\Trajets\TrajetController;
 use App\Http\Controllers\Auth\PasswordOtpController;
 use App\Http\Controllers\Auth\VerifyLoginController;
-
+use App\Http\Controllers\Partner\PartnerStaffController;
 use App\Http\Controllers\Partner\AffectationChauffeurVoitureController;
 use App\Http\Controllers\Gps\ControlGpsController;
 use App\Http\Controllers\Leases\LeaseController;
@@ -50,7 +50,7 @@ Route::middleware(['auth:web', 'partner.only'])->group(function () {
     Route::get('/profile/vehicles/positions', [ProfileController::class, 'vehiclePositions'])
         ->name('profile.vehicles.positions');
 
-   
+
 
 
     // ── Partner Affectations ───────────────────────────────────────────
@@ -78,11 +78,11 @@ Route::middleware(['auth:web', 'partner.only'])->group(function () {
     Route::get('/alerts', [AlertController::class, 'index'])->name('alerts.index');
 
 
- 
 
 
-   
-   
+
+
+
 
 
     // ── Trajets ────────────────────────────────────────────────────────
@@ -95,7 +95,7 @@ Route::middleware(['auth:web', 'partner.only'])->group(function () {
 
     // ── Vehicles ───────────────────────────────────────────────────────
     Route::get('/add-vehicle', fn() => view('vehicles.create'))->name('vehicles.add');
- 
+
 
 
     //gestion des lease
@@ -164,7 +164,7 @@ Route::put('/settings/security/password', [LeaseSettingsController::class, 'upda
 
 
 
-// regle de coupure automatique de vehicule en leases 
+// regle de coupure automatique de vehicule en leases
 Route::get('lease/cutoff-rules', [LeaseCutoffRuleController::class, 'index'])
     ->name('lease.cutoff-rules.index');
     Route::put('/settings/lease/cutoff-default-rules', [LeaseSettingsController::class, 'updateCutoffDefaultRules'])
@@ -246,6 +246,29 @@ Route::prefix('partner')
         Route::delete('drivers/{id}', [PartnerDriverController::class, 'destroy'])
             ->name('drivers.destroy');
     });
+
+// ── Partner Staff ──────────────────────────────────────────────────
+    Route::prefix('partner/staff')
+        ->name('partner.staff.')
+        ->group(function () {
+            Route::get('/', [PartnerStaffController::class, 'index'])
+                ->name('index');
+
+            Route::post('/', [PartnerStaffController::class, 'store'])
+                ->name('store');
+
+            Route::put('/{id}', [PartnerStaffController::class, 'update'])
+                ->whereNumber('id')
+                ->name('update');
+
+            Route::patch('/{id}', [PartnerStaffController::class, 'update'])
+                ->whereNumber('id')
+                ->name('patch');
+
+            Route::delete('/{id}', [PartnerStaffController::class, 'destroy'])
+                ->whereNumber('id')
+                ->name('destroy');
+        });
 
 
 });
