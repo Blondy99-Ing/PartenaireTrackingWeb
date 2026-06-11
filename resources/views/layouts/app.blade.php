@@ -1747,6 +1747,14 @@
                             </a>
                         </li>
                         <li role="none">
+                            <a href="{{ route('partner.staff.index') }}" role="menuitem"
+                               class="{{ request()->routeIs('partner.staff.*') ? 'active' : '' }}"
+                               aria-current="{{ request()->routeIs('partner.staff.*') ? 'page' : 'false' }}">
+                                <span class="nav-icon" aria-hidden="true"><i class="fas fa-user-shield"></i></span>
+                                Staff
+                            </a>
+                        </li>
+                        <li role="none">
                             <a href="{{ route('dashboard') }}#trajets"
                                 class="{{ request()->routeIs('trajets.*') ? 'active' : '' }}"
                                 data-dashboard-tab="trajets">
@@ -1775,7 +1783,23 @@
                         <span class="nav-label">Moteur</span>
                     </a>
                 </li>
+<<<<<<< Updated upstream
                 
+=======
+                <li class="nav-item">
+                    <a class="nav-link disabled text-muted"
+                    href="#"
+                    tabindex="-1"
+                    aria-disabled="true"
+                    onclick="return false;"
+                    style="pointer-events: none; opacity: 0.55; cursor: not-allowed;">
+                        <i class="fas fa-file-contract me-2"></i>
+                        Leases
+
+                    </a>
+                </li>
+
+>>>>>>> Stashed changes
                 {{-- Suivi & Flotte (dropdown) --}}
            
                 <li>
@@ -1839,7 +1863,7 @@
 
                 </li>
             </ul>
-           
+
             </li>
              
 
@@ -1938,6 +1962,11 @@
         <a href="{{ route('partner.drivers.index') }}" class="{{ request()->routeIs('users.*') ? 'active' : '' }}">
             <span class="nav-icon" aria-hidden="true"><i class="fas fa-users"></i></span>
             Chauffeurs
+        </a>
+        <a href="{{ route('partner.staff.index') }}"
+           class="{{ request()->routeIs('partner.staff.*') ? 'active' : '' }}">
+            <span class="nav-icon" aria-hidden="true"><i class="fas fa-user-shield"></i></span>
+            Staff
         </a>
         <a href="{{ route('trajets.index') }}" class="{{ request()->routeIs('trajets.*') ? 'active' : '' }}">
             <span class="nav-icon" aria-hidden="true"><i class="fas fa-route"></i></span>

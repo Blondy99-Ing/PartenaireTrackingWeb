@@ -378,6 +378,7 @@ public function clearAdminToken(): void
             'gestionnaire_plateforme' => 'gestionnaire_plateforme',
             'utilisateur_principale' => 'utilisateur_principale',
             'utilisateur_secondaire' => 'utilisateur_secondaire',
+            'partner_admin'           => 'partner_admin',
             default => null,
         };
     }
@@ -482,5 +483,5 @@ public function clearAdminToken(): void
 
 
 
-    
+
 }
