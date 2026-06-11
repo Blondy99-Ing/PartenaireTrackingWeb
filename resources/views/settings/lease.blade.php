@@ -1239,7 +1239,10 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    const urlSection = new URLSearchParams(window.location.search).get('section');
+   const urlSection =
+    new URLSearchParams(window.location.search).get('section')
+    || window.location.hash.replace('#section-', '');
+
     const initialSection = urlSection || localStorage.getItem(storageKey) || 'profile';
     activateSection(initialSection, false);
 

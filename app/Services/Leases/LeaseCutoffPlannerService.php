@@ -6,7 +6,6 @@ use App\Models\LeaseContractLink;
 use App\Models\LeaseCutoffContractRule;
 use App\Models\LeaseCutoffHistory;
 use App\Models\LeaseCutoffQueue;
-use App\Models\LeaseCutoffDefaultRule;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -154,7 +153,10 @@ class LeaseCutoffPlannerService
              *
              * On ne doit jamais utiliser uniquement le véhicule ou le contrat parent.
              */
-            $contractLink = $this->resolveExactContractLink($contractId);
+            $contractLink = $this->resolveExactContractLink(
+                sourceContractId: $contractId,
+                partnerId: $this->extractPartnerIdFromContractContext($contract, $lease)
+            );
             if (! $contractLink) {
                 $skipped++;
                 $skipReasons['contract_link_missing']++;
@@ -183,7 +185,7 @@ class LeaseCutoffPlannerService
             if (! $contractRule) {
                 $skipped++;
                 $skipReasons['contract_rule_missing_or_disabled']++;
-                Log::info('[LEASE_CUTOFF_PLAN] Lease ignoré : aucune règle applicable sur le contrat/sous-contrat spécifique ou son type par défaut.', array_merge($ctx, [
+                Log::info('[LEASE_CUTOFF_PLAN] Lease ignoré : aucune règle spécifique active sur le contrat/sous-contrat exact.', array_merge($ctx, [
                     'contract_link_id' => $contractLink->id,
                     'vehicle_id' => $vehicle->id,
                 ]));
@@ -398,11 +400,12 @@ class LeaseCutoffPlannerService
         return Carbon::now($timezone)->toDateString();
     }
 
-    private function resolveExactContractLink(int $sourceContractId): ?LeaseContractLink
+    private function resolveExactContractLink(int $sourceContractId, ?int $partnerId = null): ?LeaseContractLink
     {
         return LeaseContractLink::query()
             ->with(['vehicle', 'cutoffRule'])
             ->where('source_contract_id', $sourceContractId)
+            ->when($partnerId && $partnerId > 0, fn ($query) => $query->where('partner_id', $partnerId))
             ->where(function ($query) {
                 $query->whereNull('status')
                     ->orWhere('status', '!=', 'DELETED');
@@ -411,15 +414,38 @@ class LeaseCutoffPlannerService
             ->first();
     }
 
+    private function extractPartnerIdFromContractContext(array $contract, array $lease): ?int
+    {
+        foreach ([
+            $lease['partner_id'] ?? null,
+            $lease['partenaire_id'] ?? null,
+            $lease['partenaire'] ?? null,
+            $contract['partner_id'] ?? null,
+            $contract['partenaire_id'] ?? null,
+            $contract['partenaire'] ?? null,
+        ] as $candidate) {
+            if (is_array($candidate)) {
+                $candidate = $candidate['id'] ?? $candidate['partner_id'] ?? null;
+            }
+
+            if (is_numeric($candidate) && (int) $candidate > 0) {
+                return (int) $candidate;
+            }
+        }
+
+        return null;
+    }
+
     /**
-     * Résout la règle applicable selon la priorité métier :
-     * 1. règle personnalisée du contrat réel ;
-     * 2. règle par défaut du type de contrat ;
-     * 3. aucune coupure.
+     * Résout la règle réellement applicable au contrat/sous-contrat exact.
      *
-     * Important : si une règle personnalisée existe mais est désactivée, elle bloque
-     * volontairement la règle par défaut. Cela permet de désactiver la coupure pour
-     * un contrat précis sans changer la règle du type.
+     * Nouvelle logique métier :
+     * - le cron ne lit JAMAIS lease_cutoff_default_rules ;
+     * - le cron ne crée JAMAIS de règle spécifique automatiquement ;
+     * - une règle par défaut est seulement un modèle utilisé volontairement lors
+     *   de la création ou du paramétrage d'un contrat ;
+     * - sans ligne dans lease_cutoff_contract_rules pour ce contract_link_id,
+     *   aucune coupure ne doit être planifiée.
      */
     private function resolveEffectiveContractRule(LeaseContractLink $link, string $dueDate): ?LeaseCutoffContractRule
     {
@@ -428,53 +454,23 @@ class LeaseCutoffPlannerService
             ->where('partner_id', $link->partner_id)
             ->first();
 
-        if ($specificRule) {
-            if (! $specificRule->is_enabled) {
-                return null;
-            }
-
-            return $this->isRuleActiveForDueDate($specificRule, $dueDate) ? $specificRule : null;
-        }
-
-        if (empty($link->type_contrat_id)) {
-            return null;
-        }
-
-        $defaultRule = LeaseCutoffDefaultRule::query()
-            ->where('partner_id', $link->partner_id)
-            ->where('type_contrat_id', $link->type_contrat_id)
-            ->first();
-
-        if (! $defaultRule || ! $defaultRule->is_enabled) {
-            return null;
-        }
-
-        $materializedRule = LeaseCutoffContractRule::query()->updateOrCreate(
-            [
+        if (! $specificRule) {
+            Log::info('[LEASE_CUTOFF_PLAN] Aucune règle spécifique trouvée : pas de matérialisation automatique depuis les règles par défaut.', [
                 'partner_id' => $link->partner_id,
                 'contract_link_id' => $link->id,
-            ],
-            [
-                'vehicle_id' => $link->vehicle_id,
-                'driver_id' => $link->driver_id,
                 'source_contract_id' => $link->source_contract_id,
-                'source_parent_contract_id' => $link->source_parent_contract_id,
-                'contract_kind' => $link->contract_kind,
                 'type_contrat_id' => $link->type_contrat_id,
-                'type_contrat_label' => $link->type_contrat_label ?: $defaultRule->type_contrat_label,
-                'is_enabled' => true,
-                'cutoff_time' => $defaultRule->cutoff_time,
-                'timezone' => $defaultRule->timezone ?: config('app.timezone', 'Africa/Douala'),
-                'grace_days' => (int) ($defaultRule->grace_days ?? 0),
-                'active_days' => $this->normalizeActiveDays($defaultRule->active_days ?? []),
-                'only_when_stopped' => (bool) $defaultRule->only_when_stopped,
-                'notify_before_cutoff' => (bool) $defaultRule->notify_before_cutoff,
-                'updated_by' => $defaultRule->updated_by,
-                'created_by' => $defaultRule->created_by,
-            ]
-        );
+                'type_contrat_label' => $link->type_contrat_label,
+            ]);
 
-        return $this->isRuleActiveForDueDate($materializedRule, $dueDate) ? $materializedRule : null;
+            return null;
+        }
+
+        if (! $specificRule->is_enabled) {
+            return null;
+        }
+
+        return $this->isRuleActiveForDueDate($specificRule, $dueDate) ? $specificRule : null;
     }
 
     private function isRuleActiveForDueDate(LeaseCutoffContractRule $rule, string $dueDate): bool

@@ -1370,193 +1370,193 @@
     /* ════════════════════════════════════════════════════════════════
        SECTION 18 — TOAST NOTIFICATIONS
     ════════════════════════════════════════════════════════════════ */
-    #toast-container {
-        position: fixed;
-        top: calc(var(--navbar-h) + var(--sp-sm));
-        right: var(--sp-lg);
-        z-index: var(--z-toast);
-        display: flex;
-        flex-direction: column;
-        gap: var(--sp-sm);
-        pointer-events: none;
-        max-width: min(520px, calc(100vw - 2rem));
+ #toast-container {
+    position: fixed;
+    top: calc(var(--navbar-h) + var(--sp-sm));
+    right: var(--sp-lg);
+    z-index: var(--z-toast);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-sm);
+    pointer-events: none;
+    max-width: min(520px, calc(100vw - 2rem));
+}
+
+.toast {
+    pointer-events: auto;
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sp-md);
+    padding: 14px;
+    border-radius: var(--r-xl);
+    border: 1px solid var(--color-border-subtle);
+    background: var(--color-card);
+    color: var(--color-text);
+    box-shadow: var(--shadow-lg);
+    transform: translateY(-8px) scale(0.97);
+    opacity: 0;
+    transition: transform 0.25s ease, opacity 0.25s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.toast.show {
+    transform: none;
+    opacity: 1;
+}
+
+.toast.hide {
+    transform: translateY(-8px) scale(0.97);
+    opacity: 0;
+}
+
+.toast::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    border-radius: var(--r-xl) 0 0 var(--r-xl);
+}
+
+.toast::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 2px;
+    transform-origin: left;
+}
+
+.toast.show::after {
+    animation: toastProgress 5s linear forwards;
+}
+
+@keyframes toastProgress {
+    from {
+        transform: scaleX(1);
     }
 
-    .toast {
-        pointer-events: auto;
-        display: flex;
-        align-items: flex-start;
-        gap: var(--sp-md);
-        padding: 14px;
-        border-radius: var(--r-xl);
-        border: 1px solid var(--color-border-subtle);
-        background: var(--color-card);
-        color: var(--color-text);
-        box-shadow: var(--shadow-lg);
-        transform: translateY(-8px) scale(0.97);
-        opacity: 0;
-        transition: transform 0.25s ease, opacity 0.25s ease;
-        position: relative;
-        overflow: hidden;
+    to {
+        transform: scaleX(0);
     }
+}
 
-    .toast.show {
-        transform: none;
-        opacity: 1;
-    }
+.toast-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: var(--r-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    flex-shrink: 0;
+    font-size: 1rem;
+}
 
-    .toast.hide {
-        transform: translateY(-8px) scale(0.97);
-        opacity: 0;
-    }
+.toast-body {
+    flex: 1;
+    min-width: 0;
+}
 
-    .toast::before {
-        content: '';
-        position: absolute;
-        left: 0;
-        top: 0;
-        bottom: 0;
-        width: 4px;
-        border-radius: var(--r-xl) 0 0 var(--r-xl);
-    }
+.toast-title {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 0.88rem;
+    line-height: 1.2;
+}
 
-    .toast::after {
-        content: '';
-        position: absolute;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        height: 2px;
-        transform-origin: left;
-    }
+.toast-msg {
+    margin-top: 2px;
+    font-family: var(--font-body);
+    font-size: 0.82rem;
+    color: var(--color-secondary-text);
+    line-height: 1.4;
+}
 
-    .toast.show::after {
-        animation: toastProgress 5s linear forwards;
-    }
+.toast-close {
+    margin-left: auto;
+    width: 26px;
+    height: 26px;
+    border-radius: var(--r-xs);
+    border: 1px solid var(--color-border-subtle);
+    background: transparent;
+    color: var(--color-text);
+    opacity: 0.5;
+    cursor: pointer;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    transition: opacity 0.12s;
+}
 
-    @keyframes toastProgress {
-        from {
-            transform: scaleX(1);
-        }
+.toast-close:hover {
+    opacity: 1;
+}
 
-        to {
-            transform: scaleX(0);
-        }
-    }
+.toast-success {
+    border-color: rgba(34, 197, 94, .22);
+}
 
-    .toast-icon {
-        width: 36px;
-        height: 36px;
-        border-radius: var(--r-md);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: #fff;
-        flex-shrink: 0;
-        font-size: 1rem;
-    }
+.toast-success::before {
+    background: #22c55e;
+}
 
-    .toast-body {
-        flex: 1;
-        min-width: 0;
-    }
+.toast-success::after {
+    background: linear-gradient(90deg, #22c55e, rgba(34, 197, 94, 0));
+}
 
-    .toast-title {
-        font-family: var(--font-display);
-        font-weight: 700;
-        font-size: 0.88rem;
-        line-height: 1.2;
-    }
+.toast-success .toast-icon {
+    background: #16a34a;
+}
 
-    .toast-msg {
-        margin-top: 2px;
-        font-family: var(--font-body);
-        font-size: 0.82rem;
-        color: var(--color-secondary-text);
-        line-height: 1.4;
-    }
+.toast-success .toast-title {
+    color: #16a34a;
+}
 
-    .toast-close {
-        margin-left: auto;
-        width: 26px;
-        height: 26px;
-        border-radius: var(--r-xs);
-        border: 1px solid var(--color-border-subtle);
-        background: transparent;
-        color: var(--color-text);
-        opacity: 0.5;
-        cursor: pointer;
-        flex-shrink: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1rem;
-        transition: opacity 0.12s;
-    }
+.toast-error {
+    border-color: rgba(239, 68, 68, .22);
+}
 
-    .toast-close:hover {
-        opacity: 1;
-    }
+.toast-error::before {
+    background: #ef4444;
+}
 
-    .toast-success {
-        border-color: rgba(34, 197, 94, .22);
-    }
+.toast-error::after {
+    background: linear-gradient(90deg, #ef4444, rgba(239, 68, 68, 0));
+}
 
-    .toast-success::before {
-        background: #22c55e;
-    }
+.toast-error .toast-icon {
+    background: #dc2626;
+}
 
-    .toast-success::after {
-        background: linear-gradient(90deg, #22c55e, rgba(34, 197, 94, 0));
-    }
+.toast-error .toast-title {
+    color: #dc2626;
+}
 
-    .toast-success .toast-icon {
-        background: #16a34a;
-    }
+.toast-warning {
+    border-color: rgba(234, 179, 8, .22);
+}
 
-    .toast-success .toast-title {
-        color: #16a34a;
-    }
+.toast-warning::before {
+    background: #eab308;
+}
 
-    .toast-error {
-        border-color: rgba(239, 68, 68, .22);
-    }
+.toast-warning::after {
+    background: linear-gradient(90deg, #eab308, rgba(234, 179, 8, 0));
+}
 
-    .toast-error::before {
-        background: #ef4444;
-    }
+.toast-warning .toast-icon {
+    background: #ca8a04;
+}
 
-    .toast-error::after {
-        background: linear-gradient(90deg, #ef4444, rgba(239, 68, 68, 0));
-    }
-
-    .toast-error .toast-icon {
-        background: #dc2626;
-    }
-
-    .toast-error .toast-title {
-        color: #dc2626;
-    }
-
-    .toast-warning {
-        border-color: rgba(234, 179, 8, .22);
-    }
-
-    .toast-warning::before {
-        background: #eab308;
-    }
-
-    .toast-warning::after {
-        background: linear-gradient(90deg, #eab308, rgba(234, 179, 8, 0));
-    }
-
-    .toast-warning .toast-icon {
-        background: #ca8a04;
-    }
-
-    .toast-warning .toast-title {
-        color: #ca8a04;
-    }
+.toast-warning .toast-title {
+    color: #ca8a04;
+}
 
     /* ════════════════════════════════════════════════════════════════
        SECTION 19 — SKELETON LOADING
@@ -1888,16 +1888,16 @@
                         <p class="uname">{{ auth()->user()->prenom }} {{ auth()->user()->nom }}</p>
                         <p class="uemail">{{ auth()->user()->email }}</p>
                     </div>
-                    {{--
-<a href="{{ route('profile.edit') }}" role="menuitem">
-                    <i class="fas fa-user-circle menu-icon" aria-hidden="true"></i>
-                    Mon Profil
-                    </a>
-                    <a href="#" role="menuitem">
-                        <i class="fas fa-cog menu-icon" aria-hidden="true"></i>
-                        Paramètres
-                    </a>
-                    --}}
+ 
+<a href="{{ url('/settings/lease') }}#section-profile" role="menuitem">
+    <i class="fas fa-user-circle menu-icon" aria-hidden="true"></i>
+    Mon Profil
+</a>
+
+<a href="{{ url('/settings/lease') }}#section-security" role="menuitem">
+    <i class="fas fa-cog menu-icon" aria-hidden="true"></i>
+    Paramètres
+</a>
                     <a href="#" role="menuitem" class="danger"
                         onclick="event.preventDefault(); document.getElementById('form-logout-navbar').submit();">
                         <i class="fas fa-sign-out-alt menu-icon" aria-hidden="true"></i>
@@ -1980,29 +1980,29 @@
             <div id="toast-container" aria-live="polite" aria-atomic="false" role="status"></div>
 
             {{-- Toast session : succès --}}
-            @if(session('success'))
-            <div class="toast toast-success" role="alert" aria-live="assertive">
-                <div class="toast-icon" aria-hidden="true"><i class="fas fa-check-circle"></i></div>
-                <div class="toast-body">
-                    <div class="toast-title">Succès</div>
-                    <div class="toast-msg">{{ session('success') }}</div>
-                </div>
-                <button type="button" class="toast-close" aria-label="Fermer">&times;</button>
-            </div>
-            @endif
+ @if(session('success') || session('error') || session('warning'))
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    @if(session('success'))
+        if (typeof window.showToast === 'function') {
+            window.showToast('Succès', @json(session('success')), 'success');
+        }
+    @endif
 
-            {{-- Toast session : erreur --}}
-            @if(session('error'))
-            <div class="toast toast-error" role="alert" aria-live="assertive">
-                <div class="toast-icon" aria-hidden="true"><i class="fas fa-exclamation-triangle"></i></div>
-                <div class="toast-body">
-                    <div class="toast-title">Erreur</div>
-                    <div class="toast-msg">{{ session('error') }}</div>
-                </div>
-                <button type="button" class="toast-close" aria-label="Fermer">&times;</button>
-            </div>
-            @endif
+    @if(session('error'))
+        if (typeof window.showToast === 'function') {
+            window.showToast('Erreur', @json(session('error')), 'error');
+        }
+    @endif
 
+    @if(session('warning'))
+        if (typeof window.showToast === 'function') {
+            window.showToast('Attention', @json(session('warning')), 'warning');
+        }
+    @endif
+});
+</script>
+@endif
             @yield('content')
 
         </div>
@@ -2382,63 +2382,81 @@
         /* ══════════════════════════════════════════════════════════
            12. TOASTS
         ══════════════════════════════════════════════════════════ */
-        function animateToast(el, duration) {
-            if (!el) return;
-            duration = duration || 5000;
+function animateToast(el, duration) {
+    if (!el) return;
 
-            requestAnimationFrame(function() {
-                requestAnimationFrame(function() {
-                    el.classList.add('show');
-                });
-            });
+    duration = duration || 5000;
 
-            var close = el.querySelector('.toast-close');
-
-            function dismiss() {
-                el.classList.remove('show');
-                el.classList.add('hide');
-                setTimeout(function() {
-                    if (el.parentNode) el.remove();
-                }, 280);
-            }
-
-            if (close) close.addEventListener('click', dismiss);
-            setTimeout(dismiss, duration);
-        }
-
-        document.querySelectorAll('.toast').forEach(function(t) {
-            animateToast(t);
+    requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+            el.classList.add('show');
         });
+    });
 
-        window.showToast = function(title, msg, type) {
-            type = type || 'success';
-            var container = document.getElementById('toast-container');
-            if (!container) return;
+    var close = el.querySelector('.toast-close');
 
-            var icons = {
-                success: 'fa-check-circle',
-                error: 'fa-exclamation-triangle',
-                warning: 'fa-exclamation-circle'
-            };
+    function dismiss() {
+        el.classList.remove('show');
+        el.classList.add('hide');
 
-            var el = document.createElement('div');
-            el.className = 'toast toast-' + type;
-            el.setAttribute('role', 'alert');
-            el.setAttribute('aria-live', 'assertive');
-            el.innerHTML =
-                '<div class="toast-icon" aria-hidden="true">' +
-                '<i class="fas ' + (icons[type] || icons.success) + '"></i>' +
-                '</div>' +
-                '<div class="toast-body">' +
-                '<div class="toast-title">' + title + '</div>' +
-                '<div class="toast-msg">' + msg + '</div>' +
-                '</div>' +
-                '<button type="button" class="toast-close" aria-label="Fermer">&times;</button>';
+        setTimeout(function () {
+            if (el.parentNode) {
+                el.remove();
+            }
+        }, 280);
+    }
 
-            container.appendChild(el);
-            animateToast(el);
-        };
+    if (close) {
+        close.addEventListener('click', dismiss);
+    }
 
+    setTimeout(dismiss, duration);
+}
+
+document.querySelectorAll('.toast').forEach(function (toast) {
+    animateToast(toast);
+});
+
+window.showToast = function (title, msg, type) {
+    type = type || 'success';
+
+    var container = document.getElementById('toast-container');
+
+    if (!container) {
+        return;
+    }
+
+    var icons = {
+        success: 'fa-check-circle',
+        error: 'fa-exclamation-triangle',
+        warning: 'fa-exclamation-circle'
+    };
+
+    var safeTitle = String(title || '');
+    var safeMsg = String(msg || '');
+
+    var el = document.createElement('div');
+
+    el.className = 'toast toast-' + type;
+    el.setAttribute('role', 'alert');
+    el.setAttribute('aria-live', 'assertive');
+
+    el.innerHTML =
+        '<div class="toast-icon" aria-hidden="true">' +
+            '<i class="fas ' + (icons[type] || icons.success) + '"></i>' +
+        '</div>' +
+        '<div class="toast-body">' +
+            '<div class="toast-title"></div>' +
+            '<div class="toast-msg"></div>' +
+        '</div>' +
+        '<button type="button" class="toast-close" aria-label="Fermer">&times;</button>';
+
+    el.querySelector('.toast-title').textContent = safeTitle;
+    el.querySelector('.toast-msg').textContent = safeMsg;
+
+    container.appendChild(el);
+    animateToast(el);
+};
         /* ══════════════════════════════════════════════════════════
            13. INITIALISATION
         ══════════════════════════════════════════════════════════ */

@@ -121,7 +121,16 @@ class LeaseForgivenessService
         }
 
         $engineState = $this->getEngineState($vehicle);
-        $wasAlreadyCut = $this->wasAlreadyCut($history, $engineState);
+        /**
+         * Une commande de coupure déjà envoyée doit être traitée comme un cas
+         * après coupure pour le pardon : même si l'état moteur n'est pas encore
+         * confirmé CUT, le boîtier GPS peut encore exécuter la coupure.
+         * Dans ce cas, on déclenche donc une commande de rallumage.
+         */
+        $cutCommandAlreadySent = ($queue?->status === 'COMMAND_SENT')
+            || ($history?->status === 'COMMAND_SENT');
+
+        $wasAlreadyCut = $this->wasAlreadyCut($history, $engineState) || $cutCommandAlreadySent;
         $apiStatus = strtoupper((string) ($lease['statut'] ?? ''));
 
         Log::info('[LEASE_FORGIVENESS] Contexte détecté', [
@@ -133,6 +142,7 @@ class LeaseForgivenessService
             'api_status' => $apiStatus,
             'engine_state' => $engineState,
             'was_already_cut' => $wasAlreadyCut,
+            'cut_command_already_sent' => $cutCommandAlreadySent,
             'queue_id' => $queue?->id,
             'queue_status' => $queue?->status,
             'history_id' => $history?->id,
@@ -211,7 +221,7 @@ class LeaseForgivenessService
             $engineState,
             $businessReason
         ) {
-            if ($queue && in_array($queue->status, ['PENDING', 'WAITING_STOP', 'COMMAND_SENT'], true)) {
+            if ($queue && in_array($queue->status, ['PENDING', 'WAITING_STOP'], true)) {
                 $queue->update([
                     'status' => 'CANCELLED',
                     'last_checked_at' => now(),

@@ -17,7 +17,7 @@ class DashbaordLeaseController extends Controller
 
     public function index(Request $request)
     {
-        $filters = $request->only(['search']);
+        $filters = $request->only(['search', 'period', 'date', 'start_date', 'end_date']);
 
         try {
             $dashboard = $this->dashboardLeaseService->build($request->user(), $filters);
@@ -45,7 +45,13 @@ class DashbaordLeaseController extends Controller
     private function emptyDashboard(): array
     {
         return [
-            'filters' => ['search' => ''],
+            'filters' => [
+                'search' => '',
+                'period' => 'today',
+                'date' => now()->toDateString(),
+                'start_date' => now()->toDateString(),
+                'end_date' => now()->toDateString(),
+            ],
             'period' => [
                 'key' => 'today',
                 'label' => 'Aujourd’hui',

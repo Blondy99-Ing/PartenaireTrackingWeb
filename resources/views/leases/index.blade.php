@@ -1172,8 +1172,8 @@ input:checked + .fl-slider:before {
     $lease_data = $lease_data ?? [];
     $contractTypes = collect($contractTypes ?? []);
     $cutoffHub = $cutoffHub ?? [
-        'global_enabled' => false,
-        'global_time' => null,
+        'bulk_rules_enabled' => false,
+        'bulk_rules_time' => null,
         'next_cutoff_time' => null,
         'upcoming_cutoff_times' => [],
         'rules_total' => 0,
@@ -1307,19 +1307,19 @@ input:checked + .fl-slider:before {
 
                 <div class="hub-section countdown-box" id="countdownBox">
                     <span class="hub-label">Chrono</span>
-                    <span class="hub-timer" id="globalTimer">00:00:00</span>
+                    <span class="hub-timer" id="contractRulesTimer">00:00:00</span>
                 </div>
 
                 <div class="hub-inline-control">
                     <span class="hub-label">Heure à appliquer</span>
-                    <input type="time" id="globalCutoffTime" value="{{ $cutoffHub['global_time'] ?? '' }}">
+                    <input type="time" id="contractRulesCutoffTime" value="{{ $cutoffHub['bulk_rules_time'] ?? ($cutoffHub['global_time'] ?? '') }}">
                 </div>
 
                 <div class="hub-action">
                     <div class="toggle-container">
                         <span class="toggle-text">Règles spécifiques</span>
                         <label class="fl-switch" title="Active ou désactive uniquement les règles spécifiques existantes des contrats/sous-contrats réels.">
-                            <input type="checkbox" id="masterAutoCutToggle" {{ !empty($cutoffHub['global_enabled']) ? 'checked' : '' }}>
+                            <input type="checkbox" id="masterAutoCutToggle" {{ !empty($cutoffHub['bulk_rules_enabled'] ?? $cutoffHub['global_enabled'] ?? false) ? 'checked' : '' }}>
                             <span class="fl-slider"></span>
                         </label>
                     </div>
@@ -1504,7 +1504,8 @@ input:checked + .fl-slider:before {
         <select class="filter-pill-btn" id="contractTypeFilter" onchange="window.setQuickSelectFilter('type_contrat', this.value)" title="Filtrer par type de contrat">
             <option value="all">Tous les types</option>
             @foreach($contractTypes as $type)
-                <option value="{{ $type['id'] ?? '' }}">{{ $type['label'] ?? $type['libelle'] ?? 'Type non renseigné' }}</option>
+                @php($typeLabel = $type['label'] ?? $type['libelle'] ?? $type['name'] ?? 'Type non renseigné')
+                <option value="{{ $type['id'] ?? $typeLabel }}">{{ $typeLabel }}</option>
             @endforeach
         </select>
 
@@ -1712,7 +1713,7 @@ input:checked + .fl-slider:before {
     const HUB_DATA = @json($cutoffHub ?? []);
     const CONNECTED_USER_NAME = @json($connectedUserName ?? 'Utilisateur connecté');
 
-    const GLOBAL_CUTOFF_UPDATE_URL = @json(route('leases.global-cutoff.update'));
+    const CONTRACT_RULES_BULK_TOGGLE_URL = @json(route('leases.contract-rules.bulk-toggle.update'));
     const CASH_PAYMENT_URL = @json(route('leases.payments.cash'));
     const MOBILE_PAYMENT_URL = @json(route('leases.payments.mobile'));
     const FORGIVE_URL_TEMPLATE = @json(route('leases.forgive', ['leaseId' => '__LEASE_ID__']));
@@ -1890,7 +1891,7 @@ input:checked + .fl-slider:before {
 
     function runHubCountdown() {
         const nextCutTimeDisplay = document.getElementById('nextCutTimeDisplay');
-        const timerDisplay = document.getElementById('globalTimer');
+        const timerDisplay = document.getElementById('contractRulesTimer');
         const waiting = firstWaitingQueue();
 
         if (waiting) {
@@ -1953,6 +1954,39 @@ input:checked + .fl-slider:before {
 
     function contractKindLabel(row) {
         return row.contract_kind === 'SUB' ? 'Sous-contrat' : 'Contrat principal';
+    }
+
+    function normalizeText(value) {
+        return String(value ?? '')
+            .trim()
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[_-]+/g, ' ')
+            .replace(/\s+/g, ' ');
+    }
+
+    function normalizePaymentFilterValue(value) {
+        const v = normalizeText(value).replace(/\s+/g, '_').toUpperCase();
+
+        if (['ESPECES', 'ESPECE', 'CASH', 'CASH_PAYMENT', 'PAIEMENT_CASH'].includes(v)) {
+            return 'CASH';
+        }
+
+        if ([
+            'MOBILE_MONEY',
+            'MOBILE',
+            'MOMO',
+            'MTN',
+            'MTN_MOMO',
+            'ORANGE',
+            'ORANGE_MONEY',
+            'OM',
+        ].includes(v)) {
+            return 'MOBILE_MONEY';
+        }
+
+        return v;
     }
 
     function userCutoffReason(row) {
@@ -2034,7 +2068,7 @@ input:checked + .fl-slider:before {
 
     window.saveGlobalCutoff = async function () {
         const enabled = !!document.getElementById('masterAutoCutToggle')?.checked;
-        const cutoffTime = document.getElementById('globalCutoffTime')?.value || '';
+        const cutoffTime = document.getElementById('contractRulesCutoffTime')?.value || '';
         const btn = document.getElementById('saveGlobalCutoffBtn');
 
         if (enabled && !cutoffTime) {
@@ -2052,7 +2086,7 @@ input:checked + .fl-slider:before {
                 btn.disabled = true;
             }
 
-            const response = await fetch(GLOBAL_CUTOFF_UPDATE_URL, {
+            const response = await fetch(CONTRACT_RULES_BULK_TOGGLE_URL, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -2168,12 +2202,36 @@ input:checked + .fl-slider:before {
         }
 
         if (activeFilters.type_contrat !== 'all') {
-            data = data.filter(r => String(r.type_contrat_id || '') === String(activeFilters.type_contrat));
+            const wanted = normalizeText(activeFilters.type_contrat);
+
+            data = data.filter(r => {
+                const candidates = [
+                    r.type_contrat_id,
+                    r.type_contrat_libelle,
+                    r.type_contrat_label,
+                    r.contrat_type,
+                    r.contract_type_label,
+                    cleanContractLabel(r),
+                ];
+
+                return candidates.some(value => normalizeText(value) === wanted);
+            });
         }
 
         if (activeFilters.methode !== 'all') {
-            const wanted = String(activeFilters.methode || '').toUpperCase();
-            data = data.filter(r => String(r.methode || '').toUpperCase() === wanted);
+            const wanted = normalizePaymentFilterValue(activeFilters.methode);
+
+            data = data.filter(r => {
+                const candidates = [
+                    r.methode,
+                    r.methode_label,
+                    r.methode_raw,
+                    r.mode_paiement,
+                    r.payment_method,
+                ];
+
+                return candidates.some(value => normalizePaymentFilterValue(value) === wanted);
+            });
         }
 
         if (searchQuery.trim()) {
@@ -2556,10 +2614,18 @@ input:checked + .fl-slider:before {
             }
         }
 
+        currentPage = 1;
+        applyFilters();
+    };
+
+    window.setQuickSelectFilter = function (name, val) {
+        activeFilters[name] = val || 'all';
+        currentPage = 1;
         applyFilters();
     };
 
     window.applyDateFilter = function () {
+        currentPage = 1;
         applyFilters();
     };
 

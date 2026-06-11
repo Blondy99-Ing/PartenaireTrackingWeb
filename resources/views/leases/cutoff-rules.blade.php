@@ -9,6 +9,22 @@
     $missingTimes    = $rows->sum(fn ($row) => (int) ($row['missing_time_contract_rules_count'] ?? 0));
     $totalRuleLines  = $rows->sum(fn ($row) => count($row['contract_rules'] ?? []));
 
+
+    /**
+     * Options de filtre front-end. Aucune donnée n'est rechargée depuis Recouvrement ici.
+     * La page reste alignée avec la logique existante : elle affiche uniquement les contrats
+     * et sous-contrats déjà résolus par le contrôleur.
+     */
+    $filterContractTypes = $rows
+        ->flatMap(fn ($row) => collect($row['contract_rules'] ?? [])->map(fn ($rule) => [
+            'id' => (int) ($rule['type_contrat_id'] ?? 0),
+            'label' => $rule['type_contrat_label'] ?? null,
+            'kind' => ($rule['contract_kind'] ?? 'MAIN') === 'SUB' ? 'SUB' : 'MAIN',
+        ]))
+        ->filter(fn ($type) => trim((string) ($type['label'] ?? '')) !== '' || (int) ($type['id'] ?? 0) > 0)
+        ->unique(fn ($type) => ($type['id'] ?: strtolower((string) $type['label'])) . '|' . $type['kind'])
+        ->values();
+
     /**
      * Map des vrais libellés venant de Recouvrement.
      * Cette vue peut recevoir des libellés techniques comme "Type #4"
@@ -333,6 +349,7 @@
 }
 
 .lco-time-input { padding: 0 .75rem; min-width: 130px; }
+.lco-select { padding: 0 .75rem; min-width: 160px; }
 
 /* Buttons */
 .lco-btn {
@@ -729,9 +746,14 @@
 @section('content')
 <div class="lco">
 
-
-
-
+    <div class="lco-alert warn">
+        <i class="fas fa-triangle-exclamation"></i>
+        <div>
+            Cette page ne crée pas de contrat, de lease ou de paiement. Elle paramètre uniquement les règles Tracking
+            applicables aux contrats et sous-contrats déjà reçus depuis Recouvrement. La sécurité de coupure reste obligatoire :
+            une règle active ne pourra être exécutée que si le véhicule est à l'arrêt.
+        </div>
+    </div>
 
 
     {{-- ── HERO HEADER ─────────────────────────────────────────── --}}
@@ -742,9 +764,8 @@
         <div class="lco-hero-body">
             <h1 class="lco-hero-title">Paramétrage coupure lease</h1>
             <p class="lco-hero-sub">
-                Une coupure automatique n'est possible que si le contrat ou l'un de ses sous-contrats
-                réellement associés possède une règle active. Le paramétrage en masse ne modifie
-                que les contrats visibles et sélectionnés.
+                Une coupure automatique est toujours décidée à partir d'un lease impayé, du contrat ou sous-contrat concerné,
+                d'une règle active et des conditions de sécurité. Cette page ne modifie jamais les données Recouvrement.
             </p>
         </div>
         <div class="lco-hero-chips">
@@ -842,6 +863,24 @@
                     >
                 </div>
 
+                <select id="typeFilter" class="lco-input lco-select" title="Filtrer par type de contrat">
+                    <option value="">Tous les types</option>
+                    @foreach($filterContractTypes as $type)
+                        @php
+                            $typeLabel = $safeTypeLabel($type['label'] ?? null, $type['id'] ?? null, ($type['kind'] ?? 'MAIN') !== 'SUB');
+                            $typeValue = strtolower(trim(($type['kind'] ?? 'MAIN') . '|' . ($type['id'] ?: $typeLabel)));
+                        @endphp
+                        <option value="{{ $typeValue }}">{{ ($type['kind'] ?? 'MAIN') === 'SUB' ? 'Sous-contrat' : 'Principal' }} — {{ $typeLabel }}</option>
+                    @endforeach
+                </select>
+
+                <select id="statusFilter" class="lco-input lco-select" title="Filtrer par statut de règle">
+                    <option value="">Tous les statuts</option>
+                    <option value="active">Règle active</option>
+                    <option value="missing_time">Active sans heure</option>
+                    <option value="inactive">Aucune règle</option>
+                </select>
+
                 <div class="lco-toolbar-divider"></div>
 
                 {{-- Groupe : heure + actions visibles --}}
@@ -898,6 +937,22 @@
                                 true
                             );
 
+                            $typeTokens = $contractRules
+                                ->map(function ($rule) use ($safeTypeLabel) {
+                                    $kind = ($rule['contract_kind'] ?? 'MAIN') === 'SUB' ? 'SUB' : 'MAIN';
+                                    $typeId = (int) ($rule['type_contrat_id'] ?? 0);
+                                    $label = $safeTypeLabel(
+                                        $rule['type_contrat_label'] ?? null,
+                                        $typeId,
+                                        $kind !== 'SUB'
+                                    );
+
+                                    return strtolower(trim($kind . '|' . ($typeId ?: $label)));
+                                })
+                                ->filter()
+                                ->unique()
+                                ->implode(' ');
+
                             $searchText = strtolower(trim(
                                 ($row['immatriculation'] ?? '') . ' ' .
                                 ($row['driver_name'] ?? '') . ' ' .
@@ -914,6 +969,7 @@
 
                         <tr class="lco-row"
                             data-search="{{ $searchText }}"
+                            data-type-tokens="{{ $typeTokens }}"
                             data-enabled-count="{{ $row['enabled_contract_rules_count'] ?? 0 }}"
                             data-missing-time="{{ $row['missing_time_contract_rules_count'] ?? 0 }}">
 
@@ -992,6 +1048,7 @@
 
                                                 <div class="lco-toggle-wrap">
                                                     <span class="lco-toggle-label">Activer</span>
+                                                    <input type="hidden" name="rules[{{ $rowIndex }}][contract_rules][{{ $ruleIndex }}][is_enabled]" value="0">
                                                     <input
                                                         type="checkbox"
                                                         class="rule-enabled lco-row-check"
@@ -1030,14 +1087,10 @@
 
                                                 <div class="lco-field">
                                                     <label>Sécurité</label>
-                                                    <label class="lco-check-wrap">
-                                                        <input
-                                                            type="checkbox"
-                                                            name="rules[{{ $rowIndex }}][contract_rules][{{ $ruleIndex }}][only_when_stopped]"
-                                                            value="1"
-                                                            @checked($rule['only_when_stopped'] ?? true)
-                                                        >
-                                                        Arrêt seul
+                                                    <input type="hidden" name="rules[{{ $rowIndex }}][contract_rules][{{ $ruleIndex }}][only_when_stopped]" value="1">
+                                                    <label class="lco-check-wrap" title="Sécurité obligatoire côté Tracking">
+                                                        <input type="checkbox" checked disabled>
+                                                        Arrêt obligatoire
                                                     </label>
                                                 </div>
 
@@ -1068,7 +1121,7 @@
             <div class="lco-form-footer">
                 <div class="lco-form-footer-hint">
                     <i class="fas fa-info-circle" style="margin-top:.1rem;color:var(--lco-primary);flex-shrink:0;"></i>
-                    Pas de règle active sur le contrat/sous-contrat réel = aucune planification de coupure.
+                    Pas de règle active sur le contrat ou sous-contrat réel = aucune planification de coupure. La dette reste gérée uniquement dans Recouvrement.
                 </div>
                 <div class="lco-form-actions">
                     <button type="reset" class="lco-btn">
@@ -1092,6 +1145,8 @@
 document.addEventListener('DOMContentLoaded', () => {
     const rows         = Array.from(document.querySelectorAll('.lco-row'));
     const search       = document.getElementById('contractSearch');
+    const typeFilter   = document.getElementById('typeFilter');
+    const statusFilter = document.getElementById('statusFilter');
     const checkAll     = document.getElementById('checkAll');
     const selectionBar = document.getElementById('selectionBar');
     const selectedCountEl = document.getElementById('selectedCount');
@@ -1134,11 +1189,25 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('kpiMissingTime').textContent  = missing;
     }
 
+    function rowStatus(row) {
+        const enabled = Number(row.dataset.enabledCount || 0);
+        const missing = Number(row.dataset.missingTime || 0);
+
+        if (enabled > 0 && missing > 0) return 'missing_time';
+        if (enabled > 0) return 'active';
+        return 'inactive';
+    }
+
     function applyFilters() {
         const q = (search?.value || '').trim().toLowerCase();
+        const type = (typeFilter?.value || '').trim().toLowerCase();
+        const status = (statusFilter?.value || '').trim().toLowerCase();
+
         rows.forEach(row => {
-            const match = !q || (row.dataset.search || '').includes(q);
-            row.classList.toggle('hidden', !match);
+            const matchSearch = !q || (row.dataset.search || '').includes(q);
+            const matchType = !type || (row.dataset.typeTokens || '').split(/\s+/).includes(type);
+            const matchStatus = !status || rowStatus(row) === status;
+            row.classList.toggle('hidden', !(matchSearch && matchType && matchStatus));
         });
         refreshSelectionBar();
     }
@@ -1169,6 +1238,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /* ── listeners ──────────────────────────────────────────── */
     search?.addEventListener('input', applyFilters);
+    typeFilter?.addEventListener('change', applyFilters);
+    statusFilter?.addEventListener('change', applyFilters);
 
     checkAll?.addEventListener('change', () => {
         visibleRows().forEach(row => {

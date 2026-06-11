@@ -532,7 +532,11 @@ private function extractRows(mixed $response): array
         ]);
 
         try {
-            $payments = $this->fetchPayments();
+            $payments = $this->fetchPayments([
+                // On ne filtre pas par date_paiement ici : un lease d'une échéance donnée
+                // peut être payé à une date différente. On limite seulement aux paiements non annulés.
+                'est_annule' => 'false',
+            ]);
         } catch (\Throwable $e) {
             report($e);
 
@@ -629,11 +633,38 @@ private function extractRows(mixed $response): array
      * - reste à payer
      * - statut PAYE / NON_PAYE
      */
-    public function fetchPayments(): array
+    public function fetchPayments(array $filters = []): array
     {
-        Log::info('[LEASE_API_FETCH_PAYMENTS_START]');
+        $query = collect($filters)
+            ->only([
+                'search',
+                'statut',
+                'statut__in',
+                'methode',
+                'methode__in',
+                'est_annule',
+                'date_paiement',
+                'date_paiement_start',
+                'date_paiement_end',
+                'created_at_start',
+                'created_at_end',
+                'montant_min',
+                'montant_max',
+                'contrat_id',
+                'lease_id',
+                'session_id',
+                'enregistre_par_id',
+                'chauffeur_id',
+                'page',
+            ])
+            ->filter(fn ($value) => $value !== null && $value !== '')
+            ->all();
 
-        $json = $this->get('/paiements/');
+        Log::info('[LEASE_API_FETCH_PAYMENTS_START]', [
+            'query' => $query,
+        ]);
+
+        $json = $this->get('/paiements/', $query);
         $rows = $this->unwrapApiRows($json);
 
         Log::info('[LEASE_API_FETCH_PAYMENTS_ROWS]', [
@@ -652,6 +683,7 @@ private function extractRows(mixed $response): array
             ->all();
 
         Log::info('[LEASE_API_FETCH_PAYMENTS_DONE]', [
+            'query' => $query,
             'payments_count' => count($payments),
             'sample_ids' => collect($payments)->pluck('id')->take(5)->values()->all(),
             'sample_lease_ids' => collect($payments)->pluck('lease_id')->take(5)->values()->all(),
@@ -995,6 +1027,70 @@ private function extractRows(mixed $response): array
         Log::info('[LEASE_CUTOFF_GLOBAL_APPLY_DONE]', $result['hub']);
 
         return $result;
+    }
+
+    /**
+     * Active ou désactive uniquement les règles spécifiques déjà existantes.
+     *
+     * Important métier : cette méthode ne crée aucune règle. Elle agit seulement
+     * sur les lignes déjà présentes dans lease_cutoff_contract_rules pour le
+     * partenaire connecté. Les contrats, leases et paiements restent maîtrisés
+     * par Recouvrement.
+     */
+    public function bulkToggleExistingContractCutoffRules(bool $enabled, ?string $cutoffTime): array
+    {
+        $partnerId = $this->resolvePartnerId();
+        $userId = Auth::id();
+        $now = now();
+
+        if ($enabled && empty($cutoffTime)) {
+            throw new RuntimeException("L'heure de coupure est obligatoire pour activer les règles spécifiques.");
+        }
+
+        $cutoffTime = $enabled && $cutoffTime
+            ? substr((string) $cutoffTime, 0, 5)
+            : null;
+
+        $rulesQuery = LeaseCutoffContractRule::query()
+            ->where('partner_id', $partnerId)
+            ->whereHas('contractLink', function ($query) use ($partnerId) {
+                $query->where('partner_id', $partnerId)
+                    ->where(function ($q) {
+                        $q->whereNull('status')
+                            ->orWhere('status', '!=', 'DELETED');
+                    });
+            });
+
+        $rulesCount = (clone $rulesQuery)->count();
+
+        $updates = [
+            'is_enabled' => $enabled,
+            'updated_by' => $userId,
+            'updated_at' => $now,
+        ];
+
+        if ($enabled) {
+            $updates['cutoff_time'] = $cutoffTime;
+        }
+
+        DB::transaction(function () use ($rulesQuery, $updates) {
+            (clone $rulesQuery)->update($updates);
+        });
+
+        Log::info('[LEASE_CONTRACT_RULES_BULK_TOGGLE_DONE_SERVICE]', [
+            'partner_id' => $partnerId,
+            'rules_count' => $rulesCount,
+            'enabled' => $enabled,
+            'cutoff_time' => $cutoffTime,
+        ]);
+
+        $contracts = $this->fetchContracts();
+        $leaseData = $this->fetchLeases(null, $contracts);
+
+        return [
+            'hub' => $this->buildPaymentCutoffHub($leaseData),
+            'rules_count' => $rulesCount,
+        ];
     }
 
     /**
@@ -2076,9 +2172,45 @@ protected function cutoffStatusUiType(?string $status): string
             'transaction_id' => (string) ($row['transaction_id'] ?? ''),
             'statut' => $status,
 
-            'date_paiement' => $row['date_paiement'] ?? null,
-            'chauffeur_nom_complet' => (string) ($row['chauffeur_nom_complet'] ?? ''),
-            'enregistre_par' => (string) ($row['enregistre_par'] ?? ''),
+            'date_paiement' => $row['date_paiement'] ?? $row['paid_at'] ?? $row['created_at'] ?? $row['updated_at'] ?? null,
+            'chauffeur_nom_complet' => (string) (
+                $row['chauffeur_nom_complet']
+                ?? $row['nom_complet_search']
+                ?? data_get($row, 'contrat.chauffeur.nom_complet')
+                ?? data_get($row, 'lease.contrat.chauffeur.nom_complet')
+                ?? ''
+            ),
+            'enregistre_par' => (string) (
+                $row['enregistre_par']
+                ?? $row['enregistre_par_nom_complet']
+                ?? data_get($row, 'enregistre_par.nom_complet')
+                ?? ''
+            ),
+
+            // Données utiles au bloc "Paiements du jour" lorsque /paiements/
+            // renvoie le contrat ou le lease imbriqué.
+            'contrat_id' => (int) (
+                $row['contrat_id']
+                ?? data_get($row, 'contrat.id')
+                ?? data_get($row, 'lease.contrat.id')
+                ?? 0
+            ),
+            'vehicule' => (string) (
+                $row['immatriculation']
+                ?? $row['vehicule']
+                ?? data_get($row, 'contrat.immatriculation')
+                ?? data_get($row, 'lease.contrat.immatriculation')
+                ?? ''
+            ),
+            'type_contrat_label' => (string) (
+                $row['type_contrat_libelle']
+                ?? $row['type_contrat_label']
+                ?? data_get($row, 'contrat.type_contrat.libelle')
+                ?? data_get($row, 'contrat.type_contrat_label')
+                ?? data_get($row, 'lease.contrat.type_contrat.libelle')
+                ?? ''
+            ),
+            'contract_kind' => data_get($row, 'contrat.parent') || data_get($row, 'lease.contrat.parent') ? 'SUB' : 'MAIN',
 
             'raw' => $row,
         ];
@@ -2465,8 +2597,9 @@ protected function cutoffStatusUiType(?string $status): string
              * Encaissé / enregistré par :
              * source prioritaire = /paiements/.enregistre_par.
              */
-            'paye_par' => $paymentRecordedBy
-                ?: ($paid > 0 ? $chauffeur : null),
+            'paye_par' => $paymentMethodFamily === 'CASH'
+                ? ($paymentRecordedBy ?: null)
+                : null,
 
             /**
              * Méthode :

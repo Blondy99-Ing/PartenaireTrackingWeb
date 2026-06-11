@@ -14,6 +14,10 @@
     $period = $dashboard['period'] ?? [];
     $weekPeriod = $dashboard['week_period'] ?? [];
     $pageError = $pageError ?? null;
+    $selectedPeriodKey = $filters['period'] ?? ($period['key'] ?? 'today');
+    $selectedDate = $filters['date'] ?? ($period['date'] ?? $period['start_date'] ?? now()->toDateString());
+    $selectedStartDate = $filters['start_date'] ?? ($period['start_date'] ?? now()->toDateString());
+    $selectedEndDate = $filters['end_date'] ?? ($period['end_date'] ?? now()->toDateString());
 
     $money = fn ($value) => number_format((float) $value, 0, ',', ' ') . ' FCFA';
 
@@ -150,6 +154,77 @@
     font-size: .68rem;
     font-weight: 800;
     padding: .42rem .65rem;
+}
+
+.recouvrement-dashboard .period-filter-bar {
+    display: flex;
+    flex-direction: column;
+    gap: .55rem;
+    padding: .65rem .75rem;
+    margin-bottom: .65rem;
+}
+.recouvrement-dashboard .period-filter-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .65rem;
+    flex-wrap: wrap;
+}
+.recouvrement-dashboard .period-select-wrap {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    flex: 0 0 auto;
+}
+.recouvrement-dashboard .period-select {
+    height: 38px;
+    min-width: 180px;
+    border: 1px solid var(--color-border-subtle, #e5e7eb);
+    border-radius: .75rem;
+    background: var(--color-card, #fff);
+    color: var(--color-text, #111827);
+    padding: 0 .7rem;
+    outline: none;
+    font-size: .72rem;
+    font-weight: 850;
+}
+.recouvrement-dashboard .period-select:focus {
+    border-color: var(--color-primary, #f58220);
+    box-shadow: 0 0 0 3px rgba(245,130,32,.14);
+}
+.recouvrement-dashboard .date-filter-group {
+    display: none;
+    align-items: center;
+    gap: .35rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    width: 100%;
+}
+.recouvrement-dashboard .date-filter-group.is-visible { display: flex; }
+.recouvrement-dashboard .date-filter-group input[type="date"] {
+    height: 34px;
+    border: 1px solid var(--color-border-subtle, #e5e7eb);
+    border-radius: .7rem;
+    padding: 0 .55rem;
+    font-size: .7rem;
+    color: var(--color-text, #111827);
+    background: var(--color-card, #fff);
+}
+.recouvrement-dashboard .date-filter-group .date-label {
+    font-size: .64rem;
+    font-weight: 850;
+    color: var(--color-secondary-text, #6b7280);
+}
+.recouvrement-dashboard .filter-submit {
+    height: 34px;
+    border: none;
+    border-radius: .7rem;
+    padding: 0 .75rem;
+    background: var(--color-primary, #f58220);
+    color: #fff;
+    font-size: .68rem;
+    font-weight: 900;
+    cursor: pointer;
 }
 
 .recouvrement-dashboard .ui-card {
@@ -289,6 +364,41 @@
     font-weight: 850;
 }
 .recouvrement-dashboard .card-title i { color: var(--color-primary, #f58220); }
+
+.recouvrement-dashboard .card-actions {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    margin-left: auto;
+}
+.recouvrement-dashboard .block-search-field {
+    position: relative;
+    width: min(260px, 34vw);
+}
+.recouvrement-dashboard .block-search-field i {
+    position: absolute;
+    left: .68rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--color-secondary-text, #6b7280);
+    font-size: .68rem;
+}
+.recouvrement-dashboard .block-search-input {
+    width: 100%;
+    height: 32px;
+    border: 1px solid var(--color-border-subtle, #e5e7eb);
+    border-radius: .7rem;
+    background: var(--color-card, #fff);
+    color: var(--color-text, #111827);
+    padding: 0 .65rem 0 1.85rem;
+    outline: none;
+    font-size: .7rem;
+}
+.recouvrement-dashboard .block-search-input:focus {
+    border-color: var(--color-primary, #f58220);
+    box-shadow: 0 0 0 3px rgba(245,130,32,.12);
+}
+
 .recouvrement-dashboard .card-subtitle {
     margin: .15rem 0 0;
     color: var(--color-secondary-text, #6b7280);
@@ -496,7 +606,7 @@
     <div class="dash-top">
         <div class="dash-title">
             <h1><i class="fas fa-chart-line"></i> Dashboard Recouvrement</h1>
-            <p>Vue du jour, évolution de la semaine et suivi des coupures moteur.</p>
+            <p>Vue par période, évolution du recouvrement et suivi des coupures moteur.</p>
         </div>
         <div class="partner-scope"><i class="fas fa-building"></i> Partenaire connecté</div>
     </div>
@@ -511,12 +621,45 @@
         @endforeach
     @endif
 
-    <form class="ui-card search-card" method="GET" action="{{ route('leases.dashboard') }}">
-        <div class="search-field">
-            <i class="fas fa-search"></i>
-            <input id="dashboardSearch" class="search-input" type="search" name="search" value="{{ $filters['search'] ?? '' }}" placeholder="Rechercher un chauffeur, une moto, un contrat, un paiement..." data-filter="search">
+    <form id="leaseDashboardFilters" class="ui-card period-filter-bar" method="GET" action="{{ route('leases.dashboard') }}">
+        <div class="period-filter-row">
+            <div class="search-field">
+                <i class="fas fa-search"></i>
+                <input id="dashboardSearch" class="search-input" type="search" name="search" value="{{ $filters['search'] ?? '' }}" placeholder="Rechercher un chauffeur, une moto, un contrat, un paiement..." data-filter="search">
+            </div>
+
+            <div class="period-select-wrap">
+                <select class="period-select" name="period" data-period-select aria-label="Filtrer le dashboard par période">
+                    @foreach([
+                        'today' => 'Aujourd’hui',
+                        'yesterday' => 'Hier',
+                        'week' => 'Cette semaine',
+                        'month' => 'Ce mois',
+                        'year' => 'Cette année',
+                        'date' => 'Date spécifique',
+                        'range' => 'Plage de dates',
+                    ] as $key => $label)
+                        <option value="{{ $key }}" @selected($selectedPeriodKey === $key)>{{ $label }}</option>
+                    @endforeach
+                </select>
+            </div>
+
+            <span class="period-chip">{{ $period['label'] ?? 'Aujourd’hui' }} · {{ $period['start_date'] ?? now()->toDateString() }} @if(($period['end_date'] ?? null) && ($period['end_date'] ?? null) !== ($period['start_date'] ?? null)) → {{ $period['end_date'] }} @endif</span>
         </div>
-        <span class="period-chip">{{ $period['label'] ?? 'Aujourd’hui' }} · {{ now()->format('d/m/Y') }}</span>
+
+        <div class="date-filter-group {{ $selectedPeriodKey === 'date' ? 'is-visible' : '' }}" data-date-filter="date">
+            <span class="date-label">Date</span>
+            <input type="date" name="date" value="{{ $selectedDate }}" data-period-date>
+            <button type="submit" class="filter-submit">Appliquer</button>
+        </div>
+
+        <div class="date-filter-group {{ $selectedPeriodKey === 'range' ? 'is-visible' : '' }}" data-date-filter="range">
+            <span class="date-label">Du</span>
+            <input type="date" name="start_date" value="{{ $selectedStartDate }}" data-period-start>
+            <span class="date-label">au</span>
+            <input type="date" name="end_date" value="{{ $selectedEndDate }}" data-period-end>
+            <button type="submit" class="filter-submit">Appliquer</button>
+        </div>
     </form>
 
     <div class="lease-kpi-grid">
@@ -525,7 +668,7 @@
             <div class="lkpi-icon green"><i class="fas fa-chart-pie"></i></div>
         </div>
         <div class="ui-card lkpi">
-            <div><p class="lkpi-label">Montant attendu</p><p class="lkpi-value">{{ $money($kpis['expected_amount'] ?? 0) }}</p><div class="kpi-note">Échéances du jour</div></div>
+            <div><p class="lkpi-label">Montant attendu</p><p class="lkpi-value">{{ $money($kpis['expected_amount'] ?? 0) }}</p><div class="kpi-note">Échéances période</div></div>
             <div class="lkpi-icon grey"><i class="fas fa-file-invoice-dollar"></i></div>
         </div>
         <div class="ui-card lkpi">
@@ -551,14 +694,14 @@
             <div class="ui-card card-pad">
                 <div class="card-head">
                     <div>
-                        <h2 class="card-title"><i class="fas fa-chart-column"></i> Évolution de la semaine</h2>
-                        <p class="card-subtitle">Un seul graphique, avec affichage au choix.</p>
+                        <h2 class="card-title"><i class="fas fa-chart-column"></i> Évolution du recouvrement</h2>
+                        <p class="card-subtitle">Regroupement automatique selon la période sélectionnée.</p>
                     </div>
                 </div>
 
                 <div class="chart-switch-head">
                     <div class="small-chart-title">
-                        <strong id="weeklyChartTitle">Montants par jour</strong>
+                        <strong id="weeklyChartTitle">Montants {{ $recoveryChart['grouping_label'] ?? 'par jour' }}</strong>
                         <span id="weeklyChartSubtitle">Attendu · Collecté · Reste</span>
                     </div>
 
@@ -599,7 +742,7 @@
                             </div>
                         </div>
                     @empty
-                        <div class="empty-state">Aucune collecte par type pour aujourd’hui.</div>
+                        <div class="empty-state">Aucune collecte par type pour la période sélectionnée.</div>
                     @endforelse
                 </div>
             </div>
@@ -635,6 +778,12 @@
                         <h2 class="card-title"><i class="fas fa-users"></i> Chauffeurs à suivre</h2>
                         <p class="card-subtitle">Impayés du jour classés par montant dû.</p>
                     </div>
+                    <div class="card-actions">
+                        <label class="block-search-field" aria-label="Rechercher dans les chauffeurs à suivre">
+                            <i class="fas fa-search"></i>
+                            <input class="block-search-input" type="search" placeholder="Rechercher..." data-table-filter="#driversTable">
+                        </label>
+                    </div>
                 </div>
                 <div class="table-scroll">
                     <table class="dashboard-table" id="driversTable">
@@ -662,24 +811,31 @@
                 <div class="card-head">
                     <div>
                         <h2 class="card-title"><i class="fas fa-money-check-alt"></i> Paiements du jour</h2>
-                        <p class="card-subtitle">Liste complète, avec défilement si nécessaire.</p>
+                        <p class="card-subtitle">Liste des chauffeurs ayant payé aujourd’hui.</p>
+                    </div>
+                    <div class="card-actions">
+                        <label class="block-search-field" aria-label="Rechercher dans les paiements du jour">
+                            <i class="fas fa-search"></i>
+                            <input class="block-search-input" type="search" placeholder="Rechercher..." data-table-filter="#paymentsTable">
+                        </label>
                     </div>
                 </div>
                 <div class="table-scroll payments">
                     <table class="dashboard-table" id="paymentsTable">
-                        <thead><tr><th>Heure</th><th>Chauffeur</th><th>Lease</th><th>Montant</th><th>Méthode</th><th>Statut</th></tr></thead>
+                        <thead><tr><th>Heure</th><th>Chauffeur</th><th>Véhicule</th><th>Type contrat</th><th>Montant</th><th>Méthode</th><th>Statut</th></tr></thead>
                         <tbody>
                         @forelse(($tables['payments_today'] ?? []) as $payment)
                             <tr data-search="{{ $payment['search'] ?? '' }}">
                                 <td>{{ $payment['time'] ?? '—' }}</td>
                                 <td><span class="driver-name">{{ $payment['driver'] ?? '—' }}</span></td>
                                 <td>{{ $payment['lease'] ?? '—' }}</td>
+                                <td>{{ $payment['contract_type'] ?? '—' }}</td>
                                 <td class="amount-success">{{ $money($payment['amount'] ?? 0) }}</td>
                                 <td>{{ $payment['method'] ?? '—' }}</td>
                                 <td><span class="dash-badge {{ $badgeClass($payment['status']['badge'] ?? null) }}">{{ $payment['status']['label'] ?? '—' }}</span></td>
                             </tr>
                         @empty
-                            <tr><td colspan="6"><div class="empty-state">Aucun paiement enregistré aujourd’hui.</div></td></tr>
+                            <tr><td colspan="7"><div class="empty-state">Aucun paiement enregistré aujourd’hui.</div></td></tr>
                         @endforelse
                         </tbody>
                     </table>
@@ -764,6 +920,26 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const dashboardData = window.leaseDashboardData || {};
     const recovery = dashboardData?.charts?.recovery || {};
+    const periodForm = document.getElementById('leaseDashboardFilters');
+    const periodSelect = periodForm?.querySelector('[data-period-select]');
+    const dateFilterGroups = periodForm ? Array.from(periodForm.querySelectorAll('[data-date-filter]')) : [];
+
+    function togglePeriodDateFields() {
+        if (!periodSelect) return;
+        const selected = periodSelect.value || 'today';
+        dateFilterGroups.forEach(group => {
+            group.classList.toggle('is-visible', group.dataset.dateFilter === selected);
+        });
+    }
+
+    periodSelect?.addEventListener('change', function () {
+        togglePeriodDateFields();
+        if (!['date', 'range'].includes(this.value)) {
+            periodForm?.submit();
+        }
+    });
+
+    togglePeriodDateFields();
 
     /**
      * Affichage par défaut : diagramme à bâtons.
@@ -821,7 +997,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const paid = recovery.paid || [];
         const remaining = recovery.remaining || [];
 
-        if (!labels.length) return drawEmpty(ctx, width, height, 'Aucune donnée cette semaine');
+        if (!labels.length) return drawEmpty(ctx, width, height, 'Aucune donnée sur cette période');
 
         const primary = cssVar('--color-primary', '#f58220');
         const success = cssVar('--color-success', '#16a34a');
@@ -871,22 +1047,56 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!canvas) return;
         const { ctx, width, height } = setupCanvas(canvas);
         const labels = recovery.labels || [];
+        const expected = recovery.expected || [];
         const paid = recovery.paid || [];
-        if (!labels.length) return drawEmpty(ctx, width, height, 'Aucune tendance disponible');
+        const remaining = recovery.remaining || [];
+        if (!labels.length) return drawEmpty(ctx, width, height, 'Aucune tendance sur cette période');
 
-        const success = cssVar('--color-success', '#16a34a');
         const primary = cssVar('--color-primary', '#f58220');
+        const success = cssVar('--color-success', '#16a34a');
+        const error = cssVar('--color-error', '#dc2626');
         const muted = cssVar('--color-secondary-text', '#64748b');
         const border = cssVar('--color-border-subtle', '#e2e8f0');
-        const max = Math.max(1, ...paid) * 1.15;
-        const p = { top: 18, right: 16, bottom: 28, left: 40 };
+        const max = Math.max(1, ...expected, ...paid, ...remaining) * 1.15;
+        const p = { top: 36, right: 16, bottom: 28, left: 40 };
         const chartW = width - p.left - p.right;
         const chartH = height - p.top - p.bottom;
-        const points = paid.map((value, index) => ({
-            x: p.left + (labels.length === 1 ? chartW / 2 : chartW * index / (labels.length - 1)),
-            y: p.top + chartH - chartH * (Number(value || 0) / max),
-            value: Number(value || 0),
-        }));
+
+        function buildPoints(values) {
+            return values.map((value, index) => ({
+                x: p.left + (labels.length === 1 ? chartW / 2 : chartW * index / (labels.length - 1)),
+                y: p.top + chartH - chartH * (Number(value || 0) / max),
+                value: Number(value || 0),
+            }));
+        }
+
+        function drawSeries(values, color) {
+            const points = buildPoints(values);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2.4;
+            ctx.beginPath();
+            points.forEach((point, index) => index === 0 ? ctx.moveTo(point.x, point.y) : ctx.lineTo(point.x, point.y));
+            ctx.stroke();
+            points.forEach(point => {
+                ctx.fillStyle = color;
+                ctx.beginPath(); ctx.arc(point.x, point.y, 3.5, 0, Math.PI * 2); ctx.fill();
+            });
+        }
+
+        function drawLegend(items) {
+            let x = p.left;
+            const y = 16;
+            ctx.font = '10px Lato, Arial, sans-serif';
+            ctx.textAlign = 'left';
+            items.forEach(item => {
+                ctx.fillStyle = item.color;
+                roundRect(ctx, x, y - 6, 10, 10, 3);
+                ctx.fill();
+                ctx.fillStyle = muted;
+                ctx.fillText(item.label, x + 15, y + 3);
+                x += ctx.measureText(item.label).width + 42;
+            });
+        }
 
         ctx.clearRect(0, 0, width, height);
         ctx.font = '10px Lato, Arial, sans-serif';
@@ -898,17 +1108,21 @@ document.addEventListener('DOMContentLoaded', function () {
             ctx.fillText(label === 0 ? '0' : label + 'k', p.left - 6, y + 3);
         }
 
-        ctx.strokeStyle = success;
-        ctx.lineWidth = 2.4;
-        ctx.beginPath();
-        points.forEach((point, index) => index === 0 ? ctx.moveTo(point.x, point.y) : ctx.lineTo(point.x, point.y));
-        ctx.stroke();
+        drawLegend([
+            { label: 'Attendu', color: primary },
+            { label: 'Collecté', color: success },
+            { label: 'Reste', color: error },
+        ]);
 
-        points.forEach((point, index) => {
-            ctx.fillStyle = point.value >= (points[index - 1]?.value ?? point.value) ? success : primary;
-            ctx.beginPath(); ctx.arc(point.x, point.y, 4, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = muted; ctx.textAlign = 'center';
-            ctx.fillText(labels[index], point.x, height - 8);
+        drawSeries(expected, primary);
+        drawSeries(paid, success);
+        drawSeries(remaining, error);
+
+        ctx.fillStyle = muted;
+        ctx.textAlign = 'center';
+        labels.forEach((label, index) => {
+            const x = p.left + (labels.length === 1 ? chartW / 2 : chartW * index / (labels.length - 1));
+            ctx.fillText(label, x, height - 8);
         });
     }
 
@@ -924,14 +1138,16 @@ document.addEventListener('DOMContentLoaded', function () {
             button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
         });
 
+        const groupingLabel = recovery.grouping_label || 'par jour';
+
         if (weeklyChartMode === 'line') {
-            if (title) title.textContent = 'Tendance collecte';
-            if (subtitle) subtitle.textContent = 'Progression ou baisse des paiements';
+            if (title) title.textContent = 'Tendance des montants ' + groupingLabel;
+            if (subtitle) subtitle.textContent = 'Attendu · Collecté · Reste';
             drawRecoveryLine();
             return;
         }
 
-        if (title) title.textContent = 'Montants par jour';
+        if (title) title.textContent = 'Montants ' + groupingLabel;
         if (subtitle) subtitle.textContent = 'Attendu · Collecté · Reste';
         drawRecoveryBars();
     }
@@ -943,15 +1159,31 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 
+    function rowMatches(row, search) {
+        const haystack = ((row.dataset.search || '') + ' ' + row.textContent).toLowerCase();
+        return !search || haystack.includes(search);
+    }
+
     function applySearch() {
-        const search = (root.querySelector('[data-filter="search"]')?.value || '').toLowerCase().trim();
-        root.querySelectorAll('[data-search], #driversTable tbody tr, #paymentsTable tbody tr, #rulesTable tbody tr').forEach(row => {
-            const haystack = ((row.dataset.search || '') + ' ' + row.textContent).toLowerCase();
-            row.style.display = !search || haystack.includes(search) ? '' : 'none';
+        const globalSearch = (root.querySelector('[data-filter="search"]')?.value || '').toLowerCase().trim();
+
+        root.querySelectorAll('[data-search], #rulesTable tbody tr, .type-progress-row, .timeline-item').forEach(row => {
+            row.style.display = rowMatches(row, globalSearch) ? '' : 'none';
+        });
+
+        root.querySelectorAll('[data-table-filter]').forEach(input => {
+            const table = root.querySelector(input.dataset.tableFilter || '');
+            if (!table) return;
+
+            const localSearch = (input.value || '').toLowerCase().trim();
+            table.querySelectorAll('tbody tr').forEach(row => {
+                row.style.display = rowMatches(row, globalSearch) && rowMatches(row, localSearch) ? '' : 'none';
+            });
         });
     }
 
     root.querySelector('[data-filter="search"]')?.addEventListener('input', applySearch);
+    root.querySelectorAll('[data-table-filter]').forEach(input => input.addEventListener('input', applySearch));
 
     let resizeTimer = null;
     window.addEventListener('resize', function () {

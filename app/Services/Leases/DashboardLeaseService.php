@@ -27,8 +27,7 @@ class DashboardLeaseService
     public function build(User $user, array $filters = []): array
     {
         $partnerId = $this->resolvePartnerId($user);
-        $selectedPeriod = $this->resolvePeriod('today');
-        $weekPeriod = $this->currentWeekPeriod();
+        $selectedPeriod = $this->resolvePeriod($filters);
         $search = trim((string) ($filters['search'] ?? ''));
 
         $warnings = [];
@@ -36,15 +35,16 @@ class DashboardLeaseService
         $contracts = [];
         $chauffeurs = [];
         $selectedLeases = [];
-        $weekLeases = [];
         $payments = [];
 
-        try {
-            $dailyStats = $this->fetchDailyStats();
-        } catch (Throwable $e) {
-            report($e);
-            $warnings[] = 'Les statistiques du jour sont momentanément indisponibles.';
-            Log::warning('[LEASE_DASHBOARD_DAILY_STATS_FAILED]', ['error' => $e->getMessage()]);
+        if (($selectedPeriod['key'] ?? null) === 'today') {
+            try {
+                $dailyStats = $this->fetchDailyStats();
+            } catch (Throwable $e) {
+                report($e);
+                $warnings[] = 'Les statistiques du jour sont momentanément indisponibles.';
+                Log::warning('[LEASE_DASHBOARD_DAILY_STATS_FAILED]', ['error' => $e->getMessage()]);
+            }
         }
 
         try {
@@ -63,36 +63,31 @@ class DashboardLeaseService
         }
 
         try {
-            $selectedLeases = $this->leaseApiService->fetchLeases(null, $contracts, [
-                'date_echeance_start' => $selectedPeriod['start_date'],
-                'date_echeance_end' => $selectedPeriod['end_date'],
-            ]);
+            $selectedLeases = $this->leaseApiService->fetchLeases(null, $contracts, $this->leaseFiltersForPeriod($selectedPeriod));
         } catch (Throwable $e) {
             report($e);
-            $warnings[] = 'Les échéances du jour ne sont pas disponibles.';
-            Log::error('[LEASE_DASHBOARD_SELECTED_LEASES_FAILED]', ['error' => $e->getMessage()]);
+            $warnings[] = 'Les échéances de la période sélectionnée ne sont pas disponibles.';
+            Log::error('[LEASE_DASHBOARD_SELECTED_LEASES_FAILED]', [
+                'period' => $selectedPeriod,
+                'error' => $e->getMessage(),
+            ]);
         }
 
         try {
-            $weekLeases = $this->leaseApiService->fetchLeases(null, $contracts, [
-                'date_echeance_start' => $weekPeriod['start_date'],
-                'date_echeance_end' => $weekPeriod['end_date'],
+            $payments = $this->leaseApiService->fetchPayments(array_merge(
+                $this->paymentFiltersForPeriod($selectedPeriod),
+                [
+                    'est_annule' => 'false',
+                    'statut__in' => 'VALIDE,SUCCESS,PAID',
+                ]
+            ));
+        } catch (Throwable $e) {
+            report($e);
+            $warnings[] = 'Les paiements de la période sélectionnée sont momentanément indisponibles.';
+            Log::error('[LEASE_DASHBOARD_PAYMENTS_FAILED]', [
+                'period' => $selectedPeriod,
+                'error' => $e->getMessage(),
             ]);
-        } catch (Throwable $e) {
-            report($e);
-            $warnings[] = 'L’évolution de la semaine est indisponible.';
-            Log::error('[LEASE_DASHBOARD_WEEK_LEASES_FAILED]', ['error' => $e->getMessage()]);
-        }
-
-        try {
-            $payments = $this->filterPaymentsForPeriod(
-                $this->leaseApiService->fetchPayments(),
-                $selectedPeriod
-            );
-        } catch (Throwable $e) {
-            report($e);
-            $warnings[] = 'Les paiements du jour sont momentanément indisponibles.';
-            Log::error('[LEASE_DASHBOARD_PAYMENTS_FAILED]', ['error' => $e->getMessage()]);
         }
 
         $vehicles = $this->getPartnerVehicles($partnerId);
@@ -111,18 +106,21 @@ class DashboardLeaseService
         return [
             'filters' => [
                 'search' => $search,
+                'period' => $selectedPeriod['key'] ?? 'today',
+                'date' => $selectedPeriod['date'] ?? null,
+                'start_date' => $selectedPeriod['start_date'],
+                'end_date' => $selectedPeriod['end_date'],
             ],
             'period' => $selectedPeriod,
-            'week_period' => $weekPeriod,
             'warnings' => $warnings,
             'kpis' => $kpis,
             'charts' => [
-                'recovery' => $this->buildCurrentWeekRecoveryChart($weekLeases, $weekPeriod),
+                'recovery' => $this->buildRecoveryChart($selectedLeases, $selectedPeriod),
                 'type_recovery' => $this->buildTypeRecoveryBreakdown($selectedLeases),
             ],
             'tables' => [
                 'drivers_risk' => $this->buildDriversRiskTable($selectedLeases, $cutoffData),
-                'payments_today' => $this->buildPaymentsTable($payments),
+                'payments_today' => $this->buildPaymentsTable($payments, $selectedLeases),
                 'cutoffs' => $this->buildCutoffTimeline($cutoffData),
                 'contract_rules' => $this->buildContractRulesTable($cutoffData),
             ],
@@ -250,49 +248,171 @@ class DashboardLeaseService
         ];
     }
 
-    private function buildCurrentWeekRecoveryChart(array $weekLeases, array $weekPeriod): array
+    private function buildRecoveryChart(array $leases, array $period): array
     {
-        $labelsByIsoDay = [1 => 'Lun', 2 => 'Mar', 3 => 'Mer', 4 => 'Jeu', 5 => 'Ven', 6 => 'Sam', 7 => 'Dim'];
-        $days = [];
-        $start = Carbon::parse($weekPeriod['start_date']);
-        $end = Carbon::parse($weekPeriod['end_date']);
+        $start = Carbon::parse($period['start_date'])->startOfDay();
+        $end = Carbon::parse($period['end_date'])->startOfDay();
+        $grouping = $this->resolveChartGrouping($start, $end);
+        $buckets = $this->buildChartBuckets($start, $end, $grouping);
 
-        for ($date = $start->copy(); $date->lte($end); $date->addDay()) {
-            $key = $date->toDateString();
-            $days[$key] = [
-                'label' => $labelsByIsoDay[$date->isoWeekday()] ?? $date->format('d/m'),
-                'date' => $key,
-                'expected' => 0.0,
-                'paid' => 0.0,
-                'remaining' => 0.0,
-                'rate' => 0,
-            ];
-        }
+        foreach ($leases as $lease) {
+            $date = $this->safeCarbon($lease['date_echeance'] ?? $lease['date'] ?? null);
 
-        foreach ($weekLeases as $lease) {
-            $date = $this->safeDate($lease['date_echeance'] ?? $lease['date'] ?? null);
-            if (! $date || ! isset($days[$date])) {
+            if (! $date) {
                 continue;
             }
 
-            $days[$date]['expected'] += $this->leaseExpected($lease);
-            $days[$date]['paid'] += $this->leasePaid($lease);
-            $days[$date]['remaining'] += $this->leaseRemaining($lease);
+            $key = $this->chartBucketKey($date, $grouping);
+
+            if (! isset($buckets[$key])) {
+                continue;
+            }
+
+            $buckets[$key]['expected'] += $this->leaseExpected($lease);
+            $buckets[$key]['paid'] += $this->leasePaid($lease);
+            $buckets[$key]['remaining'] += $this->leaseRemaining($lease);
         }
 
-        foreach ($days as &$day) {
-            $day['rate'] = $day['expected'] > 0 ? (int) round(($day['paid'] / $day['expected']) * 100) : 0;
+        foreach ($buckets as &$bucket) {
+            $bucket['rate'] = $bucket['expected'] > 0
+                ? (int) round(($bucket['paid'] / $bucket['expected']) * 100)
+                : 0;
         }
+        unset($bucket);
 
         return [
-            'title' => 'Semaine courante',
-            'labels' => collect($days)->pluck('label')->values()->all(),
-            'dates' => collect($days)->pluck('date')->values()->all(),
-            'expected' => collect($days)->pluck('expected')->values()->all(),
-            'paid' => collect($days)->pluck('paid')->values()->all(),
-            'remaining' => collect($days)->pluck('remaining')->values()->all(),
-            'rate' => collect($days)->pluck('rate')->values()->all(),
+            'title' => $period['label'] ?? 'Période sélectionnée',
+            'grouping' => $grouping,
+            'grouping_label' => $this->chartGroupingLabel($grouping),
+            'labels' => collect($buckets)->pluck('label')->values()->all(),
+            'dates' => collect($buckets)->pluck('date')->values()->all(),
+            'expected' => collect($buckets)->pluck('expected')->values()->all(),
+            'paid' => collect($buckets)->pluck('paid')->values()->all(),
+            'remaining' => collect($buckets)->pluck('remaining')->values()->all(),
+            'rate' => collect($buckets)->pluck('rate')->values()->all(),
         ];
+    }
+
+    private function resolveChartGrouping(Carbon $start, Carbon $end): string
+    {
+        $days = $start->diffInDays($end) + 1;
+
+        if ($days <= 14) {
+            return 'day';
+        }
+
+        if ($days <= 92) {
+            return 'week';
+        }
+
+        if ($days <= 730) {
+            return 'month';
+        }
+
+        return 'year';
+    }
+
+    private function buildChartBuckets(Carbon $start, Carbon $end, string $grouping): array
+    {
+        $buckets = [];
+        $labelsByIsoDay = [1 => 'Lun', 2 => 'Mar', 3 => 'Mer', 4 => 'Jeu', 5 => 'Ven', 6 => 'Sam', 7 => 'Dim'];
+        $monthLabels = [
+            1 => 'Jan', 2 => 'Fév', 3 => 'Mar', 4 => 'Avr', 5 => 'Mai', 6 => 'Juin',
+            7 => 'Juil', 8 => 'Août', 9 => 'Sep', 10 => 'Oct', 11 => 'Nov', 12 => 'Déc',
+        ];
+
+        if ($grouping === 'day') {
+            $includeDate = $start->diffInDays($end) > 6;
+
+            for ($date = $start->copy(); $date->lte($end); $date->addDay()) {
+                $key = $date->toDateString();
+                $buckets[$key] = $this->emptyChartBucket(
+                    label: ($labelsByIsoDay[$date->isoWeekday()] ?? $date->format('d/m')) . ($includeDate ? ' ' . $date->format('d/m') : ''),
+                    date: $key
+                );
+            }
+
+            return $buckets;
+        }
+
+        if ($grouping === 'week') {
+            $cursor = $start->copy()->startOfWeek(Carbon::MONDAY);
+            $index = 1;
+
+            while ($cursor->lte($end)) {
+                $weekStart = $cursor->copy();
+                $weekEnd = $cursor->copy()->endOfWeek(Carbon::SUNDAY);
+                $key = $weekStart->format('o-\WW');
+                $buckets[$key] = $this->emptyChartBucket(
+                    label: 'S' . $index . ' · ' . $weekStart->format('d/m'),
+                    date: $weekStart->toDateString() . ' → ' . ($weekEnd->gt($end) ? $end : $weekEnd)->toDateString()
+                );
+                $cursor->addWeek();
+                $index++;
+            }
+
+            return $buckets;
+        }
+
+        if ($grouping === 'month') {
+            $cursor = $start->copy()->startOfMonth();
+            $multiYear = $start->year !== $end->year;
+
+            while ($cursor->lte($end)) {
+                $key = $cursor->format('Y-m');
+                $buckets[$key] = $this->emptyChartBucket(
+                    label: ($monthLabels[(int) $cursor->month] ?? $cursor->format('M')) . ($multiYear ? ' ' . $cursor->format('Y') : ''),
+                    date: $cursor->toDateString()
+                );
+                $cursor->addMonth();
+            }
+
+            return $buckets;
+        }
+
+        $cursor = $start->copy()->startOfYear();
+        while ($cursor->lte($end)) {
+            $key = $cursor->format('Y');
+            $buckets[$key] = $this->emptyChartBucket(
+                label: $cursor->format('Y'),
+                date: $cursor->toDateString()
+            );
+            $cursor->addYear();
+        }
+
+        return $buckets;
+    }
+
+    private function emptyChartBucket(string $label, string $date): array
+    {
+        return [
+            'label' => $label,
+            'date' => $date,
+            'expected' => 0.0,
+            'paid' => 0.0,
+            'remaining' => 0.0,
+            'rate' => 0,
+        ];
+    }
+
+    private function chartBucketKey(Carbon $date, string $grouping): string
+    {
+        return match ($grouping) {
+            'week' => $date->copy()->startOfWeek(Carbon::MONDAY)->format('o-\WW'),
+            'month' => $date->format('Y-m'),
+            'year' => $date->format('Y'),
+            default => $date->toDateString(),
+        };
+    }
+
+    private function chartGroupingLabel(string $grouping): string
+    {
+        return match ($grouping) {
+            'week' => 'par semaine',
+            'month' => 'par mois',
+            'year' => 'par année',
+            default => 'par jour',
+        };
     }
 
     private function buildTypeRecoveryBreakdown(array $leases): array
@@ -405,20 +525,68 @@ class DashboardLeaseService
 
     private function buildDriversRiskTable(array $leases, array $cutoffData): array
     {
+        /**
+         * Source de vérité : la règle est reliée à lease_contract_links.id.
+         * L'ancien affichage utilisait surtout source_contract_id ; lorsque la
+         * règle active avait seulement contract_link_id, le dashboard affichait
+         * à tort « Sans règle ».
+         */
+        $rulesByContractLinkId = collect($cutoffData['rules'] ?? [])
+            ->filter(fn (LeaseCutoffContractRule $rule) => $rule->contract_link_id)
+            ->keyBy(fn (LeaseCutoffContractRule $rule) => (int) $rule->contract_link_id);
+
         $rulesBySourceContractId = collect($cutoffData['rules'] ?? [])
             ->filter(fn (LeaseCutoffContractRule $rule) => $rule->source_contract_id)
             ->keyBy(fn (LeaseCutoffContractRule $rule) => (int) $rule->source_contract_id);
 
+        $linksBySourceContractId = collect($cutoffData['links'] ?? [])
+            ->filter(fn (LeaseContractLink $link) => $link->source_contract_id)
+            ->keyBy(fn (LeaseContractLink $link) => (int) $link->source_contract_id);
+
+        $mainLinksBySourceContractId = collect($cutoffData['links'] ?? [])
+            ->filter(fn (LeaseContractLink $link) => $link->contract_kind !== LeaseContractLink::KIND_SUB)
+            ->filter(fn (LeaseContractLink $link) => $link->source_contract_id)
+            ->keyBy(fn (LeaseContractLink $link) => (int) $link->source_contract_id);
+
         return collect($leases)
             ->groupBy(fn ($row) => (string) ($row['chauffeur'] ?? 'Chauffeur'))
-            ->map(function (Collection $rows, string $driver) use ($rulesBySourceContractId) {
+            ->map(function (Collection $rows, string $driver) use ($rulesByContractLinkId, $rulesBySourceContractId, $linksBySourceContractId, $mainLinksBySourceContractId) {
                 $unpaid = $rows->filter(fn ($row) => ($row['statut'] ?? null) === 'unpaid');
                 $amountDue = $unpaid->sum(fn ($row) => $this->leaseRemaining($row));
                 $types = $unpaid->map(fn ($row) => $this->displayTypeLabel($row))->filter()->unique()->implode(', ');
-                $vehicle = $rows->pluck('vehicule')->filter()->first() ?: $rows->pluck('immatriculation')->filter()->first() ?: '—';
 
-                $contractIds = $unpaid->map(fn ($row) => (int) ($row['contrat_id'] ?? $row['contract_id'] ?? data_get($row, 'contrat.id') ?? 0))->filter()->unique();
-                $matchingRules = $contractIds->map(fn (int $id) => $rulesBySourceContractId->get($id))->filter();
+                /**
+                 * Colonne Véhicule : on affiche toujours l’immatriculation du
+                 * véhicule porté par le contrat principal. Un sous-contrat peut
+                 * déclencher le suivi/coupure, mais l’utilisateur doit voir la
+                 * moto réelle liée au contrat principal.
+                 */
+                $vehicle = $this->resolveMainContractVehicleForDriverRows($rows, $mainLinksBySourceContractId);
+
+                $matchingRules = $unpaid
+                    ->map(function ($row) use ($rulesByContractLinkId, $rulesBySourceContractId, $linksBySourceContractId) {
+                        $contractLinkId = (int) ($row['contract_link_id'] ?? 0);
+                        if ($contractLinkId > 0 && $rulesByContractLinkId->has($contractLinkId)) {
+                            return $rulesByContractLinkId->get($contractLinkId);
+                        }
+
+                        $sourceContractId = (int) (
+                            $row['source_contrat_id']
+                            ?? $row['contrat_id']
+                            ?? $row['contract_id']
+                            ?? data_get($row, 'contrat.id')
+                            ?? 0
+                        );
+
+                        if ($sourceContractId > 0 && $rulesBySourceContractId->has($sourceContractId)) {
+                            return $rulesBySourceContractId->get($sourceContractId);
+                        }
+
+                        $link = $sourceContractId > 0 ? $linksBySourceContractId->get($sourceContractId) : null;
+                        return $link ? $rulesByContractLinkId->get((int) $link->id) : null;
+                    })
+                    ->filter();
+
                 $hasEnabledRule = $matchingRules->contains(fn (LeaseCutoffContractRule $rule) => (bool) $rule->is_enabled);
                 $hasDisabledRule = $matchingRules->contains(fn (LeaseCutoffContractRule $rule) => ! (bool) $rule->is_enabled);
 
@@ -446,6 +614,60 @@ class DashboardLeaseService
             ->sortByDesc('amount_due')
             ->values()
             ->all();
+    }
+
+    private function resolveMainContractVehicleForDriverRows(Collection $rows, Collection $mainLinksBySourceContractId): string
+    {
+        $mainRow = $rows->first(function ($row) {
+            $kind = mb_strtoupper((string) ($row['contract_kind'] ?? $row['contrat_kind'] ?? ''), 'UTF-8');
+            $parentContractId = (int) ($row['parent_contract_id'] ?? 0);
+
+            return $kind === 'MAIN' || $kind === 'PRINCIPAL' || $parentContractId <= 0;
+        });
+
+        $vehicle = $this->rowVehicleLabel($mainRow);
+        if ($vehicle !== '—') {
+            return $vehicle;
+        }
+
+        $parentContractIds = $rows
+            ->map(fn ($row) => (int) ($row['parent_contract_id'] ?? data_get($row, 'parent.id') ?? 0))
+            ->filter()
+            ->unique();
+
+        foreach ($parentContractIds as $parentContractId) {
+            /** @var LeaseContractLink|null $link */
+            $link = $mainLinksBySourceContractId->get($parentContractId);
+            if (! $link) {
+                continue;
+            }
+
+            $vehicle = optional($link->vehicle)->immatriculation
+                ?: $link->immatriculation
+                ?: $link->vin
+                ?: null;
+
+            if ($vehicle) {
+                return (string) $vehicle;
+            }
+        }
+
+        return $this->rowVehicleLabel($rows->first());
+    }
+
+    private function rowVehicleLabel(mixed $row): string
+    {
+        if (! is_array($row)) {
+            return '—';
+        }
+
+        return (string) (
+            $row['vehicule']
+            ?? $row['immatriculation']
+            ?? data_get($row, 'vehicle.immatriculation')
+            ?? data_get($row, 'voiture.immatriculation')
+            ?? '—'
+        );
     }
 
 
@@ -485,19 +707,70 @@ class DashboardLeaseService
             ->all();
     }
 
-    private function buildPaymentsTable(array $payments): array
+    private function buildPaymentsTable(array $payments, array $selectedLeases = []): array
     {
+        /**
+         * Source normale : /paiements/. Fallback : leases du jour déjà payés.
+         * Ce fallback est volontaire : certains retours API de paiement ne
+         * renvoient pas toujours date_paiement ou chauffeur_nom_complet, alors
+         * que /leases/ contient déjà le lease payé, son chauffeur et ses montants.
+         */
+        $leasesById = collect($selectedLeases)
+            ->filter(fn ($lease) => ! empty($lease['id']) || ! empty($lease['source_lease_id']))
+            ->keyBy(fn ($lease) => (int) ($lease['id'] ?? $lease['source_lease_id']));
+
+        $paymentsByLeaseId = collect($payments)
+            ->filter(fn ($payment) => ! empty($payment['lease_id']))
+            ->keyBy(fn ($payment) => (int) $payment['lease_id']);
+
+        $fallbackPaidLeases = collect($selectedLeases)
+            ->filter(fn ($lease) => ($lease['statut'] ?? null) === 'paid')
+            ->reject(fn ($lease) => $paymentsByLeaseId->has((int) ($lease['id'] ?? $lease['source_lease_id'] ?? 0)))
+            ->map(function ($lease) {
+                return [
+                    'id' => (int) ($lease['paiement_id'] ?? 0),
+                    'lease_id' => (int) ($lease['id'] ?? $lease['source_lease_id'] ?? 0),
+                    'montant' => $this->leasePaid($lease),
+                    'methode' => $lease['methode'] ?? null,
+                    'methode_label' => $lease['methode_label'] ?? null,
+                    'statut' => $lease['paiement_statut'] ?? 'SUCCESS',
+                    'date_paiement' => $lease['date_paiement'] ?? $lease['date_echeance'] ?? $lease['date'] ?? null,
+                    'chauffeur_nom_complet' => $lease['chauffeur'] ?? '',
+                    'vehicule' => $lease['vehicule'] ?? null,
+                    'immatriculation' => $lease['vehicule'] ?? null,
+                    'type_contrat_label' => $lease['type_contrat_label'] ?? $lease['contrat_type'] ?? null,
+                    'contract_kind' => $lease['contract_kind'] ?? $lease['contrat_kind'] ?? null,
+                    'raw' => $lease,
+                ];
+            });
+
         return collect($payments)
+            ->concat($fallbackPaidLeases)
             ->sortByDesc(fn ($payment) => optional($this->safeCarbon($payment['date_paiement'] ?? null))->timestamp ?? 0)
-            ->map(function ($payment) {
+            ->map(function ($payment) use ($leasesById) {
+                $leaseId = (int) ($payment['lease_id'] ?? data_get($payment, 'raw.id') ?? 0);
+                $lease = $leaseId > 0 ? $leasesById->get($leaseId) : null;
+                $raw = is_array($payment['raw'] ?? null) ? $payment['raw'] : [];
+
+                $driver = $payment['chauffeur_nom_complet']
+                    ?? $payment['chauffeur']
+                    ?? data_get($payment, 'raw.chauffeur')
+                    ?? data_get($lease, 'chauffeur')
+                    ?? '—';
+
+                $vehicle = $this->rowVehicleLabel($lease ?: $raw);
+                $type = $lease ? $this->displayTypeLabel($lease) : $this->displayTypeLabel($raw);
+                $method = $payment['methode_label'] ?? $payment['methode'] ?? $payment['method'] ?? '—';
+
                 return [
                     'time' => $this->formatTime($payment['date_paiement'] ?? null),
-                    'driver' => $payment['chauffeur_nom_complet'] ?? $payment['chauffeur'] ?? '—',
-                    'lease' => ! empty($payment['lease_id']) ? 'Lease ' . $payment['lease_id'] : '—',
+                    'driver' => $driver ?: '—',
+                    'lease' => $vehicle !== '—' ? $vehicle : (! empty($leaseId) ? 'Lease ' . $leaseId : '—'),
+                    'contract_type' => $type ?: '—',
                     'amount' => $this->toFloat($payment['montant'] ?? $payment['amount'] ?? 0),
-                    'method' => $payment['methode_label'] ?? $payment['methode'] ?? $payment['method'] ?? '—',
+                    'method' => $method ?: '—',
                     'status' => $this->paymentStatusLabel($payment['statut'] ?? $payment['status'] ?? ''),
-                    'search' => mb_strtolower(($payment['chauffeur_nom_complet'] ?? $payment['chauffeur'] ?? '') . ' ' . ($payment['lease_id'] ?? '') . ' ' . ($payment['methode_label'] ?? $payment['methode'] ?? ''), 'UTF-8'),
+                    'search' => mb_strtolower(($driver ?? '') . ' ' . ($vehicle ?? '') . ' ' . ($type ?? '') . ' ' . ($leaseId ?: '') . ' ' . ($method ?? ''), 'UTF-8'),
                 ];
             })
             ->values()
@@ -577,23 +850,125 @@ class DashboardLeaseService
 
         return collect($payments)
             ->filter(function ($payment) use ($start, $end) {
-                $date = $this->safeCarbon($payment['date_paiement'] ?? null);
+                $date = $this->safeCarbon(
+                    $payment['date_paiement']
+                    ?? $payment['created_at']
+                    ?? $payment['updated_at']
+                    ?? data_get($payment, 'raw.date_paiement')
+                    ?? data_get($payment, 'raw.created_at')
+                    ?? null
+                );
+
                 return $date && $date->betweenIncluded($start, $end);
             })
             ->values()
             ->all();
     }
 
-    private function resolvePeriod(string $period): array
+    private function leaseFiltersForPeriod(array $period): array
+    {
+        if ($period['start_date'] === $period['end_date']) {
+            return ['date_echeance' => $period['start_date']];
+        }
+
+        return [
+            'date_echeance_start' => $period['start_date'],
+            'date_echeance_end' => $period['end_date'],
+        ];
+    }
+
+    private function paymentFiltersForPeriod(array $period): array
+    {
+        if ($period['start_date'] === $period['end_date']) {
+            return ['date_paiement' => $period['start_date']];
+        }
+
+        return [
+            'date_paiement_start' => $period['start_date'],
+            'date_paiement_end' => $period['end_date'],
+        ];
+    }
+
+    private function resolvePeriod(array|string $filters = []): array
     {
         $timezone = config('app.timezone') ?: 'Africa/Douala';
         $today = now($timezone)->startOfDay();
+        $filters = is_array($filters) ? $filters : ['period' => $filters];
+        $key = (string) ($filters['period'] ?? 'today');
+
+        $period = match ($key) {
+            'yesterday' => [
+                'key' => 'yesterday',
+                'label' => 'Hier',
+                'start' => $today->copy()->subDay(),
+                'end' => $today->copy()->subDay(),
+            ],
+            'week', 'this_week' => [
+                'key' => 'week',
+                'label' => 'Cette semaine',
+                'start' => $today->copy()->startOfWeek(Carbon::MONDAY),
+                'end' => $today->copy()->endOfWeek(Carbon::SUNDAY),
+            ],
+            'month', 'this_month' => [
+                'key' => 'month',
+                'label' => 'Ce mois',
+                'start' => $today->copy()->startOfMonth(),
+                'end' => $today->copy()->endOfMonth(),
+            ],
+            'year', 'this_year' => [
+                'key' => 'year',
+                'label' => 'Cette année',
+                'start' => $today->copy()->startOfYear(),
+                'end' => $today->copy()->endOfYear(),
+            ],
+            'date' => $this->resolveSpecificDatePeriod($filters, $today),
+            'range' => $this->resolveRangePeriod($filters, $today),
+            default => [
+                'key' => 'today',
+                'label' => 'Aujourd’hui',
+                'start' => $today->copy(),
+                'end' => $today->copy(),
+            ],
+        };
+
+        $start = $period['start']->copy()->startOfDay();
+        $end = $period['end']->copy()->startOfDay();
+
+        if ($start->gt($end)) {
+            [$start, $end] = [$end, $start];
+        }
 
         return [
-            'key' => 'today',
-            'label' => 'Aujourd’hui',
-            'start_date' => $today->toDateString(),
-            'end_date' => $today->toDateString(),
+            'key' => $period['key'],
+            'label' => $period['label'],
+            'start_date' => $start->toDateString(),
+            'end_date' => $end->toDateString(),
+            'date' => $period['key'] === 'date' ? $start->toDateString() : null,
+        ];
+    }
+
+    private function resolveSpecificDatePeriod(array $filters, Carbon $today): array
+    {
+        $date = $this->safeCarbon($filters['date'] ?? null)?->startOfDay() ?: $today->copy();
+
+        return [
+            'key' => 'date',
+            'label' => 'Date spécifique · ' . $date->format('d/m/Y'),
+            'start' => $date,
+            'end' => $date->copy(),
+        ];
+    }
+
+    private function resolveRangePeriod(array $filters, Carbon $today): array
+    {
+        $start = $this->safeCarbon($filters['start_date'] ?? null)?->startOfDay() ?: $today->copy();
+        $end = $this->safeCarbon($filters['end_date'] ?? null)?->startOfDay() ?: $start->copy();
+
+        return [
+            'key' => 'range',
+            'label' => 'Plage · ' . $start->format('d/m/Y') . ' → ' . $end->format('d/m/Y'),
+            'start' => $start,
+            'end' => $end,
         ];
     }
 

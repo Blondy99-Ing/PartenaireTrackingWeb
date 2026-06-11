@@ -170,9 +170,10 @@ Route::get('lease/cutoff-rules', [LeaseCutoffRuleController::class, 'index'])
     Route::put('/settings/lease/cutoff-default-rules', [LeaseSettingsController::class, 'updateCutoffDefaultRules'])
     ->name('settings.lease.cutoff-default-rules.update');
 
-// mise à jour de coupure globale
-Route::post('/leases/global-cutoff', [\App\Http\Controllers\Leases\LeaseController::class, 'updateGlobalCutoff'])
-    ->name('leases.global-cutoff.update');
+// activation/désactivation en masse des règles spécifiques existantes
+Route::post('/leases/contract-rules/bulk-toggle', [\App\Http\Controllers\Leases\LeaseController::class, 'bulkToggleContractCutoffRules'])
+    ->name('leases.contract-rules.bulk-toggle.update');
+
 
 Route::post('lease/cutoff-rules', [LeaseCutoffRuleController::class, 'store'])
     ->name('lease.cutoff-rules.store');

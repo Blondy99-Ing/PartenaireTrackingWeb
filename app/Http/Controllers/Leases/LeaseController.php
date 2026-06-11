@@ -121,13 +121,13 @@ class LeaseController extends Controller
     }
 
     /**
-     * Activation/désactivation en masse des règles spécifiques existantes.
+     * Activation/désactivation en masse des règles spécifiques existantes par contrat/sous-contrat.
      *
      * Important : cette action ne crée aucune règle et ne doit jamais créer de
      * règle pour un sous-contrat non associé. Elle agit uniquement sur les
      * lignes déjà présentes dans lease_cutoff_contract_rules.
      */
-    public function updateGlobalCutoff(Request $request, PartnerLeaseApiService $leaseApiService): JsonResponse
+    public function bulkToggleContractCutoffRules(Request $request, PartnerLeaseApiService $leaseApiService): JsonResponse
     {
         $data = $request->validate([
             'enabled' => ['required', 'boolean'],
@@ -142,18 +142,18 @@ class LeaseController extends Controller
         }
 
         try {
-            Log::info('[LEASE_GLOBAL_CUTOFF_UPDATE_START]', [
+            Log::info('[LEASE_CONTRACT_RULES_BULK_TOGGLE_START]', [
                 'user_id' => optional($request->user())->id,
                 'enabled' => (bool) $data['enabled'],
                 'cutoff_time' => $data['cutoff_time'] ?? null,
             ]);
 
-            $result = $leaseApiService->applyGlobalCutoffRule(
+            $result = $leaseApiService->bulkToggleExistingContractCutoffRules(
                 enabled: (bool) $data['enabled'],
                 cutoffTime: $data['cutoff_time'] ?? null,
             );
 
-            Log::info('[LEASE_GLOBAL_CUTOFF_UPDATE_DONE]', [
+            Log::info('[LEASE_CONTRACT_RULES_BULK_TOGGLE_DONE]', [
                 'user_id' => optional($request->user())->id,
                 'hub' => $result['hub'] ?? null,
             ]);
@@ -166,7 +166,7 @@ class LeaseController extends Controller
         } catch (Throwable $e) {
             report($e);
 
-            Log::error('[LEASE_GLOBAL_CUTOFF_UPDATE_FAILED]', [
+            Log::error('[LEASE_CONTRACT_RULES_BULK_TOGGLE_FAILED]', [
                 'user_id' => optional($request->user())->id,
                 'error' => $e->getMessage(),
             ]);
