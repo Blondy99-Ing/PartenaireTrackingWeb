@@ -43,9 +43,16 @@ class LeaseCutoffPlanCommand extends Command
 
         $this->info('Planification terminée.');
         $this->line('Date échéance traitée : ' . ($result['target_date_echeance'] ?? $date));
+        $this->line('Contrats API indexés : ' . ($result['contracts_indexed_count'] ?? 0));
+        $this->line('Leases NON_PAYE reçus : ' . ($result['non_paid_leases_count'] ?? 0));
         $this->line('Créés      : ' . ($result['created'] ?? 0));
         $this->line('Réutilisés : ' . ($result['reused'] ?? 0));
         $this->line('Ignorés    : ' . ($result['skipped'] ?? 0));
+
+        if ((int) ($result['non_paid_leases_count'] ?? 0) === 0) {
+            $this->warn('Aucun lease NON_PAYE n’a été reçu par Tracking. Les règles n’ont pas été évaluées.');
+            $this->line('Vérifie storage/logs/laravel.log : [LEASE_API] et [LEASE_CUTOFF_PLAN].');
+        }
 
         $skipReasons = $result['skip_reasons'] ?? [];
         if (! empty($skipReasons)) {

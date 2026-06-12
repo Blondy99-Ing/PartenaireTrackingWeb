@@ -68,6 +68,8 @@ class LeaseCutoffHistoryService
             'command_sent' => (clone $filteredQuery)->where('status', 'COMMAND_SENT')->count(),
 
             'cancelled_paid' => (clone $filteredQuery)->where('status', 'CANCELLED_PAID')->count(),
+            'cancelled_rule_missing' => (clone $filteredQuery)->where('status', 'CANCELLED_RULE_MISSING')->count(),
+            'cancelled_rule_disabled' => (clone $filteredQuery)->where('status', 'CANCELLED_RULE_DISABLED')->count(),
             'cancelled_forgiven_before_cut' => (clone $filteredQuery)
                 ->where('status', 'CANCELLED_FORGIVEN_BEFORE_CUT')
                 ->count(),
@@ -102,6 +104,8 @@ class LeaseCutoffHistoryService
             'CUT_OFF' => 'Coupure confirmée',
 
             'CANCELLED_PAID' => 'Annulé car payé',
+            'CANCELLED_RULE_MISSING' => 'Annulé : règle absente',
+            'CANCELLED_RULE_DISABLED' => 'Annulé : règle désactivée ou incomplète',
             'CANCELLED_FORGIVEN_BEFORE_CUT' => 'Pardonné avant coupure',
 
             'REACTIVATION_REQUESTED_AFTER_FORGIVENESS' => 'Rallumage demandé après pardon',
@@ -124,6 +128,8 @@ class LeaseCutoffHistoryService
             'CUT_OFF' => 'Coupure confirmée',
 
             'CANCELLED_PAID' => 'Annulé / payé',
+            'CANCELLED_RULE_MISSING' => 'Annulé : règle absente',
+            'CANCELLED_RULE_DISABLED' => 'Annulé : règle désactivée ou incomplète',
             'CANCELLED_FORGIVEN_BEFORE_CUT' => 'Pardonné avant coupure',
 
             'REACTIVATION_REQUESTED_AFTER_FORGIVENESS' => 'Rallumage demandé après pardon',
@@ -148,6 +154,8 @@ class LeaseCutoffHistoryService
             'CUT_OFF' => 'cut',
 
             'CANCELLED_PAID',
+            'CANCELLED_RULE_MISSING',
+            'CANCELLED_RULE_DISABLED',
             'CANCELLED_FORGIVEN_BEFORE_CUT' => 'cancelled',
 
             'REACTIVATION_REQUESTED_AFTER_FORGIVENESS' => 'sent',

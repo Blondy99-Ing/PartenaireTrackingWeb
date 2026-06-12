@@ -15,6 +15,7 @@ use Illuminate\Validation\Rules\Password;
 use App\Services\Leases\LeaseCutoffDefaultRuleService;
 use App\Services\GeofenceZoneService;
 use App\Services\VehicleTimeZoneService;
+use App\Models\User;
 
 
 
@@ -32,24 +33,31 @@ public function __construct(
 
 public function index(): View
 {
-    $partner = auth()->user();
+    $user = auth()->user();
+
+    abort_if(! $user, 403);
+
+    $partner = $user;
+
+    if (! empty($user->partner_id)) {
+        $partner = User::query()->find($user->partner_id) ?? $user;
+    }
 
     return view('settings.lease', [
-    'partner' => $partner,
+        'partner' => $partner,
 
-    'contractTypes' => $this->contractTypeService->getAllContractTypes(),
-    'mainContractTypes' => $this->contractTypeService->getMainContractTypes(),
-    'subContractTypes' => $this->contractTypeService->getSubContractTypes(),
+        'contractTypes' => $this->contractTypeService->getAllContractTypes(),
+        'mainContractTypes' => $this->contractTypeService->getMainContractTypes(),
+        'subContractTypes' => $this->contractTypeService->getSubContractTypes(),
 
-    'defaultRules' => $this->defaultRuleService->getRulesForPartner($partner),
-    'defaultActiveDays' => $this->defaultRuleService->defaultActiveDays(),
+        'defaultRules' => $this->defaultRuleService->getRulesForPartner($partner),
+        'defaultActiveDays' => $this->defaultRuleService->defaultActiveDays(),
 
-    'geofences' => $this->geofenceZoneService->geofencesForUser($partner),
-    'vehicles' => $this->geofenceZoneService->vehiclesForUser($partner),
+        'geofences' => $this->geofenceZoneService->geofencesForUser($partner),
+        'vehicles' => $this->geofenceZoneService->vehiclesForUser($partner),
 
-    'timeZoneVehicles' => $this->vehicleTimeZoneService->vehiclesForUser($partner),
-]);
-
+        'timeZoneVehicles' => $this->vehicleTimeZoneService->vehiclesForUser($partner),
+    ]);
 }
 
     public function storeContractType(Request $request): RedirectResponse

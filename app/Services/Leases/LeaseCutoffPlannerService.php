@@ -57,7 +57,27 @@ class LeaseCutoffPlannerService
         ]);
 
         $contractsById = $this->leaseApi->fetchContractsIndexedById();
+        $contractsCount = count($contractsById);
+
         $nonPaidLeases = $this->leaseApi->fetchNonPaidLeasesForDate($targetDate);
+        $leasesCount = count($nonPaidLeases);
+
+        Log::info('[LEASE_CUTOFF_PLAN] Données Recouvrement reçues avant application des règles.', [
+            'target_date_echeance' => $targetDate,
+            'contracts_indexed_count' => $contractsCount,
+            'non_paid_leases_count' => $leasesCount,
+            'lease_ids' => collect($nonPaidLeases)->pluck('id')->take(50)->values()->all(),
+            'api_diagnostics' => $this->leaseApi->getLastDiagnostics(),
+        ]);
+
+        if ($leasesCount === 0) {
+            Log::warning('[LEASE_CUTOFF_PLAN] Arrêt normal : aucun lease NON_PAYE reçu par Tracking pour cette date. Les règles ne sont donc pas évaluées.', [
+                'target_date_echeance' => $targetDate,
+                'contracts_indexed_count' => $contractsCount,
+                'api_diagnostics' => $this->leaseApi->getLastDiagnostics(),
+                'hint' => 'Comparer cette URL/token avec le navigateur : /api/v1/leases/?statut=NON_PAYE&date_echeance=' . $targetDate,
+            ]);
+        }
 
         $created = 0;
         $reused = 0;
@@ -368,19 +388,25 @@ class LeaseCutoffPlannerService
 
         Log::info('[LEASE_CUTOFF_PLAN] Fin planification.', [
             'target_date_echeance' => $targetDate,
+            'contracts_indexed_count' => $contractsCount,
+            'non_paid_leases_count' => $leasesCount,
             'created' => $created,
             'reused' => $reused,
             'skipped' => $skipped,
             'skip_reasons' => $skipReasons,
+            'api_diagnostics' => $this->leaseApi->getLastDiagnostics(),
         ]);
 
         return [
             'success' => true,
             'target_date_echeance' => $targetDate,
+            'contracts_indexed_count' => $contractsCount,
+            'non_paid_leases_count' => $leasesCount,
             'created' => $created,
             'reused' => $reused,
             'skipped' => $skipped,
             'skip_reasons' => $skipReasons,
+            'api_diagnostics' => $this->leaseApi->getLastDiagnostics(),
         ];
     }
 

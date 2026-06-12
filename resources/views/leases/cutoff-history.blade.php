@@ -1099,6 +1099,8 @@
                         'COMMAND_SENT'   => 'ch-badge-sent',
                         'CUT_OFF'        => 'ch-badge-cut',
                         'CANCELLED_PAID',
+                        'CANCELLED_RULE_MISSING',
+                        'CANCELLED_RULE_DISABLED',
                         'CANCELLED_FORGIVEN_BEFORE_CUT',
                         'REACTIVATED_AFTER_FORGIVENESS' => 'ch-badge-cancelled',
                         'FAILED',
@@ -1113,6 +1115,8 @@
                         'COMMAND_SENT'   => 'Cmd. envoyée',
                         'CUT_OFF'        => 'Coupure conf.',
                         'CANCELLED_PAID' => 'Annulé / payé',
+                        'CANCELLED_RULE_MISSING' => 'Annulé : règle absente',
+                        'CANCELLED_RULE_DISABLED' => 'Annulé : règle incomplète',
                         'CANCELLED_FORGIVEN_BEFORE_CUT' => 'Pardon avant coupure — dette ouverte',
                         'REACTIVATION_REQUESTED_AFTER_FORGIVENESS' => 'Rallumage demandé',
                         'REACTIVATED_AFTER_FORGIVENESS' => 'Rallumé après pardon — dette ouverte',
@@ -1127,6 +1131,8 @@
                         'COMMAND_SENT'   => 'fa-paper-plane',
                         'CUT_OFF'        => 'fa-check',
                         'CANCELLED_PAID' => 'fa-ban',
+                        'CANCELLED_RULE_MISSING' => 'fa-link-slash',
+                        'CANCELLED_RULE_DISABLED' => 'fa-toggle-off',
                         'CANCELLED_FORGIVEN_BEFORE_CUT' => 'fa-shield-heart',
                         'REACTIVATION_REQUESTED_AFTER_FORGIVENESS' => 'fa-rotate',
                         'REACTIVATED_AFTER_FORGIVENESS' => 'fa-bolt',
@@ -1339,6 +1345,14 @@
                                         @endif
                                     </span>
                                 </div>
+                                <div class="ch-detail-field">
+                                    <span class="ch-detail-field-key">Déclencheur</span>
+                                    <span class="ch-detail-field-val">{{ $history->trigger_label ?: '—' }}</span>
+                                </div>
+                                <div class="ch-detail-field" style="display:block;">
+                                    <div class="ch-detail-field-key" style="margin-bottom:.3rem;">Raison métier complète</div>
+                                    <div class="ch-detail-field-val">{{ $history->reason ?: '—' }}</div>
+                                </div>
                             </div>
 
                             {{-- Suivi technique --}}
@@ -1418,6 +1432,12 @@
                                         <div class="ch-detail-field" style="display:block;">
                                             <div class="ch-detail-field-key" style="margin-bottom:.3rem;">Notes</div>
                                             <div class="ch-detail-field-val">{{ $history->notes }}</div>
+                                        </div>
+                                    @endif
+                                    @if(!empty($history->command_response))
+                                        <div class="ch-detail-field" style="display:block;">
+                                            <div class="ch-detail-field-key" style="margin-bottom:.3rem;">Réponse provider GPS</div>
+                                            <pre class="ch-detail-field-val" style="white-space:pre-wrap;margin:0;font-size:.68rem;">{{ json_encode($history->command_response, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) }}</pre>
                                         </div>
                                     @endif
                                 </div>

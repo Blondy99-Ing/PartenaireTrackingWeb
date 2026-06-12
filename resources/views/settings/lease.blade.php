@@ -445,51 +445,74 @@
                 <button class="settings-nav-btn" type="button" data-target="contracts"><i class="fas fa-file-contract"></i> Types de contrats</button>
                 <button class="settings-nav-btn" type="button" data-target="cutoff"><i class="fas fa-power-off"></i> Règles de coupure</button>
                 <button class="settings-nav-btn" type="button" data-target="geofence"><i class="fas fa-draw-polygon"></i> Geofence</button>
-                <button class="settings-nav-btn" type="button" data-target="safezone"><i class="fas fa-shield-alt"></i> Safe Zone</button>
+               {{-- <button class="settings-nav-btn" type="button" data-target="safezone"><i class="fas fa-shield-alt"></i> Safe Zone</button> --}}
                 <button class="settings-nav-btn" type="button" data-target="timezone"><i class="fas fa-clock"></i> Timezone</button>
             </nav>
         </aside>
 
-        <section class="settings-content ui-card">
-            <div class="settings-section active" id="section-profile">
-                <div class="section-head">
-                    <div>
-                        <h2>Profil du partenaire</h2>
-                        <p>Informations générales du compte partenaire. Le partenaire reste un utilisateur avec <strong>partner_id = NULL</strong>.</p>
-                    </div>
-                    <button class="btn-orange" type="button"><i class="fas fa-save"></i> Enregistrer</button>
-                </div>
 
-                <div class="form-grid">
-                    <div class="field">
-                        <label>Nom / raison sociale</label>
-                        <input class="form-control" type="text" value="{{ $partner->name ?? 'ROYAL Holding' }}">
-                    </div>
+        
 
-                    <div class="field">
-                        <label>Email</label>
-                        <input class="form-control" type="email" value="{{ $partner->email ?? 'contact@partner.com' }}">
-                    </div>
 
-                    <div class="field">
-                        <label>Téléphone</label>
-                        <input class="form-control" type="text" value="{{ $partner->phone ?? '+237 6XX XXX XXX' }}">
-                    </div>
 
-                    <div class="field">
-                        <label>Type partenaire</label>
-                        <select class="form-select">
-                            <option selected>LEASE_PARTNER</option>
-                            <option>SIMPLE_PARTNER</option>
-                        </select>
-                    </div>
+        <div class="settings-section active" id="section-profile">
+    <div class="section-head">
+        <div>
+            <h2>Profil du partenaire</h2>
+            <p>
+                Informations générales du partenaire rattaché au compte connecté.
+                Ces informations sont affichées en lecture seule.
+            </p>
+        </div>
 
-                    <div class="field full">
-                        <label>Adresse</label>
-                        <textarea>Yaoundé, Cameroun</textarea>
-                    </div>
-                </div>
-            </div>
+        <span class="status-pill ok">
+            <i class="fas fa-lock"></i>
+            Lecture seule
+        </span>
+    </div>
+
+    <div class="form-grid">
+        <div class="field">
+            <label>Nom / raison sociale</label>
+            <input
+                class="form-control"
+                type="text"
+                value="{{ $partner->name ?? $partner->full_name ?? trim(($partner->prenom ?? '') . ' ' . ($partner->nom ?? '')) ?: 'Non renseigné' }}"
+                readonly
+            >
+        </div>
+
+        <div class="field">
+            <label>Email</label>
+            <input
+                class="form-control"
+                type="email"
+                value="{{ $partner->email ?? 'Non renseigné' }}"
+                readonly
+            >
+        </div>
+
+        <div class="field">
+            <label>Téléphone</label>
+            <input
+                class="form-control"
+                type="text"
+                value="{{ $partner->phone ?? $partner->telephone ?? 'Non renseigné' }}"
+                readonly
+            >
+        </div>
+
+        
+
+       
+
+        
+
+        
+    </div>
+</div>
+
+
 
             
             

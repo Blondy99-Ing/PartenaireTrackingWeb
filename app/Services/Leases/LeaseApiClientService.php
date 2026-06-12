@@ -16,6 +16,12 @@ class LeaseApiClientService
 
     private string $tokenCacheKey = 'lease_api:recouvrement_access_token';
 
+    /**
+     * Diagnostic du dernier appel Recouvrement utile pour les commandes Artisan.
+     * Ne contient jamais le token ni le mot de passe.
+     */
+    private array $lastDiagnostics = [];
+
     public function __construct()
     {
         $this->baseUrl = rtrim((string) (
@@ -29,6 +35,11 @@ class LeaseApiClientService
             ?: env('PARTNER_LEASE_API_TIMEOUT')
             ?: 20
         );
+    }
+
+    public function getLastDiagnostics(): array
+    {
+        return $this->lastDiagnostics;
     }
 
     public function fetchContracts(): array
@@ -106,12 +117,20 @@ class LeaseApiClientService
             $validRows[] = $row;
         }
 
-        Log::info('[LEASE_API] Leases NON_PAYE récupérés pour une date précise.', [
+        $diagnostic = [
             'date_echeance' => $date,
             'raw_count' => count($rows),
             'valid_count' => count($validRows),
             'lease_ids' => collect($validRows)->pluck('id')->take(50)->values()->all(),
-        ]);
+            'first_raw_row' => is_array($rows[0] ?? null) ? $rows[0] : null,
+            'last_api_call' => $this->lastDiagnostics,
+        ];
+
+        if (count($rows) === 0) {
+            Log::warning('[LEASE_API] Aucun lease NON_PAYE retourné par Recouvrement pour la date demandée.', $diagnostic);
+        } else {
+            Log::info('[LEASE_API] Leases NON_PAYE récupérés pour une date précise.', $diagnostic);
+        }
 
         return $validRows;
     }
@@ -270,6 +289,13 @@ class LeaseApiClientService
             $next = $nextJson['next'] ?? null;
         }
 
+        Log::info('[LEASE_API] Rows Recouvrement normalisées.', [
+            'endpoint' => $endpoint,
+            'query' => $query,
+            'rows_count' => count($rows),
+            'last_api_call' => $this->lastDiagnostics,
+        ]);
+
         return $rows;
     }
 
@@ -320,6 +346,25 @@ class LeaseApiClientService
         if (! is_array($json)) {
             throw new RuntimeException("Réponse API lease invalide pour GET {$endpoint}.");
         }
+
+        $rowsPreview = $json['results'] ?? $json;
+        $resultsCount = is_array($rowsPreview) ? count($rowsPreview) : null;
+
+        $this->lastDiagnostics = [
+            'endpoint' => $endpoint,
+            'url' => $url,
+            'query' => $query,
+            'status' => $response->status(),
+            'base_url' => $this->baseUrl,
+            'username' => env('LEASE_AUTH_USERNAME'),
+            'client_id' => env('LEASE_AUTH_CLIENT_ID'),
+            'json_keys' => array_slice(array_keys($json), 0, 20),
+            'api_count' => $json['count'] ?? null,
+            'results_count' => $resultsCount,
+            'has_next' => ! empty($json['next'] ?? null),
+        ];
+
+        Log::info('[LEASE_API] Réponse GET Recouvrement décodée.', $this->lastDiagnostics);
 
         return $json;
     }
