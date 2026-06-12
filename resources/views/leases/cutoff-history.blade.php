@@ -1171,6 +1171,61 @@
                         'montant_paye'          => 'Montant payé',
                         'statut'                => 'Statut paiement',
                     ];
+
+                    $cleanBusinessText = function (?string $value, string $fallback = '—') {
+                        $value = trim((string) $value);
+
+                        if ($value === '') {
+                            return $fallback;
+                        }
+
+                        $value = preg_replace('/\bType\s*#?\d+\b/i', '', $value);
+                        $value = preg_replace('/\b(?:contrat|sous-contrat|lien|règle|regle|lease)\s*#?\d+\b/i', '', $value);
+                        $value = preg_replace('/#\d+/', '', $value);
+                        $value = preg_replace('/\s*[·|,-]\s*(?=\s*[·|,-]|$)/', ' ', $value);
+                        $value = preg_replace('/\s+/', ' ', trim($value, " ·|-\t\n\r\0\x0B"));
+
+                        return $value !== '' ? $value : $fallback;
+                    };
+
+                    $businessTypeLabel = $cleanBusinessText(
+                        $contractTypeLabel,
+                        $history->contract_kind === 'SUB' ? 'sous-contrat' : 'contrat principal'
+                    );
+
+                    $businessNatureLabel = $history->contract_kind === 'SUB'
+                        ? 'sous-contrat'
+                        : 'contrat principal';
+
+                    $businessCause = $history->contract_kind === 'SUB'
+                        ? 'Cause : sous-contrat ' . $businessTypeLabel
+                        : 'Cause : contrat principal ' . $businessTypeLabel;
+
+                    $businessReason = $cleanBusinessText($history->reason, 'Motif non renseigné.');
+
+                    $businessActionLabel = match($history->status) {
+                        'CUT_OFF' => 'Chauffeur coupé',
+                        'COMMAND_SENT' => 'Commande de coupure envoyée',
+                        'WAITING_STOP' => 'Coupure en attente d’arrêt du véhicule',
+                        'PENDING' => 'Coupure planifiée',
+                        'CANCELLED_PAID' => 'Coupure annulée : paiement régularisé',
+                        'CANCELLED_RULE_MISSING' => 'Coupure annulée : règle de coupure absente',
+                        'CANCELLED_RULE_DISABLED' => 'Coupure annulée : règle de coupure inactive',
+                        'CANCELLED_FORGIVEN_BEFORE_CUT' => 'Coupure annulée : pardon accordé avant coupure',
+                        'REACTIVATION_REQUESTED_AFTER_FORGIVENESS' => 'Rallumage demandé après pardon',
+                        'REACTIVATED_AFTER_FORGIVENESS' => 'Véhicule rallumé après pardon',
+                        'REACTIVATION_FAILED_AFTER_FORGIVENESS' => 'Échec du rallumage après pardon',
+                        'FAILED' => 'Coupure non effectuée',
+                        default => $statusLabel,
+                    };
+
+                    $businessSummary = $businessActionLabel . ' — ' . $businessCause;
+
+                    $displayDriverName = $paymentSnapshot['chauffeur_nom_complet']
+                        ?? $history->driver?->nom_complet
+                        ?? $history->driver?->name
+                        ?? null;
+                @endphp
                 @endphp
 
                 {{-- ── MAIN ROW ── --}}
@@ -1201,28 +1256,22 @@
                         <div class="ch-pay">
                             <div class="ch-pay-driver">
                                 <i class="fas fa-file-contract" style="font-size:.65rem;color:var(--color-text-muted);margin-right:.2rem;"></i>
-                                {{ $contractTypeLabel }}
+                                {{ $businessSummary }}
                             </div>
-                            <div class="ch-pay-due">
-                                {{ $contractKindLabel }} · contrat #{{ $history->contract_id ?? '—' }}
-                                @if($contractLinkId)
-                                    · lien #{{ $contractLinkId }}
-                                @endif
-                            </div>
-                            @if($history->lease_id || $history->lease_date_echeance)
+
+                            @if($history->lease_date_echeance)
                                 <div class="ch-pay-due">
-                                    Lease #{{ $history->lease_id ?? '—' }}
-                                    @if($history->lease_date_echeance)
-                                        · échéance {{ optional($history->lease_date_echeance)->format('d/m/Y') }}
-                                    @endif
+                                    Échéance du {{ optional($history->lease_date_echeance)->format('d/m/Y') }}
                                 </div>
                             @endif
-                            @if(!empty($paymentSnapshot['chauffeur_nom_complet']))
+
+                            @if(!empty($displayDriverName))
                                 <div class="ch-pay-driver" style="margin-top:.25rem;">
                                     <i class="fas fa-user" style="font-size:.65rem;color:var(--color-text-muted);margin-right:.2rem;"></i>
-                                    {{ $paymentSnapshot['chauffeur_nom_complet'] }}
+                                    {{ $displayDriverName }}
                                 </div>
                             @endif
+
                             @if(!empty($paymentSnapshot['reste_a_payer']))
                                 <div class="ch-pay-amount">
                                     <i class="fas fa-triangle-exclamation" style="font-size:.65rem;"></i>
@@ -1290,7 +1339,7 @@
                     {{-- Motif --}}
                     <td>
                         <div class="ch-reason {{ !$history->reason ? 'ch-reason-empty' : '' }}">
-                            {{ $history->reason ?: 'Aucun motif renseigné.' }}
+                            {{ $businessReason }}
                         </div>
                     </td>
 
@@ -1313,67 +1362,58 @@
                     <td colspan="9">
                         <div class="ch-detail-inner" id="inner-{{ $rowId }}">
 
-                            {{-- Contrat / règle utilisée --}}
+                            {{-- Résumé métier --}}
                             <div class="ch-detail-section">
                                 <div class="ch-detail-section-title">
                                     <i class="fas fa-file-signature"></i>
-                                    Contrat & règle de coupure
+                                    Résumé métier
                                 </div>
+
                                 <div class="ch-detail-field">
-                                    <span class="ch-detail-field-key">Type</span>
-                                    <span class="ch-detail-field-val">{{ $contractTypeLabel }}</span>
+                                    <span class="ch-detail-field-key">Action</span>
+                                    <span class="ch-detail-field-val">{{ $businessActionLabel }}</span>
                                 </div>
+
                                 <div class="ch-detail-field">
-                                    <span class="ch-detail-field-key">Nature</span>
-                                    <span class="ch-detail-field-val">{{ $contractKindLabel }}</span>
+                                    <span class="ch-detail-field-key">Cause</span>
+                                    <span class="ch-detail-field-val">{{ $businessCause }}</span>
                                 </div>
-                                <div class="ch-detail-field">
-                                    <span class="ch-detail-field-key">Contrat / sous-contrat</span>
-                                    <span class="ch-detail-field-val">#{{ $history->contract_id ?? '—' }}</span>
-                                </div>
-                                <div class="ch-detail-field">
-                                    <span class="ch-detail-field-key">Lien local</span>
-                                    <span class="ch-detail-field-val">{{ $contractLinkId ? '#' . $contractLinkId : '—' }}</span>
-                                </div>
-                                <div class="ch-detail-field">
-                                    <span class="ch-detail-field-key">Règle</span>
-                                    <span class="ch-detail-field-val">
-                                        @if($history->contractRule)
-                                            #{{ $history->contractRule->id }} · {{ $history->contractRule->is_enabled ? 'active' : 'inactive' }}{{ $ruleTime ? ' · ' . $ruleTime : '' }}
-                                        @else
-                                            —
-                                        @endif
-                                    </span>
-                                </div>
-                                <div class="ch-detail-field">
-                                    <span class="ch-detail-field-key">Déclencheur</span>
-                                    <span class="ch-detail-field-val">{{ $history->trigger_label ?: '—' }}</span>
-                                </div>
+
+                                @if($history->lease_date_echeance)
+                                    <div class="ch-detail-field">
+                                        <span class="ch-detail-field-key">Échéance concernée</span>
+                                        <span class="ch-detail-field-val">{{ optional($history->lease_date_echeance)->format('d/m/Y') }}</span>
+                                    </div>
+                                @endif
+
+                                @if(!empty($displayDriverName))
+                                    <div class="ch-detail-field">
+                                        <span class="ch-detail-field-key">Chauffeur</span>
+                                        <span class="ch-detail-field-val">{{ $displayDriverName }}</span>
+                                    </div>
+                                @endif
+
                                 <div class="ch-detail-field" style="display:block;">
-                                    <div class="ch-detail-field-key" style="margin-bottom:.3rem;">Raison métier complète</div>
-                                    <div class="ch-detail-field-val">{{ $history->reason ?: '—' }}</div>
+                                    <div class="ch-detail-field-key" style="margin-bottom:.3rem;">Message</div>
+                                    <div class="ch-detail-field-val">{{ $businessReason }}</div>
                                 </div>
                             </div>
 
-                            {{-- Suivi technique --}}
+                            {{-- État véhicule --}}
                             <div class="ch-detail-section">
                                 <div class="ch-detail-section-title">
-                                    <i class="fas fa-satellite-dish"></i>
-                                    Suivi technique
+                                    <i class="fas fa-car-side"></i>
+                                    État véhicule
                                 </div>
                                 <div class="ch-detail-field">
-                                    <span class="ch-detail-field-key">MAC GPS</span>
-                                    <span class="ch-detail-field-val">{{ $history->vehicle->mac_id_gps ?? '—' }}</span>
-                                </div>
-                                <div class="ch-detail-field">
-                                    <span class="ch-detail-field-key">Vitesse</span>
+                                    <span class="ch-detail-field-key">Vitesse contrôlée</span>
                                     <span class="ch-detail-field-val">
-                                        {{ $history->speed_at_check !== null ? $history->speed_at_check . ' km/h' : '—' }}
+                                        {{ $history->speed_at_check !== null ? $history->speed_at_check . ' km/h' : 'Non disponible' }}
                                     </span>
                                 </div>
                                 <div class="ch-detail-field">
-                                    <span class="ch-detail-field-key">Ignition</span>
-                                    <span class="ch-detail-field-val">{{ $history->ignition_state ?? '—' }}</span>
+                                    <span class="ch-detail-field-key">Moteur</span>
+                                    <span class="ch-detail-field-val">{{ $ignOn ? 'Allumé' : 'Éteint' }}</span>
                                 </div>
                             </div>
 

@@ -420,7 +420,7 @@
 <div class="partner-settings-page">
     <div class="settings-top">
         <div class="settings-title">
-            <h1><i class="fas fa-sliders-h"></i> Configuration partenaire</h1>
+            <h1><i class="fas fa-sliders-h"></i> Configuration </h1>
             <p>Centre de paramétrage du profil, des contrats Lease, des règles GPS et des horaires.</p>
         </div>
 
@@ -459,16 +459,10 @@
     <div class="section-head">
         <div>
             <h2>Profil du partenaire</h2>
-            <p>
-                Informations générales du partenaire rattaché au compte connecté.
-                Ces informations sont affichées en lecture seule.
-            </p>
+           
         </div>
 
-        <span class="status-pill ok">
-            <i class="fas fa-lock"></i>
-            Lecture seule
-        </span>
+        
     </div>
 
     <div class="form-grid">
@@ -526,8 +520,8 @@
             <div>
                 <h2>Sécurité du compte</h2>
                 <p>
-                    Modification du mot de passe partenaire.
-                    Le mot de passe sera mis à jour localement et sur Keycloak.
+                    Modification du mot de passe .
+                    
                 </p>
             </div>
 
@@ -590,8 +584,8 @@
         <div>
             <h2>Types de contrats</h2>
             <p>
-                Créez les contrats principaux et les sous-contrats utilisés par le module Lease.
-                Les données sont créées côté recouvrement puis affichées ici.
+                Créez les contrats principaux et les sous-contrats utilisés pour la creation des contrats chauffeurs.
+                
             </p>
         </div>
     </div>
@@ -635,15 +629,7 @@
                 </select>
             </div>
 
-            <div class="field full">
-                <label style="display:flex; gap:.5rem; align-items:center;">
-                    <input type="checkbox" name="enable_by_default" value="1" @checked(old('enable_by_default'))>
-                    Activer une règle de coupure par défaut pour les véhicules existants
-                </label>
-                <small style="color:#64748b;">
-                    Recommandé : laissez décoché pour éviter une coupure accidentelle.
-                </small>
-            </div>
+            
         </div>
 
         <button class="btn-orange" type="submit">
@@ -930,7 +916,7 @@
             <h2>Geofences partenaires</h2>
             <p>
                 Créez des geofences personnalisés, puis appliquez-les à un ou plusieurs véhicules.
-                L’affectation est enregistrée dans <strong>voitures.geofence_zone</strong>.
+               
             </p>
         </div>
     </div>

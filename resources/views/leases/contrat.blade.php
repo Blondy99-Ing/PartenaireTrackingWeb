@@ -1345,7 +1345,7 @@
     @if($contractTypes->isEmpty())
         <div class="lc-panel" style="padding:.85rem 1rem;color:#b91c1c;background:rgba(220,38,38,.08);border-color:rgba(220,38,38,.22);">
             <strong><i class="fas fa-ban"></i> Types de contrats indisponibles :</strong>
-            la création de contrats est désactivée tant que l’API recouvrement ne retourne pas les types.
+            vous devez creer les types de contrat pour pouvoir créer des contrats ou des sous contrats.
         </div>
     @endif
 
@@ -1355,11 +1355,7 @@
                 <i class="fas fa-file-contract"></i>
                 Contrats, sous-contrats et règles de coupure
             </h1>
-            <p>
-                Les chauffeurs viennent de recouvrement. Les véhicules viennent de Tracking.
-                L’immatriculation et le VIN sont remplis automatiquement depuis le véhicule sélectionné.
-                Pour clôturer un contrat déjà lié à des échéances, on change son statut en SOLDÉ au lieu de le supprimer définitivement.
-            </p>
+            
         </div>
 
         <div class="lc-actions">
@@ -1413,10 +1409,10 @@
                 <select class="lc-select" id="statusFilter">
                     <option value="all">Tous les statuts</option>
                     <option value="actif">Actifs</option>
-                    <option value="retard">Avec retard</option>
+                    
                     <option value="solde">Soldés</option>
                     <option value="suspendu">Suspendus</option>
-                    <option value="contentieux">Contentieux</option>
+                    
                 </select>
 
                 <select class="lc-select" id="subTypeFilter">
@@ -1431,7 +1427,7 @@
                     <option value="all">Toutes les coupures</option>
                     <option value="cutoff_enabled">Coupure activée</option>
                     <option value="cutoff_disabled">Coupure désactivée</option>
-                    <option value="late_cuttable">Retard pouvant couper</option>
+                    
                 </select>
             </div>
 
@@ -1619,14 +1615,14 @@
                             <div class="lc-form-grid">
                                 <div class="lc-field full">
                                     <label class="lc-checkbox-line">
-                                        <input type="checkbox" name="apply_default_cutoff_rule" value="1" checked>
+                                        <input type="radio" name="cutoff_rule" value="1" checked>
                                         Appliquer la règle de coupure par défaut
                                     </label>
                                 </div>
 
                                 <div class="lc-field full">
                                     <label class="lc-checkbox-line">
-                                        <input type="checkbox" name="customize_cutoff_rule" value="1" data-toggle-custom-rule>
+                                        <input type="radio" name="cutoff_rule" value="1" data-toggle-custom-rule>
                                         Personnaliser la règle de coupure pour ce contrat
                                     </label>
                                 </div>
@@ -1671,28 +1667,14 @@
                                             </div>
                                         </div>
 
-                                        <div class="lc-field">
-                                            <label class="lc-checkbox-line">
-                                                <input type="checkbox" name="custom_rule_only_when_stopped" value="1" checked>
-                                                Couper seulement à l’arrêt
-                                            </label>
-                                        </div>
-
-                                        <div class="lc-field">
-                                            <label class="lc-checkbox-line">
-                                                <input type="checkbox" name="custom_rule_notify_before_cutoff" value="1">
-                                                Notifier avant coupure
-                                            </label>
-                                        </div>
+                                        
+                                        
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="lc-field full">
-                            <label>Spécificités</label>
-                            <textarea class="lc-textarea" name="specificites" rows="3"></textarea>
-                        </div>
+                        
                     </div>
                 </div>
             </div>
@@ -1799,14 +1781,14 @@
                             <div class="lc-form-grid">
                                 <div class="lc-field full">
                                     <label class="lc-checkbox-line">
-                                        <input type="checkbox" name="apply_default_cutoff_rule" value="1" checked>
+                                        <input type="radio" name="cutoff_rule" value="1" checked>
                                         Appliquer la règle de coupure par défaut
                                     </label>
                                 </div>
 
                                 <div class="lc-field full">
                                     <label class="lc-checkbox-line">
-                                        <input type="checkbox" name="customize_cutoff_rule" value="1" data-toggle-custom-rule>
+                                        <input type="radio" name="cutoff_rule" value="1" data-toggle-custom-rule>
                                         Personnaliser la règle de coupure pour ce contrat
                                     </label>
                                 </div>
@@ -1851,28 +1833,15 @@
                                             </div>
                                         </div>
 
-                                        <div class="lc-field">
-                                            <label class="lc-checkbox-line">
-                                                <input type="checkbox" name="custom_rule_only_when_stopped" value="1" checked>
-                                                Couper seulement à l’arrêt
-                                            </label>
-                                        </div>
+                                        
 
-                                        <div class="lc-field">
-                                            <label class="lc-checkbox-line">
-                                                <input type="checkbox" name="custom_rule_notify_before_cutoff" value="1">
-                                                Notifier avant coupure
-                                            </label>
-                                        </div>
+                                        
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="lc-field full">
-                            <label>Spécificités</label>
-                            <textarea class="lc-textarea" name="specificites" rows="4"></textarea>
-                        </div>
+                        
                 </div>
             </div>
         </div>
@@ -1924,7 +1893,7 @@
                             <option value="ACTIF">Actif</option>
                             <option value="SUSPENDU">Suspendu</option>
                             <option value="SOLDE">Soldé</option>
-                            <option value="CONTENTIEUX">Contentieux</option>
+                            
                         </select>
                     </div>
 
@@ -1991,10 +1960,7 @@
                         <input type="date" class="lc-input" name="prochaine_echeance" id="editDueDate" required>
                     </div>
 
-                    <div class="lc-field full">
-                        <label>Spécificités</label>
-                        <textarea class="lc-textarea" name="specificites" id="editSpecificites" rows="4"></textarea>
-                    </div>
+                    
                 </div>
             </div>
         </div>
@@ -2067,7 +2033,7 @@
                         <label>Condition sécurité</label>
                         <select class="lc-select" name="cutoff[only_when_stopped]" id="policyOnlyStopped">
                             <option value="1">Couper seulement si arrêté</option>
-                            <option value="0">Ne pas imposer l’arrêt</option>
+                            
                         </select>
                     </div>
                 </div>
@@ -2204,10 +2170,7 @@
                     <input type="date" class="lc-input" data-sub-due>
                 </div>
 
-                <div class="lc-field full">
-                    <label>Spécificités</label>
-                    <textarea class="lc-textarea" data-sub-specificites rows="2"></textarea>
-                </div>
+                
             </div>
         </div>
     </div>
@@ -2603,7 +2566,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="lc-info"><span>Délai grâce</span><strong>${cutoff.grace_days ?? 0} jour(s)</strong></div>
                     <div class="lc-info"><span>Jours actifs</span><strong>${activeDays}</strong></div>
                     <div class="lc-info"><span>Sécurité</span><strong>${cutoff.only_when_stopped ? 'Seulement à l’arrêt' : 'Non imposée'}</strong></div>
-                    <div class="lc-info"><span>Notification</span><strong>${cutoff.notify_before_cutoff ? 'Oui' : 'Non'}</strong></div>
+                    
                 </div>
                 <p class="lc-form-help" style="margin-top:.75rem;">
                     Cette règle concerne uniquement ce contrat ou sous-contrat réel. Les sous-contrats ont leurs propres règles indépendantes.
@@ -2677,32 +2640,73 @@ document.addEventListener('DOMContentLoaded', () => {
         openDrawer($('#addSubDrawer'));
     }
 
+    function setValue(selector, value) {
+        const element = $(selector);
+
+        if (!element) {
+            return;
+        }
+
+        element.value = value ?? '';
+    }
+
+    function setText(selector, value) {
+        const element = $(selector);
+
+        if (!element) {
+            return;
+        }
+
+        element.textContent = value ?? '';
+    }
+
     function openEditDrawer(item, parent = null) {
         const isSub = Boolean(parent);
 
-        $('#editDrawerTitle').textContent = isSub ? 'Modifier le sous-contrat' : 'Modifier le contrat';
-        $('#editContractForm').action = buildUrl(updateUrlTemplate, item.id);
+        setText('#editDrawerTitle', isSub ? 'Modifier le sous-contrat' : 'Modifier le contrat');
 
-        $('#editVehicleId').value = parent?.vehicle_id || item.vehicle_id || '';
-        $('#editParent').value = parent?.id || item.parent || '';
-        $('#editType').value = item.type_contrat || '';
-        $('#editStatus').value = apiStatus(item.statut);
-        $('#editChauffeur').value = parent?.chauffeur_id || item.chauffeur_id || '';
-        $('#editImmatriculation').value = parent?.vehicule || item.vehicule || '';
-        $('#editVin').value = parent?.vin || item.vin || '';
-        $('#editTotal').value = item.montant_total || '';
-        $('#editPaid').value = item.total_paye || item.montant_paye || Math.max(0, Number(item.montant_total || 0) - Number(item.montant_restant || 0));
-        $('#editRemaining').value = item.montant_restant || '';
-        $('#editInstallment').value = item.versement || item.montant_par_paiement || '';
-        $('#editFrequency').value = item.frequence || 'JOURNALIER';
-        $('#editStartDate').value = item.date_debut || parent?.date_debut || today();
-        $('#editEndDate').value = calculateContractEndDate($('#editStartDate').value, $('#editTotal').value, $('#editPaid').value, $('#editInstallment').value, $('#editFrequency').value) || item.date_fin || '';
-        $('#editDueDate').value = item.prochaine_echeance || today();
+        const form = $('#editContractForm');
+        if (form) {
+            form.action = buildUrl(updateUrlTemplate, item.id);
+        }
+
+        setValue('#editVehicleId', parent?.vehicle_id || item.vehicle_id || '');
+        setValue('#editParent', parent?.id || item.parent || '');
+        setValue('#editType', item.type_contrat || '');
+        setValue('#editStatus', apiStatus(item.statut));
+        setValue('#editChauffeur', parent?.chauffeur_id || item.chauffeur_id || '');
+        setValue('#editImmatriculation', parent?.vehicule || item.vehicule || '');
+        setValue('#editVin', parent?.vin || item.vin || '');
+        setValue('#editTotal', item.montant_total || '');
+
+        const paidAmount = item.total_paye || item.montant_paye || Math.max(
+            0,
+            Number(item.montant_total || 0) - Number(item.montant_restant || 0)
+        );
+
+        setValue('#editPaid', paidAmount);
+        setValue('#editRemaining', item.montant_restant || '');
+        setValue('#editInstallment', item.versement || item.montant_par_paiement || '');
+        setValue('#editFrequency', item.frequence || 'JOURNALIER');
+
+        const startDate = item.date_debut || parent?.date_debut || today();
+        setValue('#editStartDate', startDate);
+
+        const endDate = calculateContractEndDate(
+            startDate,
+            item.montant_total || '',
+            paidAmount,
+            item.versement || item.montant_par_paiement || '',
+            item.frequence || 'JOURNALIER'
+        ) || item.date_fin || '';
+
+        setValue('#editEndDate', endDate);
+        setValue('#editDueDate', item.prochaine_echeance || today());
 
         if (typeof item.specificites === 'object' && item.specificites !== null) {
-            $('#editSpecificites').value = JSON.stringify(item.specificites, null, 2);
+            setValue('#editSpecificites', JSON.stringify(item.specificites, null, 2));
         } else {
-            $('#editSpecificites').value = item.specificites || '';
+            setValue('#editSpecificites', item.specificites || '');
         }
 
         openDrawer($('#editContractDrawer'));
