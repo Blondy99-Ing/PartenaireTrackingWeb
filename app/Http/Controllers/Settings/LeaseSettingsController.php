@@ -60,27 +60,30 @@ public function index(): View
     ]);
 }
 
-    public function storeContractType(Request $request): RedirectResponse
-    {
-        $validated = $request->validate([
-            'libelle' => ['required', 'string', 'max:150'],
-            'code' => ['nullable', 'string', 'max:40'],
-            'est_principal' => ['required', 'boolean'],
-        ]);
+ public function storeContractType(Request $request): RedirectResponse
+{
+    $request->merge([
+        'est_principal' => $request->boolean('est_principal'),
+    ]);
 
-        try {
-            $this->contractTypeService->createContractType($validated);
+    $validated = $request->validate([
+        'libelle' => ['required', 'string', 'max:150'],
+        'code' => ['nullable', 'string', 'max:40'],
+        'est_principal' => ['required', 'boolean'],
+    ]);
 
-            return back()->with('success', 'Type de contrat créé avec succès.');
-        } catch (Throwable $e) {
-            report($e);
+    try {
+        $this->contractTypeService->createContractType($validated);
 
-            return back()
-                ->withInput()
-                ->with('error', 'Impossible de créer le type de contrat : ' . $e->getMessage());
-        }
+        return back()->with('success', 'Type de contrat créé avec succès.');
+    } catch (Throwable $e) {
+        report($e);
+
+        return back()
+            ->withInput()
+            ->with('error', 'Impossible de créer le type de contrat : ' . $e->getMessage());
     }
-
+}
 
     //Modification de mot de passe
     public function updatePassword(Request $request, KeycloakAdminService $keycloak): RedirectResponse

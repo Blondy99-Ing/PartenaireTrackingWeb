@@ -34,7 +34,7 @@ class LeaseContractTypeService
         return $this->leaseApiService->createContractType([
             'libelle' => $payload['libelle'],
             'code' => $payload['code'] ?? null,
-            'est_principal' => (bool) $payload['est_principal'],
+            'est_principal' => filter_var($payload['est_principal'] ?? false, FILTER_VALIDATE_BOOLEAN),
         ]);
     }
 }
