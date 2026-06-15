@@ -1613,16 +1613,19 @@
                             <p class="lc-rule-help">Choisissez si ce contrat doit reprendre la règle par défaut de son type, ou s’il doit avoir une règle personnalisée.</p>
 
                             <div class="lc-form-grid">
+                                <input type="hidden" name="apply_default_cutoff_rule" value="1" data-apply-default-cutoff-rule>
+                                <input type="hidden" name="customize_cutoff_rule" value="0" data-customize-cutoff-rule>
+
                                 <div class="lc-field full">
                                     <label class="lc-checkbox-line">
-                                        <input type="radio" name="cutoff_rule" value="1" checked>
+                                        <input type="radio" name="cutoff_rule_mode" value="default" data-cutoff-rule-mode checked>
                                         Appliquer la règle de coupure par défaut
                                     </label>
                                 </div>
 
                                 <div class="lc-field full">
                                     <label class="lc-checkbox-line">
-                                        <input type="radio" name="cutoff_rule" value="1" data-toggle-custom-rule>
+                                        <input type="radio" name="cutoff_rule_mode" value="custom" data-cutoff-rule-mode data-toggle-custom-rule>
                                         Personnaliser la règle de coupure pour ce contrat
                                     </label>
                                 </div>
@@ -1779,16 +1782,19 @@
                             <p class="lc-rule-help">Choisissez si ce contrat doit reprendre la règle par défaut de son type, ou s’il doit avoir une règle personnalisée.</p>
 
                             <div class="lc-form-grid">
+                                <input type="hidden" name="apply_default_cutoff_rule" value="1" data-apply-default-cutoff-rule>
+                                <input type="hidden" name="customize_cutoff_rule" value="0" data-customize-cutoff-rule>
+
                                 <div class="lc-field full">
                                     <label class="lc-checkbox-line">
-                                        <input type="radio" name="cutoff_rule" value="1" checked>
+                                        <input type="radio" name="cutoff_rule_mode" value="default" data-cutoff-rule-mode checked>
                                         Appliquer la règle de coupure par défaut
                                     </label>
                                 </div>
 
                                 <div class="lc-field full">
                                     <label class="lc-checkbox-line">
-                                        <input type="radio" name="cutoff_rule" value="1" data-toggle-custom-rule>
+                                        <input type="radio" name="cutoff_rule_mode" value="custom" data-cutoff-rule-mode data-toggle-custom-rule>
                                         Personnaliser la règle de coupure pour ce contrat
                                     </label>
                                 </div>
@@ -2838,16 +2844,26 @@ document.addEventListener('DOMContentLoaded', () => {
         $('#createSubList').appendChild(card);
     }
 
+    function syncCutoffRuleMode(root) {
+        const customRadio = root.querySelector('[data-toggle-custom-rule]');
+        const customBox = root.querySelector('[data-custom-rule-box]');
+        const applyDefaultInput = root.querySelector('[data-apply-default-cutoff-rule]');
+        const customizeInput = root.querySelector('[data-customize-cutoff-rule]');
+        const isCustom = Boolean(customRadio?.checked);
+
+        if (applyDefaultInput) applyDefaultInput.value = isCustom ? '0' : '1';
+        if (customizeInput) customizeInput.value = isCustom ? '1' : '0';
+        if (customBox) customBox.classList.toggle('open', isCustom);
+    }
+
+    document.querySelectorAll('form').forEach(syncCutoffRuleMode);
+
     document.addEventListener('change', function (event) {
-        const toggle = event.target.closest('[data-toggle-custom-rule]');
-        if (!toggle) return;
+        const modeRadio = event.target.closest('[data-cutoff-rule-mode]');
+        if (!modeRadio) return;
 
-        const root = toggle.closest('form') || toggle.closest('[data-subform]') || document;
-        const box = root.querySelector('[data-custom-rule-box]');
-
-        if (box) {
-            box.classList.toggle('open', toggle.checked);
-        }
+        const root = modeRadio.closest('form') || modeRadio.closest('[data-subform]') || document;
+        syncCutoffRuleMode(root);
     });
 
 
