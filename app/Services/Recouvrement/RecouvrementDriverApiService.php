@@ -253,53 +253,51 @@ class RecouvrementDriverApiService
         }
     }
 
-    private function buildDriverPayload(
-        User $partner,
-        User $driver,
-        string $keycloakId
-    ): array {
-        if (empty($keycloakId)) {
-            throw new RuntimeException(
-                "Impossible de créer le chauffeur recouvrement : keycloak_id vide pour le user local #{$driver->id}."
-            );
-        }
-
-        if (empty($driver->email)) {
-            throw new RuntimeException(
-                "Impossible de créer le chauffeur recouvrement : email vide pour le user local #{$driver->id}."
-            );
-        }
-
-        /**
-         * Sécurité métier locale :
-         * Le chauffeur doit être rattaché au même tenant que le partenaire.
-         *
-         * - Partenaire principal : tenantPartnerId() retourne son id.
-         * - Chauffeur : tenantPartnerId() retourne partner_id.
-         */
-        if ($driver->tenantPartnerId() !== $partner->tenantPartnerId()) {
-            throw new RuntimeException(
-                "Impossible de créer le chauffeur recouvrement : le chauffeur #{$driver->id} n'appartient pas au même tenant que le partenaire #{$partner->id}."
-            );
-        }
-
-        /**
-         * Contrat attendu par l'API Recouvrement :
-         *
-         * {
-         *   "keycloak_id": "...",
-         *   "nom_complet": "...",
-         *   "email": "..."
-         * }
-         *
-         * On utilise displayName() depuis ton modèle User.
-         */
-        return [
-            'keycloak_id' => $keycloakId,
-            'nom_complet' => $driver->displayName(),
-            'email' => $driver->email,
-        ];
+  private function buildDriverPayload(
+    User $partner,
+    User $driver,
+    string $keycloakId
+): array {
+    if (empty($keycloakId)) {
+        throw new RuntimeException(
+            "Impossible de créer le chauffeur recouvrement : keycloak_id vide pour le user local #{$driver->id}."
+        );
     }
+
+    /**
+     * Sécurité métier locale :
+     * Le chauffeur doit être rattaché au même tenant que le partenaire.
+     */
+    if ($driver->tenantPartnerId() !== $partner->tenantPartnerId()) {
+        throw new RuntimeException(
+            "Impossible de créer le chauffeur recouvrement : le chauffeur #{$driver->id} n'appartient pas au même tenant que le partenaire #{$partner->id}."
+        );
+    }
+
+    $payload = [
+        'keycloak_id' => $keycloakId,
+        'nom_complet' => $driver->displayName(),
+    ];
+
+    /**
+     * L'email devient optionnel.
+     * Si l'email est vide, on ne bloque plus la création.
+     */
+    if (! empty($driver->email)) {
+        $payload['email'] = $driver->email;
+    }
+
+    /**
+     * On envoie aussi le téléphone si disponible,
+     * car le chauffeur peut être identifié par téléphone côté métier.
+     */
+    if (! empty($driver->telephone)) {
+        $payload['telephone'] = $driver->telephone;
+        $payload['phone'] = $driver->telephone;
+    }
+
+    return $payload;
+}
 
     private function baseUrl(): string
     {

@@ -1746,6 +1746,8 @@
                                 Chauffeurs
                             </a>
                         </li>
+
+                        {{--    
                         <li role="none">
                             <a href="{{ route('partner.staff.index') }}" role="menuitem"
                                class="{{ request()->routeIs('partner.staff.*') ? 'active' : '' }}"
@@ -1753,7 +1755,10 @@
                                 <span class="nav-icon" aria-hidden="true"><i class="fas fa-user-shield"></i></span>
                                 Staff
                             </a>
+
                         </li>
+
+                        --}}
                         <li role="none">
                             <a href="{{ route('dashboard') }}#trajets"
                                 class="{{ request()->routeIs('trajets.*') ? 'active' : '' }}"
