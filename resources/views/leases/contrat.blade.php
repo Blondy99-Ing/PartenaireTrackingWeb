@@ -731,6 +731,133 @@
         text-overflow:ellipsis;
     }
 
+    .lc-json-field {
+        min-height:92px;
+        resize:vertical;
+        font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        line-height:1.45;
+    }
+
+    .lc-specificites-editor {
+        border:1px solid var(--color-border-subtle,#e5e7eb);
+        border-radius:16px;
+        background:rgba(148,163,184,.05);
+        padding:.75rem;
+    }
+
+    .lc-specificites-editor-head {
+        display:flex;
+        justify-content:space-between;
+        gap:.75rem;
+        align-items:flex-start;
+        margin-bottom:.65rem;
+    }
+
+    .lc-specificites-editor-head strong {
+        display:block;
+        color:var(--color-text,#111827);
+        font-size:.82rem;
+        font-weight:900;
+    }
+
+    .lc-specificites-editor-head span {
+        display:block;
+        margin-top:.18rem;
+        color:var(--color-secondary-text,#6b7280);
+        font-size:.7rem;
+        line-height:1.35;
+    }
+
+    .lc-specificites-rows {
+        display:flex;
+        flex-direction:column;
+        gap:.5rem;
+    }
+
+    .lc-specificite-row {
+        display:grid;
+        grid-template-columns:minmax(130px,.8fr) minmax(150px,1.2fr) auto;
+        gap:.45rem;
+        align-items:center;
+    }
+
+    .lc-specificite-row .lc-input {
+        min-height:38px;
+    }
+
+    .lc-specificite-remove {
+        min-width:38px;
+        height:38px;
+        border-radius:12px;
+        border:1px solid rgba(239,68,68,.22);
+        background:rgba(239,68,68,.07);
+        color:#b91c1c;
+        cursor:pointer;
+        font-weight:900;
+    }
+
+    .lc-specificites-actions {
+        display:flex;
+        justify-content:space-between;
+        gap:.65rem;
+        align-items:center;
+        margin-top:.65rem;
+        flex-wrap:wrap;
+    }
+
+    .lc-specificites-examples {
+        color:var(--color-secondary-text,#6b7280);
+        font-size:.68rem;
+        line-height:1.35;
+    }
+
+    @media(max-width:700px){
+        .lc-specificite-row {
+            grid-template-columns:1fr;
+        }
+        .lc-specificite-remove {
+            width:100%;
+        }
+    }
+
+    .lc-specificites-box {
+        background:rgba(148,163,184,.06);
+        border:1px solid var(--color-border-subtle,#e5e7eb);
+        border-radius:14px;
+        padding:.75rem;
+    }
+
+    .lc-specificites-title {
+        font-size:.62rem;
+        text-transform:uppercase;
+        letter-spacing:.06em;
+        color:var(--color-secondary-text,#6b7280);
+        font-weight:900;
+        margin-bottom:.45rem;
+    }
+
+    .lc-specificites-list {
+        display:flex;
+        flex-wrap:wrap;
+        gap:.4rem;
+    }
+
+    .lc-specificite-chip {
+        display:inline-flex;
+        gap:.28rem;
+        align-items:center;
+        max-width:100%;
+        border-radius:999px;
+        padding:.25rem .5rem;
+        background:rgba(37,99,235,.07);
+        color:#1d4ed8;
+        border:1px solid rgba(37,99,235,.14);
+        font-size:.68rem;
+        font-weight:800;
+    }
+
+    .lc-specificite-chip b { color:var(--color-text,#111827); }
+
     .lc-section-title {
         display:flex;
         justify-content:space-between;
@@ -1601,6 +1728,7 @@
                         <div class="lc-field">
                             <label>Date fin</label>
                             <input type="date" class="lc-input" name="date_fin" id="createDateFin" readonly required>
+                            
                         </div>
 
                         <div class="lc-field">
@@ -1608,9 +1736,29 @@
                             <input type="date" class="lc-input" name="prochaine_echeance" id="createProchaineEcheance" required>
                         </div>
 
+                        <div class="lc-field full">
+                            <label>Informations spécifiques du contrat principal <small>(optionnel)</small></label>
+                            <div class="lc-specificites-editor" data-specificites-editor>
+                                <textarea class="lc-json-field" name="specificites" data-specificites-payload hidden></textarea>
+                                <div class="lc-specificites-editor-head">
+                                    <div>
+                                        <strong>Informations complémentaires</strong>
+                                        <span></span>
+                                    </div>
+                                </div>
+                                <div class="lc-specificites-rows" data-specificites-rows></div>
+                                <div class="lc-specificites-actions">
+                                    <button type="button" class="lc-btn soft" data-add-specificite>
+                                        <i class="fas fa-plus"></i> Ajouter une information
+                                    </button>
+                                    <span class="lc-specificites-examples">Exemples : marque, modèle, couleur, numéro de série.</span>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="lc-rule-card">
                             <div class="lc-rule-title"><i class="fas fa-power-off"></i> Règle de coupure du contrat</div>
-                            <p class="lc-rule-help">Choisissez si ce contrat doit reprendre la règle par défaut de son type, ou s’il doit avoir une règle personnalisée.</p>
+                            <p class="lc-rule-help"></p>
 
                             <div class="lc-form-grid">
                                 <input type="hidden" name="apply_default_cutoff_rule" value="1" data-apply-default-cutoff-rule>
@@ -1650,6 +1798,14 @@
                                             <input type="number" class="lc-input" name="custom_rule_grace_days" min="0" max="365" value="0">
                                         </div>
 
+                                        <div class="lc-field">
+                                            <label>Seulement à l'arrêt</label>
+                                            <select class="lc-select" name="custom_rule_only_when_stopped">
+                                                <option value="1" selected>Oui</option>
+                                                <option value="0">Non</option>
+                                            </select>
+                                        </div>
+
                                         <div class="lc-field full">
                                             <label>Jours actifs</label>
                                             <div class="lc-days-list">
@@ -1663,7 +1819,7 @@
                                                     'sunday' => 'Dim',
                                                 ] as $dayValue => $dayLabel)
                                                     <label class="lc-day-pill">
-                                                        <input type="checkbox" name="custom_rule_active_days[]" value="{{ $dayValue }}" @checked($dayValue !== 'sunday')>
+                                                        <input type="checkbox" name="custom_rule_active_days[]" value="{{ $dayValue }}" data-custom-rule-active-day @checked($dayValue !== 'sunday')>
                                                         {{ $dayLabel }}
                                                     </label>
                                                 @endforeach
@@ -1770,6 +1926,7 @@
                     <div class="lc-field">
                         <label>Date fin</label>
                         <input type="date" class="lc-input" name="date_fin" id="addSubDateFin" readonly required>
+                        
                     </div>
 
                     <div class="lc-field">
@@ -1777,9 +1934,29 @@
                         <input type="date" class="lc-input" name="prochaine_echeance" id="addSubProchaineEcheance" required>
                     </div>
 
+                    <div class="lc-field full">
+                        <label>Informations spécifiques du sous-contrat <small>(optionnel)</small></label>
+                        <div class="lc-specificites-editor" data-specificites-editor>
+                                <textarea class="lc-json-field" name="specificites" id="addSubSpecificites" data-specificites-payload hidden></textarea>
+                                <div class="lc-specificites-editor-head">
+                                    <div>
+                                        <strong>Détails du sous-contrat</strong>
+                                        
+                                    </div>
+                                </div>
+                                <div class="lc-specificites-rows" data-specificites-rows></div>
+                                <div class="lc-specificites-actions">
+                                    <button type="button" class="lc-btn soft" data-add-specificite>
+                                        <i class="fas fa-plus"></i> Ajouter une information
+                                    </button>
+                                    <span class="lc-specificites-examples">Exemples : IMEI, marque, modèle, police assurance, accessoire.</span>
+                                </div>
+                            </div>
+                    </div>
+
                         <div class="lc-rule-card">
                             <div class="lc-rule-title"><i class="fas fa-power-off"></i> Règle de coupure du contrat</div>
-                            <p class="lc-rule-help">Choisissez si ce contrat doit reprendre la règle par défaut de son type, ou s’il doit avoir une règle personnalisée.</p>
+                            <p class="lc-rule-help"></p>
 
                             <div class="lc-form-grid">
                                 <input type="hidden" name="apply_default_cutoff_rule" value="1" data-apply-default-cutoff-rule>
@@ -1819,6 +1996,14 @@
                                             <input type="number" class="lc-input" name="custom_rule_grace_days" min="0" max="365" value="0">
                                         </div>
 
+                                        <div class="lc-field">
+                                            <label>Seulement à l'arrêt</label>
+                                            <select class="lc-select" name="custom_rule_only_when_stopped">
+                                                <option value="1" selected>Oui</option>
+                                                <option value="0">Non</option>
+                                            </select>
+                                        </div>
+
                                         <div class="lc-field full">
                                             <label>Jours actifs</label>
                                             <div class="lc-days-list">
@@ -1832,7 +2017,7 @@
                                                     'sunday' => 'Dim',
                                                 ] as $dayValue => $dayLabel)
                                                     <label class="lc-day-pill">
-                                                        <input type="checkbox" name="custom_rule_active_days[]" value="{{ $dayValue }}" @checked($dayValue !== 'sunday')>
+                                                        <input type="checkbox" name="custom_rule_active_days[]" value="{{ $dayValue }}" data-custom-rule-active-day @checked($dayValue !== 'sunday')>
                                                         {{ $dayLabel }}
                                                     </label>
                                                 @endforeach
@@ -1964,6 +2149,100 @@
                     <div class="lc-field">
                         <label>Prochaine échéance</label>
                         <input type="date" class="lc-input" name="prochaine_echeance" id="editDueDate" required>
+                    </div>
+
+                    <div class="lc-field full">
+                        <label>Informations spécifiques <small>(optionnel)</small></label>
+                        <div class="lc-specificites-editor" data-specificites-editor>
+                                <textarea class="lc-json-field" name="specificites" id="editSpecificites" data-specificites-payload hidden></textarea>
+                                <div class="lc-specificites-editor-head">
+                                    <div>
+                                        <strong>Détails enregistrés</strong>
+                                        <span>Modifiez les informations lisibles; elles seront sauvegardées en JSON automatiquement.</span>
+                                    </div>
+                                </div>
+                                <div class="lc-specificites-rows" data-specificites-rows></div>
+                                <div class="lc-specificites-actions">
+                                    <button type="button" class="lc-btn soft" data-add-specificite>
+                                        <i class="fas fa-plus"></i> Ajouter une information
+                                    </button>
+                                    <span class="lc-specificites-examples">Exemples : IMEI, marque, modèle, police assurance.</span>
+                                </div>
+                            </div>
+                    </div>
+
+                    <div class="lc-rule-card">
+                        <div class="lc-rule-title"><i class="fas fa-power-off"></i> Règle de coupure</div>
+                        <p class="lc-rule-help">Choisissez la règle à appliquer à ce contrat.</p>
+
+                        <div class="lc-form-grid">
+                            <input type="hidden" name="apply_default_cutoff_rule" value="1" data-apply-default-cutoff-rule>
+                            <input type="hidden" name="customize_cutoff_rule" value="0" data-customize-cutoff-rule>
+
+                            <div class="lc-field full">
+                                <label class="lc-checkbox-line">
+                                    <input type="radio" name="edit_cutoff_rule_mode" value="default" data-cutoff-rule-mode checked>
+                                    Appliquer la règle de coupure par défaut
+                                </label>
+                            </div>
+
+                            <div class="lc-field full">
+                                <label class="lc-checkbox-line">
+                                    <input type="radio" name="edit_cutoff_rule_mode" value="custom" data-cutoff-rule-mode data-toggle-custom-rule>
+                                    Personnaliser la règle de coupure
+                                </label>
+                            </div>
+
+                            <div class="lc-rule-custom-box" data-custom-rule-box>
+                                <div class="lc-form-grid">
+                                    <div class="lc-field">
+                                        <label>Règle active</label>
+                                        <select class="lc-select" name="custom_rule_is_enabled" id="editCustomRuleEnabled">
+                                            <option value="1">Oui</option>
+                                            <option value="0">Non</option>
+                                        </select>
+                                    </div>
+
+                                    <div class="lc-field">
+                                        <label>Heure de coupure</label>
+                                        <input type="time" class="lc-input" name="custom_rule_cutoff_time" id="editCustomRuleTime">
+                                    </div>
+
+                                    <div class="lc-field">
+                                        <label>Jours de grâce</label>
+                                        <input type="number" class="lc-input" name="custom_rule_grace_days" id="editCustomRuleGrace" min="0" max="365" value="0">
+                                    </div>
+
+                                    <div class="lc-field">
+                                        <label>Seulement à l'arrêt</label>
+                                        <select class="lc-select" name="custom_rule_only_when_stopped" id="editCustomRuleOnlyStopped">
+                                            <option value="1" selected>Oui</option>
+                                            <option value="0">Non</option>
+                                        </select>
+                                    </div>
+
+                                    <div class="lc-field full">
+                                        <label>Jours actifs</label>
+                                        <div class="lc-days-list" id="editCustomRuleDays">
+                                            @foreach([
+                                                'monday' => 'Lun',
+                                                'tuesday' => 'Mar',
+                                                'wednesday' => 'Mer',
+                                                'thursday' => 'Jeu',
+                                                'friday' => 'Ven',
+                                                'saturday' => 'Sam',
+                                                'sunday' => 'Dim',
+                                            ] as $dayValue => $dayLabel)
+                                                <label class="lc-day-pill">
+                                                    <input type="checkbox" name="custom_rule_active_days[]" value="{{ $dayValue }}" data-custom-rule-active-day @checked($dayValue !== 'sunday')>
+                                                    {{ $dayLabel }}
+                                                </label>
+                                            @endforeach
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     
@@ -2169,11 +2448,106 @@
                 <div class="lc-field">
                     <label>Date fin</label>
                     <input type="date" class="lc-input" data-sub-end readonly>
+                    
                 </div>
 
                 <div class="lc-field">
                     <label>Prochaine échéance</label>
                     <input type="date" class="lc-input" data-sub-due>
+                </div>
+
+                <div class="lc-field full">
+                    <label>Informations spécifiques <small>(optionnel)</small></label>
+                    <div class="lc-specificites-editor" data-specificites-editor>
+                        <textarea class="lc-json-field" data-sub-specificites data-specificites-payload hidden></textarea>
+                        <div class="lc-specificites-editor-head">
+                            <div>
+                                <strong>Détails du sous-contrat</strong>
+                                <span></span>
+                            </div>
+                        </div>
+                        <div class="lc-specificites-rows" data-specificites-rows></div>
+                        <div class="lc-specificites-actions">
+                            <button type="button" class="lc-btn soft" data-add-specificite>
+                                <i class="fas fa-plus"></i> Ajouter une information
+                            </button>
+                            <span class="lc-specificites-examples">Exemples : IMEI, marque, modèle, police assurance.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="lc-rule-card" data-sub-rule-card>
+                    <div class="lc-rule-title"><i class="fas fa-power-off"></i> Règle de coupure</div>
+                    <p class="lc-rule-help"></p>
+
+                    <div class="lc-form-grid">
+                        <input type="hidden" data-sub-apply-default-cutoff-rule value="1">
+                        <input type="hidden" data-sub-customize-cutoff-rule value="0">
+
+                        <div class="lc-field full">
+                            <label class="lc-checkbox-line">
+                                <input type="radio" data-sub-cutoff-rule-mode value="default" checked>
+                                Appliquer la règle de coupure par défaut
+                            </label>
+                        </div>
+
+                        <div class="lc-field full">
+                            <label class="lc-checkbox-line">
+                                <input type="radio" data-sub-cutoff-rule-mode data-toggle-custom-rule value="custom">
+                                Personnaliser la règle de coupure
+                            </label>
+                        </div>
+
+                        <div class="lc-rule-custom-box" data-custom-rule-box>
+                            <div class="lc-form-grid">
+                                <div class="lc-field">
+                                    <label>Règle active</label>
+                                    <select class="lc-select" data-sub-custom-rule-enabled>
+                                        <option value="1" selected>Oui</option>
+                                        <option value="0">Non</option>
+                                    </select>
+                                </div>
+
+                                <div class="lc-field">
+                                    <label>Heure de coupure</label>
+                                    <input type="time" class="lc-input" data-sub-custom-rule-time>
+                                </div>
+
+                                <div class="lc-field">
+                                    <label>Jours de grâce</label>
+                                    <input type="number" class="lc-input" data-sub-custom-rule-grace min="0" max="365" value="0">
+                                </div>
+
+                                <div class="lc-field">
+                                    <label>Seulement à l'arrêt</label>
+                                    <select class="lc-select" data-sub-custom-rule-only-stopped>
+                                        <option value="1" selected>Oui</option>
+                                        <option value="0">Non</option>
+                                    </select>
+                                </div>
+
+                                <div class="lc-field full">
+                                    <label>Jours actifs</label>
+                                    <div class="lc-days-list">
+                                        @foreach([
+                                            'monday' => 'Lun',
+                                            'tuesday' => 'Mar',
+                                            'wednesday' => 'Mer',
+                                            'thursday' => 'Jeu',
+                                            'friday' => 'Ven',
+                                            'saturday' => 'Sam',
+                                            'sunday' => 'Dim',
+                                        ] as $dayValue => $dayLabel)
+                                            <label class="lc-day-pill">
+                                                <input type="checkbox" data-sub-custom-rule-active-day value="{{ $dayValue }}" @checked($dayValue !== 'sunday')>
+                                                {{ $dayLabel }}
+                                            </label>
+                                        @endforeach
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 
@@ -2188,6 +2562,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     const contracts = @json($contractsPayload);
     const contractTypes = @json($contractTypes->values());
+    const defaultCutoffRules = @json($defaultCutoffRulesForView ?? []);
     const updateUrlTemplate = @json(route('lease.contrat.update', ['id' => '__ID__']));
     const csrfToken = @json(csrf_token());
 
@@ -2207,6 +2582,177 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const pct = value => Math.max(0, Math.min(100, Number(value || 0)));
     const buildUrl = (template, id) => template.replace('__ID__', id);
+    const escapeHtml = value => String(value ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+
+    function formatSpecificiteLabel(value) {
+        return String(value || '')
+            .trim()
+            .replace(/[_-]+/g, ' ')
+            .split(/\s+/)
+            .filter(Boolean)
+            .map(word => {
+                if (word === word.toUpperCase() && word.length <= 8) return word;
+                return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+            })
+            .join(' ');
+    }
+
+    function formatSpecificiteValue(value) {
+        if (value === null || value === undefined) return '';
+        if (typeof value === 'object') return JSON.stringify(value);
+        const raw = String(value).trim();
+        if (!raw) return '';
+        if (/^[A-Z0-9_+.-]{2,}$/i.test(raw) && !raw.includes(' ')) return raw;
+        return raw
+            .split(/\s+/)
+            .map(word => word ? word.charAt(0).toUpperCase() + word.slice(1).toLowerCase() : '')
+            .join(' ');
+    }
+
+    function normalizeSpecificitesForDisplay(value) {
+        if (!value || (Array.isArray(value) && value.length === 0)) return [];
+
+        if (typeof value === 'string') {
+            try {
+                value = JSON.parse(value);
+            } catch (e) {
+                return value.trim() ? [['info', value.trim()]] : [];
+            }
+        }
+
+        if (Array.isArray(value)) {
+            return value.map((item, index) => [String(index + 1), typeof item === 'object' ? JSON.stringify(item) : String(item)]);
+        }
+
+        if (typeof value === 'object') {
+            return Object.entries(value).filter(([, v]) => v !== null && v !== '');
+        }
+
+        return [];
+    }
+
+    function renderSpecificites(value, title = 'Spécificités') {
+        const rows = normalizeSpecificitesForDisplay(value);
+
+        if (!rows.length) return '';
+
+        return `
+            <div class="lc-specificites-box">
+                <div class="lc-specificites-title">${escapeHtml(title)}</div>
+                <div class="lc-specificites-list">
+                    ${rows.map(([key, val]) => `
+                        <span class="lc-specificite-chip"><b>${escapeHtml(formatSpecificiteLabel(key))}</b> ${escapeHtml(formatSpecificiteValue(val))}</span>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+
+    function parseSpecificitesValue(value) {
+        if (!value || (Array.isArray(value) && value.length === 0)) return {};
+
+        if (typeof value === 'string') {
+            try {
+                value = JSON.parse(value);
+            } catch (e) {
+                return value.trim() ? { info: value.trim() } : {};
+            }
+        }
+
+        if (Array.isArray(value)) {
+            return value.reduce((acc, item, index) => {
+                if (item && typeof item === 'object' && !Array.isArray(item)) {
+                    Object.entries(item).forEach(([key, val]) => {
+                        if (key && val !== null && val !== '') acc[String(key)] = val;
+                    });
+                } else if (item !== null && item !== '') {
+                    acc[String(index + 1)] = item;
+                }
+                return acc;
+            }, {});
+        }
+
+        if (typeof value === 'object') {
+            return Object.entries(value).reduce((acc, [key, val]) => {
+                if (key && val !== null && val !== '') acc[String(key)] = val;
+                return acc;
+            }, {});
+        }
+
+        return {};
+    }
+
+    function addSpecificiteRow(editor, key = '', value = '') {
+        const rows = $('[data-specificites-rows]', editor);
+        if (!rows) return;
+
+        const row = document.createElement('div');
+        row.className = 'lc-specificite-row';
+        row.innerHTML = `
+            <input type="text" class="lc-input" data-specificite-key placeholder="Nom : IMEI, marque, police..." value="${escapeHtml(formatSpecificiteLabel(key))}">
+            <input type="text" class="lc-input" data-specificite-value placeholder="Valeur" value="${escapeHtml(typeof value === 'object' ? JSON.stringify(value) : value)}">
+            <button type="button" class="lc-specificite-remove" data-remove-specificite title="Retirer cette information">
+                <i class="fas fa-times"></i>
+            </button>
+        `;
+        rows.appendChild(row);
+    }
+
+    function syncSpecificitesEditor(editor) {
+        const payload = $('[data-specificites-payload]', editor);
+        if (!payload) return;
+
+        const data = {};
+        $$('[data-specificite-key]', editor).forEach(keyInput => {
+            const row = keyInput.closest('.lc-specificite-row');
+            const key = formatSpecificiteLabel(keyInput.value);
+            const value = $('[data-specificite-value]', row)?.value.trim() || '';
+
+            if (key && value !== '') {
+                data[key] = value;
+            }
+        });
+
+        payload.value = Object.keys(data).length ? JSON.stringify(data) : '';
+    }
+
+    function fillSpecificitesEditor(editor, value = {}) {
+        if (!editor) return;
+
+        const rows = $('[data-specificites-rows]', editor);
+        if (rows) rows.innerHTML = '';
+
+        const data = parseSpecificitesValue(value);
+        Object.entries(data).forEach(([key, val]) => addSpecificiteRow(editor, key, val));
+
+        if (!Object.keys(data).length) {
+            addSpecificiteRow(editor);
+        }
+
+        syncSpecificitesEditor(editor);
+    }
+
+    function initSpecificitesEditor(editor) {
+        if (!editor || editor.dataset.specificitesReady === '1') return;
+        editor.dataset.specificitesReady = '1';
+
+        const payload = $('[data-specificites-payload]', editor);
+        fillSpecificitesEditor(editor, payload?.value || {});
+    }
+
+    function bootSpecificitesEditors(root = document) {
+        $$('[data-specificites-editor]', root).forEach(initSpecificitesEditor);
+    }
+
+    function syncSpecificitesInForm(form) {
+        $$('[data-specificites-editor]', form).forEach(syncSpecificitesEditor);
+    }
 
     function today() {
         return new Date().toISOString().slice(0, 10);
@@ -2216,6 +2762,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const date = new Date(dateString);
         date.setMonth(date.getMonth() + months);
         return date.toISOString().slice(0, 10);
+    }
+
+    function addMonthsNoOverflow(date, months) {
+        const result = new Date(date.getTime());
+        const originalDay = result.getDate();
+
+        result.setDate(1);
+        result.setMonth(result.getMonth() + Number(months || 0));
+
+        const lastDayOfTargetMonth = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
+        result.setDate(Math.min(originalDay, lastDayOfTargetMonth));
+
+        return result;
     }
 
     function statusLabel(status) {
@@ -2455,6 +3014,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="lc-info"><span>Fin</span><strong>${contract.date_fin || '—'}</strong></div>
             </div>
 
+            ${renderSpecificites(contract.specificites, 'Spécificités du contrat principal')}
+
             <div>
                 <div class="lc-section-title">
                     <h4><i class="fas fa-layer-group"></i> Sous-contrats</h4>
@@ -2510,7 +3071,28 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function cutoffSummaryText(cutoff) {
+        if (!cutoff?.enabled) return 'Aucune règle active';
+
+        const action = cutoff.only_when_stopped ? 'Couper à l’arrêt' : 'Couper sans condition d’arrêt';
+        const time = cutoff.cutoff_time ? ` à ${cutoff.cutoff_time}` : '';
+        const grace = Number(cutoff.grace_days || 0) > 0 ? ` après ${cutoff.grace_days} jour(s) de grâce` : '';
+
+        return `${action}${time}${grace}`;
+    }
+
+    function cutoffDaysText(cutoff) {
+        const days = {
+            monday: 'Lun', tuesday: 'Mar', wednesday: 'Mer', thursday: 'Jeu',
+            friday: 'Ven', saturday: 'Sam', sunday: 'Dim'
+        };
+
+        return (cutoff?.active_days || []).map(day => days[day] || day).join(', ') || '—';
+    }
+
     function renderSubContract(sub) {
+        const subCutoff = sub.cutoff || {};
+
         return `
             <article class="lc-sub-card">
                 <div class="lc-sub-head">
@@ -2532,9 +3114,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="lc-info"><span>Versement</span><strong>${money(sub.montant_par_paiement)}</strong></div>
                     <div class="lc-info"><span>Début</span><strong>${sub.date_debut || '—'}</strong></div>
                     <div class="lc-info"><span>Fin</span><strong>${sub.date_fin || '—'}</strong></div>
-                    <div class="lc-info"><span>Coupure</span><strong>${sub.cutoff?.enabled ? 'Active' : 'Inactive'}</strong></div>
-                    <div class="lc-info"><span>Heure</span><strong>${sub.cutoff?.cutoff_time || '—'}</strong></div>
+                    <div class="lc-info"><span>Règle</span><strong>${subCutoff.enabled ? 'Active' : 'Inactive'}</strong></div>
+                    <div class="lc-info"><span>Heure</span><strong>${subCutoff.cutoff_time || '—'}</strong></div>
+                    <div class="lc-info"><span>Sécurité</span><strong>${subCutoff.only_when_stopped ? 'Couper à l’arrêt' : 'Non imposée'}</strong></div>
+                    <div class="lc-info"><span>Jours actifs</span><strong>${cutoffDaysText(subCutoff)}</strong></div>
                 </div>
+
+                <div class="lc-policy-box" style="padding:.65rem;">
+                    <div class="lc-policy-name">Règle du sous-contrat</div>
+                    <span class="lc-policy-help">${cutoffSummaryText(subCutoff)}</span>
+                </div>
+
+                ${renderSpecificites(sub.specificites, 'Spécificités')}
 
                 <div class="lc-sub-actions">
                     <button type="button" class="lc-sub-action" data-edit-sub="${sub.id}">
@@ -2558,11 +3149,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderPolicySummary(contract) {
         const cutoff = contract.cutoff || {};
-        const days = {
-            monday: 'Lun', tuesday: 'Mar', wednesday: 'Mer', thursday: 'Jeu',
-            friday: 'Ven', saturday: 'Sam', sunday: 'Dim'
-        };
-        const activeDays = (cutoff.active_days || []).map(day => days[day] || day).join(', ') || '—';
+        const activeDays = cutoffDaysText(cutoff);
 
         return `
             <div class="lc-policy-box">
@@ -2618,7 +3205,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         $('#createDateDebut').value = $('#createDateDebut').value || start;
         $('#createProchaineEcheance').value = $('#createProchaineEcheance').value || start;
-        $('#createDateFin').value = calculateContractEndDate(start, $('[name="montant_total"]', $('#createContractForm'))?.value, $('[name="montant_paye"]', $('#createContractForm'))?.value, $('[name="montant_par_paiement"]', $('#createContractForm'))?.value, $('[name="frequence"]', $('#createContractForm'))?.value);
+        $('#createDateFin').value = calculateContractEndDate(start, $('[name="montant_total"]', $('#createContractForm'))?.value, $('[name="montant_paye"]', $('#createContractForm'))?.value, $('[name="montant_par_paiement"]', $('#createContractForm'))?.value, $('[name="frequence"]', $('#createContractForm'))?.value, activeDaysForForm($('#createContractForm')));
     }
 
     function openAddSubDrawer(contract) {
@@ -2633,7 +3220,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         $('#addSubDateDebut').value = start;
         $('#addSubProchaineEcheance').value = start;
-        $('#addSubDateFin').value = addMonths(start, 2);
+        $('#addSubSpecificites').value = '';
+        $('#addSubDateFin').value = calculateContractEndDate(
+            start,
+            $('[name="montant_total"]', $('#addSubForm'))?.value,
+            $('[name="montant_paye"]', $('#addSubForm'))?.value,
+            $('[name="montant_par_paiement"]', $('#addSubForm'))?.value,
+            $('[name="frequence"]', $('#addSubForm'))?.value,
+            activeDaysForForm($('#addSubForm'))
+        );
 
         console.log('[LEASE_ADD_SUB_CONTEXT]', {
             parent: contract.id,
@@ -2703,17 +3298,34 @@ document.addEventListener('DOMContentLoaded', () => {
             item.montant_total || '',
             paidAmount,
             item.versement || item.montant_par_paiement || '',
-            item.frequence || 'JOURNALIER'
+            item.frequence || 'JOURNALIER',
+            activeDaysForItem(item)
         ) || item.date_fin || '';
 
         setValue('#editEndDate', endDate);
         setValue('#editDueDate', item.prochaine_echeance || today());
 
-        if (typeof item.specificites === 'object' && item.specificites !== null) {
-            setValue('#editSpecificites', JSON.stringify(item.specificites, null, 2));
-        } else {
-            setValue('#editSpecificites', item.specificites || '');
-        }
+        fillSpecificitesEditor($('#editSpecificites')?.closest('[data-specificites-editor]'), item.specificites || {});
+
+        const editForm = $('#editContractForm');
+        const hasExistingRule = Boolean(item.cutoff?.rule_id || item.cutoff?.enabled || item.cutoff?.cutoff_time || (item.cutoff?.active_days || []).length);
+        const defaultMode = editForm?.querySelector('input[name="edit_cutoff_rule_mode"][value="default"]');
+        const customMode = editForm?.querySelector('input[name="edit_cutoff_rule_mode"][value="custom"]');
+
+        if (defaultMode) defaultMode.checked = !hasExistingRule;
+        if (customMode) customMode.checked = hasExistingRule;
+
+        setValue('#editCustomRuleEnabled', item.cutoff?.enabled ? '1' : '0');
+        setValue('#editCustomRuleTime', item.cutoff?.cutoff_time || '');
+        setValue('#editCustomRuleGrace', item.cutoff?.grace_days ?? 0);
+        setValue('#editCustomRuleOnlyStopped', item.cutoff?.only_when_stopped ? '1' : '0');
+
+        const editActiveDays = normalizeActiveDays(item.cutoff?.active_days || activeDaysForType(item.type_contrat));
+        $$('#editCustomRuleDays input[type="checkbox"]').forEach(input => {
+            input.checked = editActiveDays.includes(input.value);
+        });
+
+        syncCutoffRuleMode(editForm);
 
         openDrawer($('#editContractDrawer'));
     }
@@ -2813,12 +3425,20 @@ document.addEventListener('DOMContentLoaded', () => {
         $('[data-sub-end]', card).setAttribute('name', `sous_contrats[${index}][date_fin]`);
         $('[data-sub-due]', card).setAttribute('name', `sous_contrats[${index}][prochaine_echeance]`);
         $('[data-sub-specificites]', card).setAttribute('name', `sous_contrats[${index}][specificites]`);
+        $('[data-sub-apply-default-cutoff-rule]', card)?.setAttribute('name', `sous_contrats[${index}][apply_default_cutoff_rule]`);
+        $('[data-sub-customize-cutoff-rule]', card)?.setAttribute('name', `sous_contrats[${index}][customize_cutoff_rule]`);
+        $$('[data-sub-cutoff-rule-mode]', card).forEach(input => input.setAttribute('name', `sous_contrats[${index}][cutoff_rule_mode]`));
+        $('[data-sub-custom-rule-enabled]', card)?.setAttribute('name', `sous_contrats[${index}][custom_rule_is_enabled]`);
+        $('[data-sub-custom-rule-time]', card)?.setAttribute('name', `sous_contrats[${index}][custom_rule_cutoff_time]`);
+        $('[data-sub-custom-rule-grace]', card)?.setAttribute('name', `sous_contrats[${index}][custom_rule_grace_days]`);
+        $$('[data-sub-custom-rule-active-day]', card).forEach(input => input.setAttribute('name', `sous_contrats[${index}][custom_rule_active_days][]`));
+        $('[data-sub-custom-rule-only-stopped]', card)?.setAttribute('name', `sous_contrats[${index}][custom_rule_only_when_stopped]`);
 
         const start = today();
 
         $('[data-sub-start]', card).value = start;
         $('[data-sub-due]', card).value = start;
-        $('[data-sub-end]', card).value = calculateContractEndDate(start, $('[data-sub-total]', card).value, $('[data-sub-paid]', card).value, $('[data-sub-installment]', card).value, $('[data-sub-frequency]', card).value);
+        $('[data-sub-end]', card).value = calculateContractEndDate(start, $('[data-sub-total]', card).value, $('[data-sub-paid]', card).value, $('[data-sub-installment]', card).value, $('[data-sub-frequency]', card).value, activeDaysForForm(card));
 
         bindAutoEndDate(card, {
             start: '[data-sub-start]',
@@ -2827,7 +3447,9 @@ document.addEventListener('DOMContentLoaded', () => {
             paid: '[data-sub-paid]',
             installment: '[data-sub-installment]',
             frequency: '[data-sub-frequency]',
+            type: '[data-sub-type]',
         });
+        syncCutoffRuleMode(card);
 
         const select = $('[data-sub-type]', card);
         const title = $('[data-subform-title]', card);
@@ -2842,13 +3464,14 @@ document.addEventListener('DOMContentLoaded', () => {
         $('[data-remove-subform]', card).addEventListener('click', () => card.remove());
 
         $('#createSubList').appendChild(card);
+        bootSpecificitesEditors(card);
     }
 
     function syncCutoffRuleMode(root) {
         const customRadio = root.querySelector('[data-toggle-custom-rule]');
         const customBox = root.querySelector('[data-custom-rule-box]');
-        const applyDefaultInput = root.querySelector('[data-apply-default-cutoff-rule]');
-        const customizeInput = root.querySelector('[data-customize-cutoff-rule]');
+        const applyDefaultInput = root.querySelector('[data-apply-default-cutoff-rule], [data-sub-apply-default-cutoff-rule]');
+        const customizeInput = root.querySelector('[data-customize-cutoff-rule], [data-sub-customize-cutoff-rule]');
         const isCustom = Boolean(customRadio?.checked);
 
         if (applyDefaultInput) applyDefaultInput.value = isCustom ? '0' : '1';
@@ -2856,18 +3479,128 @@ document.addEventListener('DOMContentLoaded', () => {
         if (customBox) customBox.classList.toggle('open', isCustom);
     }
 
+
+    document.addEventListener('click', function (event) {
+        const addButton = event.target.closest('[data-add-specificite]');
+        if (addButton) {
+            const editor = addButton.closest('[data-specificites-editor]');
+            addSpecificiteRow(editor);
+            syncSpecificitesEditor(editor);
+            return;
+        }
+
+        const removeButton = event.target.closest('[data-remove-specificite]');
+        if (removeButton) {
+            const editor = removeButton.closest('[data-specificites-editor]');
+            removeButton.closest('.lc-specificite-row')?.remove();
+            if (!$$('[data-specificite-key]', editor).length) addSpecificiteRow(editor);
+            syncSpecificitesEditor(editor);
+        }
+    });
+
+    document.addEventListener('input', function (event) {
+        const specificiteInput = event.target.closest('[data-specificite-key], [data-specificite-value]');
+        if (!specificiteInput) return;
+
+        const editor = specificiteInput.closest('[data-specificites-editor]');
+        syncSpecificitesEditor(editor);
+    });
+
+    document.addEventListener('change', function (event) {
+        const keyInput = event.target.closest('[data-specificite-key]');
+        if (!keyInput) return;
+        keyInput.value = formatSpecificiteLabel(keyInput.value);
+        syncSpecificitesEditor(keyInput.closest('[data-specificites-editor]'));
+    });
+
+    document.querySelectorAll('form').forEach(form => {
+        form.addEventListener('submit', () => syncSpecificitesInForm(form));
+    });
+
     document.querySelectorAll('form').forEach(syncCutoffRuleMode);
 
     document.addEventListener('change', function (event) {
-        const modeRadio = event.target.closest('[data-cutoff-rule-mode]');
+        const modeRadio = event.target.closest('[data-cutoff-rule-mode], [data-sub-cutoff-rule-mode]');
         if (!modeRadio) return;
 
-        const root = modeRadio.closest('form') || modeRadio.closest('[data-subform]') || document;
+        const root = modeRadio.closest('[data-subform]') || modeRadio.closest('form') || document;
         syncCutoffRuleMode(root);
     });
 
 
-    function calculateContractEndDate(dateDebut, total, paid, installment, frequency) {
+    function normalizeActiveDays(days) {
+        const allowed = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+        const normalized = (days || [])
+            .map(day => String(day || '').toLowerCase())
+            .filter(day => allowed.includes(day));
+
+        return [...new Set(normalized)].length ? [...new Set(normalized)] : ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    }
+
+    function activeDaysForType(typeId) {
+        const rule = defaultCutoffRules[String(typeId)] || defaultCutoffRules[Number(typeId)] || null;
+        return normalizeActiveDays(rule?.active_days || []);
+    }
+
+    function activeDaysForForm(root) {
+        if (!root) return normalizeActiveDays([]);
+
+        const customMode = root.querySelector('[data-toggle-custom-rule]')?.checked;
+
+        if (customMode) {
+            const checkedDays = Array.from(root.querySelectorAll('[data-custom-rule-active-day]:checked, [data-sub-custom-rule-active-day]:checked, input[name$="[custom_rule_active_days][]"]:checked, input[name="custom_rule_active_days[]"]:checked'))
+                .map(input => input.value);
+
+            return normalizeActiveDays(checkedDays);
+        }
+
+        const typeValue = root.querySelector('[name="type_contrat"], [data-sub-type]')?.value;
+        return activeDaysForType(typeValue);
+    }
+
+    function activeDaysForItem(item) {
+        return normalizeActiveDays(item?.cutoff?.active_days || activeDaysForType(item?.type_contrat));
+    }
+
+    function dayName(date) {
+        return ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][date.getDay()];
+    }
+
+    function moveToNextActiveDay(date, activeDays) {
+        const result = new Date(date.getTime());
+        let guard = 0;
+
+        while (!activeDays.includes(dayName(result)) && guard < 14) {
+            result.setDate(result.getDate() + 1);
+            guard++;
+        }
+
+        return result;
+    }
+
+    function addActivePaymentDays(start, periodsToAdd, activeDays) {
+        const result = moveToNextActiveDay(start, activeDays);
+        let added = 0;
+
+        while (added < periodsToAdd) {
+            result.setDate(result.getDate() + 1);
+
+            if (activeDays.includes(dayName(result))) {
+                added++;
+            }
+        }
+
+        return result;
+    }
+
+    function toDateInputValue(date) {
+        const yyyy = date.getFullYear();
+        const mm = String(date.getMonth() + 1).padStart(2, '0');
+        const dd = String(date.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+    }
+
+    function calculateContractEndDate(dateDebut, total, paid, installment, frequency, activeDays = []) {
         if (!dateDebut) return '';
 
         const amountTotal = Number(total || 0);
@@ -2875,28 +3608,31 @@ document.addEventListener('DOMContentLoaded', () => {
         const perPayment = Number(installment || 0);
         const remaining = Math.max(0, amountTotal - amountPaid);
         const start = new Date(`${dateDebut}T00:00:00`);
+        activeDays = normalizeActiveDays(activeDays);
 
         if (Number.isNaN(start.getTime())) return '';
-        if (remaining <= 0 || perPayment <= 0) return dateDebut;
+        if (remaining <= 0 || perPayment <= 0) return toDateInputValue(moveToNextActiveDay(start, activeDays));
 
         const payments = Math.ceil(remaining / perPayment);
         const periodsToAdd = Math.max(0, payments - 1);
-        const result = new Date(start.getTime());
+        let result = new Date(start.getTime());
 
         switch ((frequency || 'JOURNALIER').toUpperCase()) {
             case 'HEBDOMADAIRE':
                 result.setDate(result.getDate() + periodsToAdd * 7);
+                result = moveToNextActiveDay(result, activeDays);
                 break;
             case 'MENSUEL':
-                result.setMonth(result.getMonth() + periodsToAdd);
+                result = addMonthsNoOverflow(result, periodsToAdd);
+                result = moveToNextActiveDay(result, activeDays);
                 break;
             case 'JOURNALIER':
             default:
-                result.setDate(result.getDate() + periodsToAdd);
+                result = addActivePaymentDays(result, periodsToAdd, activeDays);
                 break;
         }
 
-        return result.toISOString().slice(0, 10);
+        return toDateInputValue(result);
     }
 
     function bindAutoEndDate(root, selectors) {
@@ -2908,6 +3644,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const paid = root.querySelector(selectors.paid);
         const installment = root.querySelector(selectors.installment);
         const frequency = root.querySelector(selectors.frequency);
+        const type = selectors.type ? root.querySelector(selectors.type) : root.querySelector('[name="type_contrat"], [data-sub-type]');
 
         if (!start || !end || !total || !installment || !frequency) return;
 
@@ -2917,11 +3654,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 total.value,
                 paid?.value || 0,
                 installment.value,
-                frequency.value
+                frequency.value,
+                activeDaysForForm(root)
             );
         };
 
-        [start, total, paid, installment, frequency].filter(Boolean).forEach(input => {
+        [start, total, paid, installment, frequency, type, ...root.querySelectorAll('[data-custom-rule-active-day], [data-sub-custom-rule-active-day], [data-cutoff-rule-mode], [data-sub-cutoff-rule-mode], input[name$="[custom_rule_active_days][]"], input[name="custom_rule_active_days[]"]')].filter(Boolean).forEach(input => {
             input.addEventListener('input', refresh);
             input.addEventListener('change', refresh);
         });
@@ -2937,6 +3675,7 @@ document.addEventListener('DOMContentLoaded', () => {
             paid: '[name="montant_paye"]',
             installment: '[name="montant_par_paiement"]',
             frequency: '[name="frequence"]',
+            type: '[name="type_contrat"]',
         });
 
         bindAutoEndDate($('#addSubForm'), {
@@ -2946,6 +3685,7 @@ document.addEventListener('DOMContentLoaded', () => {
             paid: '[name="montant_paye"]',
             installment: '[name="montant_par_paiement"]',
             frequency: '[name="frequence"]',
+            type: '[name="type_contrat"]',
         });
 
         bindAutoEndDate($('#editContractForm'), {
@@ -2955,6 +3695,7 @@ document.addEventListener('DOMContentLoaded', () => {
             paid: '[name="montant_paye"]',
             installment: '[name="montant_par_paiement"]',
             frequency: '[name="frequence"]',
+            type: '[name="type_contrat"]',
         });
     }
 
@@ -2968,6 +3709,7 @@ document.addEventListener('DOMContentLoaded', () => {
         $('#createVehicle')?.addEventListener('change', fillVehicleIdentityFromTracking);
         $('#createAddSubBtn')?.addEventListener('click', addSubForm);
         bootAutoEndDates();
+        bootSpecificitesEditors();
 
         $('#addSubToCurrentBtn')?.addEventListener('click', () => {
             const contract = currentContract();

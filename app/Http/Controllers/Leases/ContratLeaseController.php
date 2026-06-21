@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Leases;
 use App\Exceptions\LeaseApiException;
 use App\Http\Controllers\Controller;
 use App\Models\LeaseContractLink;
+use App\Models\LeaseCutoffDefaultRule;
 use App\Services\Leases\LeaseContractCutoffRuleApplicationService;
 use App\Services\Leases\LeaseContractLinkService;
 use App\Services\Leases\LeaseCutoffRuleService;
@@ -52,6 +53,7 @@ class ContratLeaseController extends Controller
         $vehiculesList = [];
         $contractTypes = [];
         $pageWarnings = [];
+        $defaultCutoffRulesForView = [];
 
         try {
             $contracts = $this->leaseApiService->fetchContracts($request->only([
@@ -86,6 +88,7 @@ class ContratLeaseController extends Controller
         try {
             $vehiculesList = $this->leaseApiService->fetchPartnerVehiclesForContracts();
             $contracts = $this->attachTrackingVehiclesToContracts($contracts, $vehiculesList);
+            $contracts = $this->inheritParentVehicleOnSubContracts($contracts);
         } catch (Throwable $e) {
             $this->reportLeaseError('LEASE_CONTRACT_INDEX_FETCH_VEHICLES_FAILED', $e);
             $pageWarnings[] = $this->clientErrorMessage($e, 'Les véhicules Tracking sont indisponibles pour le moment.');
@@ -100,6 +103,27 @@ class ContratLeaseController extends Controller
         } catch (Throwable $e) {
             $this->reportLeaseError('LEASE_CONTRACT_INDEX_FETCH_TYPES_FAILED', $e);
             $pageWarnings[] = $this->clientErrorMessage($e, 'Les types de contrats recouvrement sont indisponibles pour le moment.');
+        }
+
+        try {
+            if (auth()->check()) {
+                $defaultCutoffRulesForView = LeaseCutoffDefaultRule::query()
+                    ->where('partner_id', (int) (auth()->user()->partner_id ?: auth()->id()))
+                    ->get()
+                    ->mapWithKeys(fn (LeaseCutoffDefaultRule $rule) => [
+                        (int) $rule->type_contrat_id => [
+                            'type_contrat_id' => (int) $rule->type_contrat_id,
+                            'is_enabled' => (bool) $rule->is_enabled,
+                            'cutoff_time' => $rule->cutoff_time,
+                            'grace_days' => (int) $rule->grace_days,
+                            'active_days' => $this->normalizeActiveDays($rule->active_days ?? []),
+                        ],
+                    ])
+                    ->all();
+            }
+        } catch (Throwable $e) {
+            $this->reportLeaseError('LEASE_CONTRACT_INDEX_FETCH_DEFAULT_RULES_FAILED', $e);
+            $pageWarnings[] = 'Les règles par défaut sont indisponibles : le calcul visuel des dates utilisera lundi à samedi.';
         }
 
         try {
@@ -135,6 +159,7 @@ class ContratLeaseController extends Controller
             'contractTypesFromApi' => $contractTypes,
             'pageError' => null,
             'pageWarnings' => $pageWarnings,
+            'defaultCutoffRulesForView' => $defaultCutoffRulesForView,
         ]);
     }
 
@@ -190,6 +215,8 @@ class ContratLeaseController extends Controller
                 $created = $this->leaseApiService->createContract($apiPayload);
                 $this->syncContractLinkAfterWrite($validated, $apiPayload, $created);
             }
+
+            $created = $this->refreshCreatedContractTreeForRuleApplication($validated, $created);
 
             $ruleWarning = $this->tryApplyCutoffRuleAfterContractCreation($validated, $created);
 
@@ -384,6 +411,7 @@ class ContratLeaseController extends Controller
     private function validateContractPayload(Request $request, bool $creating = true): array
     {
         $isSubContract = $request->filled('parent');
+        $specificitesRule = $this->specificitesJsonValidationRule();
 
         return $request->validate([
             'vehicle_id' => [$isSubContract ? 'nullable' : 'required', 'nullable', 'integer', 'exists:voitures,id'],
@@ -401,7 +429,7 @@ class ContratLeaseController extends Controller
             'date_fin' => ['nullable', 'date', 'after_or_equal:date_debut'],
             'prochaine_echeance' => ['required', 'date'],
             'statut' => ['nullable', Rule::in(['ACTIF', 'SUSPENDU', 'SOLDE', 'CONTENTIEUX', 'actif', 'suspendu', 'solde', 'contentieux'])],
-            'specificites' => ['nullable'],
+            'specificites' => ['nullable', $specificitesRule],
             'apply_default_cutoff_rule' => ['nullable', 'boolean'],
             'customize_cutoff_rule' => ['nullable', 'boolean'],
             'custom_rule_is_enabled' => ['nullable', 'boolean'],
@@ -421,7 +449,17 @@ class ContratLeaseController extends Controller
             'sous_contrats.*.date_debut' => ['required_with:sous_contrats', 'date'],
             'sous_contrats.*.date_fin' => ['nullable', 'date'],
             'sous_contrats.*.prochaine_echeance' => ['required_with:sous_contrats', 'date'],
-            'sous_contrats.*.specificites' => ['nullable'],
+            'sous_contrats.*.specificites' => ['nullable', $specificitesRule],
+            'sous_contrats.*.apply_default_cutoff_rule' => ['nullable', 'boolean'],
+            'sous_contrats.*.customize_cutoff_rule' => ['nullable', 'boolean'],
+            'sous_contrats.*.custom_rule_is_enabled' => ['nullable', 'boolean'],
+            'sous_contrats.*.custom_rule_cutoff_time' => ['nullable', 'date_format:H:i'],
+            'sous_contrats.*.custom_rule_timezone' => ['nullable', 'string', 'max:64'],
+            'sous_contrats.*.custom_rule_grace_days' => ['nullable', 'integer', 'min:0', 'max:365'],
+            'sous_contrats.*.custom_rule_active_days' => ['nullable', 'array'],
+            'sous_contrats.*.custom_rule_active_days.*' => ['string', Rule::in(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])],
+            'sous_contrats.*.custom_rule_only_when_stopped' => ['nullable', 'boolean'],
+            'sous_contrats.*.custom_rule_notify_before_cutoff' => ['nullable', 'boolean'],
         ], [
             'vehicle_id.required' => 'Sélectionnez un véhicule Tracking pour créer un contrat principal.',
             'vehicle_id.exists' => 'Le véhicule Tracking sélectionné est introuvable.',
@@ -451,12 +489,18 @@ class ContratLeaseController extends Controller
             (float) ($validated['montant_total'] ?? 0) - (float) ($validated['montant_paye'] ?? 0)
         );
 
+        $mainActiveDays = $this->resolveActiveDaysForDateCalculation(
+            typeContratId: (int) $validated['type_contrat'],
+            payload: $validated
+        );
+
         $validated['date_fin'] = $this->calculateEndDate(
             dateDebut: (string) $validated['date_debut'],
             montantTotal: (float) $validated['montant_total'],
             montantPaye: (float) ($validated['montant_paye'] ?? 0),
             montantParPaiement: (float) $validated['montant_par_paiement'],
-            frequence: (string) $validated['frequence']
+            frequence: (string) $validated['frequence'],
+            activeDays: $mainActiveDays
         );
 
         $validated['sous_contrats'] = collect($validated['sous_contrats'] ?? [])
@@ -468,7 +512,11 @@ class ContratLeaseController extends Controller
                     montantTotal: (float) ($row['montant_total'] ?? 0),
                     montantPaye: (float) ($row['montant_paye'] ?? 0),
                     montantParPaiement: (float) ($row['montant_par_paiement'] ?? 0),
-                    frequence: (string) ($row['frequence'] ?? 'JOURNALIER')
+                    frequence: (string) ($row['frequence'] ?? 'JOURNALIER'),
+                    activeDays: $this->resolveActiveDaysForDateCalculation(
+                        typeContratId: (int) ($row['type_contrat'] ?? 0),
+                        payload: $row
+                    )
                 );
 
                 return $row;
@@ -484,24 +532,101 @@ class ContratLeaseController extends Controller
         float $montantTotal,
         float $montantPaye,
         float $montantParPaiement,
-        string $frequence
+        string $frequence,
+        array $activeDays = []
     ): string {
         $start = Carbon::parse($dateDebut)->startOfDay();
         $remaining = max(0, $montantTotal - $montantPaye);
+        $activeDays = $this->normalizeActiveDays($activeDays ?: $this->fallbackActiveDays());
 
         if ($remaining <= 0 || $montantParPaiement <= 0) {
-            return $start->toDateString();
+            return $this->moveToNextActiveDay($start, $activeDays)->toDateString();
         }
 
         $numberOfPayments = (int) ceil($remaining / $montantParPaiement);
         $periodsToAdd = max(0, $numberOfPayments - 1);
 
         return match (mb_strtoupper($frequence, 'UTF-8')) {
-            'JOURNALIER' => $start->copy()->addDays($periodsToAdd)->toDateString(),
-            'HEBDOMADAIRE' => $start->copy()->addWeeks($periodsToAdd)->toDateString(),
-            'MENSUEL' => $start->copy()->addMonthsNoOverflow($periodsToAdd)->toDateString(),
-            default => $start->copy()->addDays($periodsToAdd)->toDateString(),
+            'JOURNALIER' => $this->addActivePaymentDays($start, $periodsToAdd, $activeDays)->toDateString(),
+            'HEBDOMADAIRE' => $this->moveToNextActiveDay($start->copy()->addWeeks($periodsToAdd), $activeDays)->toDateString(),
+            'MENSUEL' => $this->moveToNextActiveDay($start->copy()->addMonthsNoOverflow($periodsToAdd), $activeDays)->toDateString(),
+            default => $this->addActivePaymentDays($start, $periodsToAdd, $activeDays)->toDateString(),
         };
+    }
+
+    private function addActivePaymentDays(Carbon $start, int $periodsToAdd, array $activeDays): Carbon
+    {
+        $date = $this->moveToNextActiveDay($start, $activeDays);
+        $added = 0;
+
+        while ($added < $periodsToAdd) {
+            $date->addDay();
+
+            if ($this->isActiveDay($date, $activeDays)) {
+                $added++;
+            }
+        }
+
+        return $date;
+    }
+
+    private function moveToNextActiveDay(Carbon $date, array $activeDays): Carbon
+    {
+        $date = $date->copy();
+        $guard = 0;
+
+        while (! $this->isActiveDay($date, $activeDays) && $guard < 14) {
+            $date->addDay();
+            $guard++;
+        }
+
+        return $date;
+    }
+
+    private function isActiveDay(Carbon $date, array $activeDays): bool
+    {
+        return in_array(strtolower($date->englishDayOfWeek), $activeDays, true);
+    }
+
+    private function resolveActiveDaysForDateCalculation(int $typeContratId, array $payload): array
+    {
+        if (! empty($payload['customize_cutoff_rule'])) {
+            return $this->normalizeActiveDays($payload['custom_rule_active_days'] ?? []);
+        }
+
+        return $this->resolveDefaultActiveDaysForType($typeContratId);
+    }
+
+    private function resolveDefaultActiveDaysForType(int $typeContratId): array
+    {
+        if ($typeContratId <= 0 || ! auth()->check()) {
+            return $this->fallbackActiveDays();
+        }
+
+        $partnerId = (int) (auth()->user()->partner_id ?: auth()->id());
+        $rule = LeaseCutoffDefaultRule::query()
+            ->where('partner_id', $partnerId)
+            ->where('type_contrat_id', $typeContratId)
+            ->first();
+
+        return $this->normalizeActiveDays($rule?->active_days ?? []) ?: $this->fallbackActiveDays();
+    }
+
+    private function normalizeActiveDays(array $days): array
+    {
+        $allowed = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+        return collect($days)
+            ->map(fn ($day) => strtolower((string) $day))
+            ->filter(fn ($day) => in_array($day, $allowed, true))
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    private function fallbackActiveDays(): array
+    {
+        return ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
     }
 
     private function buildRecouvrementPayload(array $validated, bool $updating): array
@@ -572,6 +697,136 @@ class ContratLeaseController extends Controller
 
 
     /**
+     * Après une création avec sous-contrats, l'API Recouvrement peut répondre
+     * uniquement avec le contrat principal. Dans ce cas, les sous-contrats existent
+     * déjà côté Recouvrement, mais leurs identifiants ne sont pas encore dans la
+     * réponse locale ; l'application automatique des règles par défaut les ignore
+     * alors et l'interface affiche "Inactif".
+     *
+     * Cette méthode recharge immédiatement les contrats du partenaire, synchronise
+     * les liens Tracking, puis rattache les sous-contrats fraîchement créés à la
+     * réponse utilisée pour appliquer les règles de coupure.
+     */
+    private function refreshCreatedContractTreeForRuleApplication(array $validated, array $apiResponse): array
+    {
+        if (! auth()->check()) {
+            return $apiResponse;
+        }
+
+        /**
+         * Cas 1 : création d'un sous-contrat depuis le formulaire dédié.
+         * Certaines réponses Recouvrement ne renvoient pas immédiatement l'id du
+         * sous-contrat créé. Dans ce cas, on recharge les contrats du parent pour
+         * retrouver le vrai source_contract_id avant d'appliquer la règle.
+         */
+        if (! empty($validated['parent']) && empty($validated['sous_contrats'])) {
+            if ($this->extractContractId($apiResponse) > 0) {
+                return $apiResponse;
+            }
+
+            try {
+                $freshContracts = $this->leaseApiService->fetchContracts([]);
+                $freshContracts = $this->inheritParentVehicleOnSubContracts($freshContracts);
+                $this->contractLinkService->syncFetchedContracts(auth()->user(), $freshContracts);
+
+                $createdSubContract = collect($freshContracts)
+                    ->filter(fn ($contract) => is_array($contract))
+                    ->filter(fn (array $contract) => $this->extractParentContractId($contract) === (int) $validated['parent'])
+                    ->sortByDesc(fn (array $contract) => $this->extractContractId($contract))
+                    ->first(function (array $contract) use ($validated) {
+                        return (int) ($contract['type_contrat'] ?? data_get($contract, 'raw.type_contrat') ?? 0) === (int) $validated['type_contrat']
+                            && (string) ($contract['date_debut'] ?? data_get($contract, 'raw.date_debut') ?? '') === (string) $validated['date_debut']
+                            && (float) ($contract['montant_total'] ?? data_get($contract, 'raw.montant_total') ?? 0) === (float) $validated['montant_total'];
+                    });
+
+                if (is_array($createdSubContract) && $this->extractContractId($createdSubContract) > 0) {
+                    return $createdSubContract;
+                }
+            } catch (Throwable $e) {
+                $this->reportLeaseError('LEASE_CREATED_SUB_REFRESH_FAILED', $e, [
+                    'parent_contract_id' => (int) $validated['parent'],
+                ]);
+            }
+
+            return $apiResponse;
+        }
+
+        if (empty($validated['sous_contrats'])) {
+            return $apiResponse;
+        }
+
+        $mainId = $this->extractContractId($apiResponse);
+
+        if ($mainId <= 0) {
+            Log::warning('[LEASE_CREATED_TREE_REFRESH_SKIPPED_NO_MAIN_ID]', [
+                'api_response_keys' => array_keys($apiResponse),
+            ]);
+
+            return $apiResponse;
+        }
+
+        try {
+            /**
+             * Même quand Recouvrement renvoie déjà les sous-contrats dans la réponse
+             * de création, syncAfterContractWrite() ne synchronise que le contrat
+             * principal. On recharge donc systématiquement l'arbre complet afin de
+             * créer les LeaseContractLink des sous-contrats avant d'appliquer leurs
+             * règles de coupure.
+             */
+            $freshContracts = $this->leaseApiService->fetchContracts([]);
+            $freshContracts = $this->inheritParentVehicleOnSubContracts($freshContracts);
+            $this->contractLinkService->syncFetchedContracts(auth()->user(), $freshContracts);
+
+            $children = collect($freshContracts)
+                ->filter(fn ($contract) => is_array($contract))
+                ->filter(fn (array $contract) => $this->extractParentContractId($contract) === $mainId)
+                ->values()
+                ->all();
+
+            if (! empty($children)) {
+                /*
+                 * Point critique : syncFetchedContracts() peut ignorer ou retarder
+                 * la création du LeaseContractLink des sous-contrats quand ils sont
+                 * renvoyés à plat par Recouvrement ou sans immatriculation propre.
+                 * Or applyDefaultRule() ne peut cibler qu'un LeaseContractLink local.
+                 * On force donc ici la synchronisation de chaque sous-contrat avec
+                 * son parent avant l'application automatique de la règle.
+                 */
+                $this->syncCreatedSubContractLinksForRuleApplication($mainId, $children);
+
+
+                $existingChildren = collect($this->collectSubContractsFromApiResponse($apiResponse))
+                    ->filter(fn ($row) => is_array($row));
+
+                $mergedChildren = $existingChildren
+                    ->merge($children)
+                    ->unique(fn (array $child) => $this->extractContractId($child))
+                    ->values()
+                    ->all();
+
+                $apiResponse['sous_contrats'] = $mergedChildren;
+                $apiResponse['sub_contracts'] = $mergedChildren;
+
+                Log::info('[LEASE_CREATED_TREE_REFRESHED_FOR_RULES]', [
+                    'main_contract_id' => $mainId,
+                    'sub_contract_ids' => collect($mergedChildren)
+                        ->map(fn (array $child) => $this->extractContractId($child))
+                        ->filter()
+                        ->values()
+                        ->all(),
+                ]);
+            }
+        } catch (Throwable $e) {
+            $this->reportLeaseError('LEASE_CREATED_TREE_REFRESH_FAILED', $e, [
+                'main_contract_id' => $mainId,
+            ]);
+        }
+
+        return $apiResponse;
+    }
+
+
+    /**
      * La création/modification du contrat ne doit jamais être bloquée par un
      * problème de règle de coupure. On logge l'incident et on laisse l'utilisateur
      * corriger depuis les détails du contrat ou les settings.
@@ -592,9 +847,93 @@ class ContratLeaseController extends Controller
         }
     }
 
+    private function normalizeCutoffPayloadForRuleApplication(array $payload): array
+    {
+        $payload['custom_rule_is_enabled'] = array_key_exists('custom_rule_is_enabled', $payload)
+            ? (bool) $payload['custom_rule_is_enabled']
+            : true;
+        $payload['custom_rule_timezone'] = $payload['custom_rule_timezone'] ?? 'Africa/Douala';
+        $payload['custom_rule_grace_days'] = (int) ($payload['custom_rule_grace_days'] ?? 0);
+        $payload['custom_rule_active_days'] = $this->normalizeActiveDays($payload['custom_rule_active_days'] ?? []) ?: $this->fallbackActiveDays();
+        $payload['custom_rule_only_when_stopped'] = array_key_exists('custom_rule_only_when_stopped', $payload)
+            ? (bool) $payload['custom_rule_only_when_stopped']
+            : true;
+        $payload['custom_rule_notify_before_cutoff'] = (bool) ($payload['custom_rule_notify_before_cutoff'] ?? false);
+
+        return $payload;
+    }
+
+    private function subCutoffPayloadsBySourceContractId(array $validated, array $apiResponse): array
+    {
+        $subRows = collect($validated['sous_contrats'] ?? [])
+            ->filter(fn ($row) => is_array($row))
+            ->values();
+
+        if ($subRows->isEmpty()) {
+            return [];
+        }
+
+        $apiChildren = collect($this->collectSubContractsFromApiResponse($apiResponse))
+            ->filter(fn ($row) => is_array($row))
+            ->values();
+
+        $mapped = [];
+
+        foreach ($apiChildren as $index => $child) {
+            $sourceId = $this->extractContractId($child);
+            $row = $subRows->get($index);
+
+            if (! is_array($row)) {
+                $row = $subRows->first(function (array $candidate) use ($child) {
+                    return (int) ($candidate['type_contrat'] ?? 0) === (int) ($child['type_contrat'] ?? data_get($child, 'raw.type_contrat') ?? 0)
+                        && (string) ($candidate['date_debut'] ?? '') === (string) ($child['date_debut'] ?? data_get($child, 'raw.date_debut') ?? '')
+                        && (float) ($candidate['montant_total'] ?? 0) === (float) ($child['montant_total'] ?? data_get($child, 'raw.montant_total') ?? 0);
+                });
+            }
+
+            if ($sourceId <= 0 || ! is_array($row)) {
+                continue;
+            }
+
+            $mapped[$sourceId] = $row;
+        }
+
+        return $mapped;
+    }
+
+    private function collectSubContractsFromApiResponse(array $apiResponse): array
+    {
+        $children = [];
+
+        foreach (['sous_contrats', 'sub_contracts', 'subContracts', 'children', 'data.sous_contrats', 'data.sub_contracts', 'data.subContracts', 'data.children', 'contrat.sous_contrats', 'contrat.sub_contracts', 'contrat.subContracts', 'contrat.children'] as $path) {
+            $rows = data_get($apiResponse, $path, []);
+
+            if (! is_array($rows)) {
+                continue;
+            }
+
+            foreach ($rows as $row) {
+                if (is_array($row)) {
+                    $children[] = $row;
+                }
+            }
+        }
+
+        return collect($children)
+            ->unique(fn (array $row) => $this->extractContractId($row) ?: spl_object_id((object) $row))
+            ->values()
+            ->all();
+    }
+
     private function applyCutoffRuleAfterContractCreation(array $validated, array $apiResponse): void
     {
-        if (empty($validated['apply_default_cutoff_rule']) && empty($validated['customize_cutoff_rule'])) {
+        $hasMainRuleChoice = ! empty($validated['apply_default_cutoff_rule']) || ! empty($validated['customize_cutoff_rule']);
+        $hasSubRuleChoice = collect($validated['sous_contrats'] ?? [])->contains(function ($row) {
+            return is_array($row)
+                && (! empty($row['apply_default_cutoff_rule']) || ! empty($row['customize_cutoff_rule']));
+        });
+
+        if (! $hasMainRuleChoice && ! $hasSubRuleChoice) {
             return;
         }
 
@@ -610,6 +949,17 @@ class ContratLeaseController extends Controller
 
         $actor = auth()->user();
         $partnerId = (int) ($actor->partner_id ?: $actor->id);
+
+        /*
+         * Sécurité supplémentaire : si les sous-contrats ont été créés simultanément
+         * et que leur lien local n'existe pas encore, on le crée juste avant la
+         * recherche des liens. Cela rend l'application de la règle idempotente.
+         */
+        $mainIdForSubSync = $this->extractContractId($apiResponse);
+        $childrenForSubSync = $this->collectSubContractsFromApiResponse($apiResponse);
+        if ($mainIdForSubSync > 0 && ! empty($childrenForSubSync)) {
+            $this->syncCreatedSubContractLinksForRuleApplication($mainIdForSubSync, $childrenForSubSync);
+        }
 
         $contractLinks = LeaseContractLink::query()
             ->where('partner_id', $partnerId)
@@ -630,7 +980,8 @@ class ContratLeaseController extends Controller
             return;
         }
 
-        $mainSourceId = (int) ($sourceContractIds[0] ?? 0);
+        $subPayloadsBySourceId = $this->subCutoffPayloadsBySourceContractId($validated, $apiResponse);
+        $isDirectSubContractWrite = ! empty($validated['parent']) && empty($validated['sous_contrats']);
 
         foreach ($sourceContractIds as $sourceContractId) {
             /** @var LeaseContractLink|null $contractLink */
@@ -640,19 +991,59 @@ class ContratLeaseController extends Controller
                 continue;
             }
 
-            /**
-             * La personnalisation du formulaire principal ne doit pas être recopiée
-             * aveuglément aux sous-contrats : chaque sous-contrat garde une règle
-             * indépendante. Pour les sous-contrats créés avec le contrat principal,
-             * seule la règle par défaut peut être appliquée automatiquement.
-             */
-            if (! empty($validated['customize_cutoff_rule']) && (int) $contractLink->source_contract_id === $mainSourceId) {
-                $this->ruleApplicationService->applyCustomRule($actor, $contractLink, $validated);
+            $isMainContractInThisWrite = ! $isDirectSubContractWrite
+                && strtoupper((string) $contractLink->contract_kind) === 'MAIN';
+
+            $rulePayload = ($isMainContractInThisWrite || $isDirectSubContractWrite)
+                ? $validated
+                : ($subPayloadsBySourceId[(int) $contractLink->source_contract_id] ?? []);
+
+            if (! empty($rulePayload['customize_cutoff_rule'])) {
+                $this->ruleApplicationService->applyCustomRule(
+                    $actor,
+                    $contractLink,
+                    $this->normalizeCutoffPayloadForRuleApplication($rulePayload)
+                );
                 continue;
             }
 
-            if (! empty($validated['apply_default_cutoff_rule'])) {
+            if (! empty($rulePayload['apply_default_cutoff_rule']) || (! $isMainContractInThisWrite && empty($rulePayload))) {
                 $this->ruleApplicationService->applyDefaultRule($actor, $contractLink);
+            }
+        }
+    }
+
+    /**
+     * Garantit l'existence des LeaseContractLink des sous-contrats créés en même temps
+     * que le contrat principal.
+     *
+     * Sans cette étape, la règle du contrat principal s'applique correctement, mais la
+     * règle du sous-contrat est ignorée parce qu'aucune ligne locale ne peut être ciblée.
+     */
+    private function syncCreatedSubContractLinksForRuleApplication(int $parentContractId, array $children): void
+    {
+        if (! auth()->check() || $parentContractId <= 0 || empty($children)) {
+            return;
+        }
+
+        foreach ($children as $child) {
+            if (! is_array($child) || $this->extractContractId($child) <= 0) {
+                continue;
+            }
+
+            try {
+                $this->contractLinkService->syncSubContractFromParent(
+                    actor: auth()->user(),
+                    parentContractId: $parentContractId,
+                    payload: $child,
+                    apiResponse: $child
+                );
+            } catch (Throwable $e) {
+                $this->reportLeaseError('LEASE_CREATED_SUB_LINK_SYNC_FOR_RULE_FAILED', $e, [
+                    'parent_contract_id' => $parentContractId,
+                    'sub_contract_id' => $this->extractContractId($child),
+                    'type_contrat' => $child['type_contrat'] ?? data_get($child, 'raw.type_contrat'),
+                ]);
             }
         }
     }
@@ -674,7 +1065,7 @@ class ContratLeaseController extends Controller
             $ids[] = (int) $mainId;
         }
 
-        foreach (['sous_contrats', 'sub_contracts', 'subContracts', 'data.sous_contrats', 'data.sub_contracts', 'contrat.sous_contrats', 'contrat.sub_contracts'] as $path) {
+        foreach (['sous_contrats', 'sub_contracts', 'subContracts', 'children', 'data.sous_contrats', 'data.sub_contracts', 'data.subContracts', 'data.children', 'contrat.sous_contrats', 'contrat.sub_contracts', 'contrat.subContracts', 'contrat.children'] as $path) {
             $rows = data_get($apiResponse, $path, []);
 
             if (! is_array($rows)) {
@@ -727,14 +1118,29 @@ class ContratLeaseController extends Controller
         }
     }
 
+    private function specificitesJsonValidationRule(): callable
+    {
+        return function (string $attribute, mixed $value, callable $fail): void {
+            if ($value === null || $value === '' || is_array($value)) {
+                return;
+            }
+
+            json_decode((string) $value, true);
+
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                $fail('Le champ ' . str_replace('_', ' ', $attribute) . ' doit contenir un JSON valide. Exemple : {"marque":"Samsung","imei":"123456"}.');
+            }
+        };
+    }
+
     private function normalizeSpecificites(mixed $value): mixed
     {
-        if (is_array($value)) {
-            return $value;
-        }
-
         if ($value === null) {
             return new stdClass();
+        }
+
+        if (is_array($value)) {
+            return $this->formatSpecificites($value);
         }
 
         $value = trim((string) $value);
@@ -745,7 +1151,51 @@ class ContratLeaseController extends Controller
 
         $decoded = json_decode($value, true);
 
-        return json_last_error() === JSON_ERROR_NONE ? $decoded : $value;
+        if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+            return $this->formatSpecificites($decoded);
+        }
+
+        return $this->titleCaseWords($value);
+    }
+
+    private function formatSpecificites(array $specificites): array|stdClass
+    {
+        $formatted = [];
+
+        foreach ($specificites as $key => $value) {
+            $label = $this->titleCaseWords((string) $key);
+
+            if ($label === '') {
+                continue;
+            }
+
+            $formatted[$label] = is_array($value)
+                ? $this->formatSpecificites($value)
+                : (is_string($value) ? $this->titleCaseWords($value) : $value);
+        }
+
+        return empty($formatted) ? new stdClass() : $formatted;
+    }
+
+    private function titleCaseWords(string $value): string
+    {
+        $value = trim(str_replace(['_', '-'], ' ', $value));
+        $value = trim(preg_replace('/\s+/', ' ', $value) ?? '');
+
+        if ($value === '') {
+            return '';
+        }
+
+        return collect(explode(' ', $value))
+            ->map(function (string $word) {
+                if ($word === mb_strtoupper($word, 'UTF-8') && mb_strlen($word, 'UTF-8') <= 8) {
+                    return $word;
+                }
+
+                return mb_strtoupper(mb_substr($word, 0, 1, 'UTF-8'), 'UTF-8')
+                    . mb_strtolower(mb_substr($word, 1, null, 'UTF-8'), 'UTF-8');
+            })
+            ->implode(' ');
     }
 
     private function mapUiContractStatusToApi(string $status): string
@@ -1055,6 +1505,115 @@ class ContratLeaseController extends Controller
             ->filter(fn ($row) => ! empty($row['id']))
             ->values()
             ->all();
+    }
+
+    /**
+     * Les sous-contrats Recouvrement peuvent remonter avec immatriculation/vin à null.
+     * Tracking a pourtant besoin du véhicule du contrat parent pour créer le
+     * LeaseContractLink puis appliquer la règle de coupure du sous-contrat.
+     *
+     * On enrichit donc uniquement les sous-contrats qui n'ont pas de véhicule propre,
+     * sans modifier les contrats qui possèdent déjà leurs informations.
+     */
+    private function inheritParentVehicleOnSubContracts(array $contracts): array
+    {
+        $parentsById = collect($contracts)
+            ->filter(fn ($contract) => is_array($contract) && $this->extractParentContractId($contract) <= 0)
+            ->keyBy(fn (array $contract) => $this->extractContractId($contract));
+
+        return collect($contracts)
+            ->map(function ($contract) use ($parentsById) {
+                if (! is_array($contract)) {
+                    return $contract;
+                }
+
+                $parentId = $this->extractParentContractId($contract);
+
+                if ($parentId > 0) {
+                    $parent = $parentsById->get($parentId);
+
+                    if (is_array($parent)) {
+                        $contract = $this->inheritVehicleFieldsFromParent($contract, $parent);
+                    }
+                }
+
+                foreach (['sub_contracts', 'sous_contrats', 'sousContrats'] as $key) {
+                    if (! empty($contract[$key]) && is_array($contract[$key])) {
+                        $contract[$key] = collect($contract[$key])
+                            ->map(fn ($child) => is_array($child)
+                                ? $this->inheritVehicleFieldsFromParent($child, $contract)
+                                : $child)
+                            ->values()
+                            ->all();
+                    }
+
+                    if (! empty($contract['raw'][$key]) && is_array($contract['raw'][$key])) {
+                        $contract['raw'][$key] = collect($contract['raw'][$key])
+                            ->map(fn ($child) => is_array($child)
+                                ? $this->inheritVehicleFieldsFromParent($child, $contract)
+                                : $child)
+                            ->values()
+                            ->all();
+                    }
+                }
+
+                return $contract;
+            })
+            ->values()
+            ->all();
+    }
+
+    private function inheritVehicleFieldsFromParent(array $child, array $parent): array
+    {
+        $parentImmatriculation = $parent['vehicule']
+            ?? $parent['immatriculation']
+            ?? data_get($parent, 'raw.immatriculation')
+            ?? null;
+
+        $parentVin = $parent['vin']
+            ?? data_get($parent, 'raw.vin')
+            ?? '';
+
+        $parentVehicleId = $parent['vehicle_id']
+            ?? $parent['vehicule_id']
+            ?? data_get($parent, 'raw.vehicle_id')
+            ?? data_get($parent, 'raw.vehicule_id')
+            ?? null;
+
+        $hasChildImmatriculation = trim((string) (
+            $child['immatriculation']
+            ?? $child['vehicule']
+            ?? data_get($child, 'raw.immatriculation')
+            ?? ''
+        )) !== '';
+
+        if (! $hasChildImmatriculation && ! empty($parentImmatriculation)) {
+            $child['immatriculation'] = $parentImmatriculation;
+            $child['vehicule'] = $child['vehicule'] ?? $parentImmatriculation;
+
+            if (isset($child['raw']) && is_array($child['raw'])) {
+                $child['raw']['immatriculation'] = $child['raw']['immatriculation'] ?? $parentImmatriculation;
+            }
+        }
+
+        if (empty($child['vin']) && ! empty($parentVin)) {
+            $child['vin'] = $parentVin;
+
+            if (isset($child['raw']) && is_array($child['raw'])) {
+                $child['raw']['vin'] = $child['raw']['vin'] ?? $parentVin;
+            }
+        }
+
+        if (empty($child['vehicle_id']) && ! empty($parentVehicleId)) {
+            $child['vehicle_id'] = $parentVehicleId;
+            $child['vehicule_id'] = $child['vehicule_id'] ?? $parentVehicleId;
+        }
+
+        if (empty($child['tracking_vehicle']) && ! empty($parent['tracking_vehicle'])) {
+            $child['tracking_vehicle'] = $parent['tracking_vehicle'];
+        }
+
+        return $child;
     }
 
     private function attachTrackingVehiclesToContracts(array $contracts, array $vehicles): array
