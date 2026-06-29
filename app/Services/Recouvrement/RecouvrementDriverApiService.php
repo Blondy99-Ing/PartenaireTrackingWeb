@@ -69,12 +69,12 @@ class RecouvrementDriverApiService
             'tenant_partner_id' => $partner->tenantPartnerId(),
             'driver_id' => $driver->id,
             'status' => $response->status(),
-            'body' => $response->body(),
+            'response_size' => strlen((string) $response->body()),
         ]);
 
         if (! $response->successful()) {
             throw new RuntimeException(
-                "Création chauffeur recouvrement échouée [{$response->status()}] : " . $response->body()
+                "Création chauffeur recouvrement échouée [{$response->status()}] : " . $this->safeResponseMessage($response->body())
             );
         }
 
@@ -156,12 +156,12 @@ class RecouvrementDriverApiService
             'driver_id' => $driver->id,
             'recouvrement_driver_id' => $driver->recouvrement_driver_id,
             'status' => $response->status(),
-            'body' => $response->body(),
+            'response_size' => strlen((string) $response->body()),
         ]);
 
         if (! $response->successful()) {
             throw new RuntimeException(
-                "Modification chauffeur recouvrement échouée [{$response->status()}] : " . $response->body()
+                "Modification chauffeur recouvrement échouée [{$response->status()}] : " . $this->safeResponseMessage($response->body())
             );
         }
 
@@ -238,7 +238,7 @@ class RecouvrementDriverApiService
             'tenant_partner_id' => $partner->tenantPartnerId(),
             'recouvrement_driver_id' => $recouvrementDriverId,
             'status' => $response->status(),
-            'body' => $response->body(),
+            'response_size' => strlen((string) $response->body()),
             ...$context,
         ]);
 
@@ -248,7 +248,7 @@ class RecouvrementDriverApiService
          */
         if (! $response->successful() && ! in_array($response->status(), [204, 404], true)) {
             throw new RuntimeException(
-                "Suppression chauffeur recouvrement échouée [{$response->status()}] : " . $response->body()
+                "Suppression chauffeur recouvrement échouée [{$response->status()}] : " . $this->safeResponseMessage($response->body())
             );
         }
     }
@@ -298,6 +298,19 @@ class RecouvrementDriverApiService
 
     return $payload;
 }
+
+    private function safeResponseMessage(string $body): string
+    {
+        $decoded = json_decode($body, true);
+
+        if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+            $message = $decoded['detail'] ?? $decoded['message'] ?? $decoded['error'] ?? null;
+
+            return is_scalar($message) ? (string) $message : 'Réponse API non valide. Voir les logs techniques.';
+        }
+
+        return trim($body) !== '' ? mb_substr(strip_tags($body), 0, 180) : 'Réponse API vide.';
+    }
 
     private function baseUrl(): string
     {

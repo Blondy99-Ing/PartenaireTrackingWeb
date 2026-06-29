@@ -6,6 +6,8 @@ use App\Exceptions\LeaseApiException;
 use App\Http\Controllers\Controller;
 use App\Models\LeaseContractLink;
 use App\Models\LeaseCutoffDefaultRule;
+use App\Models\LeaseCutoffHistory;
+use App\Models\LeaseCutoffQueue;
 use App\Services\Leases\LeaseContractCutoffRuleApplicationService;
 use App\Services\Leases\LeaseContractLinkService;
 use App\Services\Leases\LeaseCutoffRuleService;
@@ -176,8 +178,10 @@ class ContratLeaseController extends Controller
     public function store(Request $request): RedirectResponse
     {
         Log::info('[LEASE_CONTRACT_STORE_REQUEST]', [
-            'input' => $request->except(['_token']),
             'actor_id' => auth()->id(),
+            'is_sub_contract' => $request->filled('parent'),
+            'has_sub_contracts' => is_array($request->input('sous_contrats')),
+            'sub_contracts_count' => is_array($request->input('sous_contrats')) ? count($request->input('sous_contrats')) : 0,
         ]);
 
         $validated = $this->prepareContractPayloadForPersistence($this->validateContractPayload($request, creating: true));
@@ -190,7 +194,10 @@ class ContratLeaseController extends Controller
 
                 Log::info('[LEASE_SUB_CONTRACT_STORE_API_PAYLOAD]', [
                     'parent_contract_id' => (int) $validated['parent'],
-                    'payload' => $apiPayload,
+                    'type_contrat' => $apiPayload['type_contrat'] ?? null,
+                    'frequence' => $apiPayload['frequence'] ?? null,
+                    'date_debut' => $apiPayload['date_debut'] ?? null,
+                    'date_fin' => $apiPayload['date_fin'] ?? null,
                 ]);
 
                 $created = $this->leaseApiService->createSubContract(
@@ -208,8 +215,12 @@ class ContratLeaseController extends Controller
                 $apiPayload = $this->buildRecouvrementPayload($validated, updating: false);
 
                 Log::info('[LEASE_CONTRACT_STORE_API_PAYLOAD]', [
-                    'payload' => $apiPayload,
                     'vehicle_id_local_tracking' => $vehicleId,
+                    'type_contrat' => $apiPayload['type_contrat'] ?? null,
+                    'frequence' => $apiPayload['frequence'] ?? null,
+                    'date_debut' => $apiPayload['date_debut'] ?? null,
+                    'date_fin' => $apiPayload['date_fin'] ?? null,
+                    'sub_contracts_count' => isset($apiPayload['sous_contrats']) && is_array($apiPayload['sous_contrats']) ? count($apiPayload['sous_contrats']) : 0,
                 ]);
 
                 $created = $this->leaseApiService->createContract($apiPayload);
@@ -229,7 +240,7 @@ class ContratLeaseController extends Controller
             return $ruleWarning ? $redirect->with('warning', $ruleWarning) : $redirect;
         } catch (Throwable $e) {
             $this->reportLeaseError('LEASE_CONTRACT_STORE_FAILED', $e, [
-                'validated' => $validated,
+                'validated_keys' => array_keys($validated),
                 'vehicle_id_local_tracking' => $vehicleId,
             ]);
 
@@ -246,8 +257,9 @@ class ContratLeaseController extends Controller
     {
         Log::info('[LEASE_CONTRACT_UPDATE_REQUEST]', [
             'contract_id' => $id,
-            'input' => $request->except(['_token']),
             'actor_id' => auth()->id(),
+            'is_sub_contract' => $request->filled('parent'),
+            'has_sub_contracts' => is_array($request->input('sous_contrats')),
         ]);
 
         $validated = $this->prepareContractPayloadForPersistence($this->validateContractPayload($request, creating: false));
@@ -266,7 +278,7 @@ class ContratLeaseController extends Controller
         } catch (Throwable $e) {
             $this->reportLeaseError('LEASE_CONTRACT_UPDATE_FAILED', $e, [
                 'contract_id' => $id,
-                'payload' => $apiPayload,
+                'payload_keys' => array_keys($apiPayload),
             ]);
 
             return back()
@@ -283,6 +295,7 @@ class ContratLeaseController extends Controller
     {
         try {
             $this->leaseApiService->deleteContract($id);
+            $this->cancelActiveCutoffQueuesForDeletedContract($id);
             $this->contractLinkService->markContractDeleted(auth()->user(), $id);
 
             return redirect()
@@ -878,20 +891,25 @@ class ContratLeaseController extends Controller
             ->values();
 
         $mapped = [];
+        $usedPayloadIndexes = [];
 
-        foreach ($apiChildren as $index => $child) {
+        foreach ($apiChildren as $child) {
             $sourceId = $this->extractContractId($child);
-            $row = $subRows->get($index);
 
-            if (! is_array($row)) {
-                $row = $subRows->first(function (array $candidate) use ($child) {
-                    return (int) ($candidate['type_contrat'] ?? 0) === (int) ($child['type_contrat'] ?? data_get($child, 'raw.type_contrat') ?? 0)
-                        && (string) ($candidate['date_debut'] ?? '') === (string) ($child['date_debut'] ?? data_get($child, 'raw.date_debut') ?? '')
-                        && (float) ($candidate['montant_total'] ?? 0) === (float) ($child['montant_total'] ?? data_get($child, 'raw.montant_total') ?? 0);
-                });
+            if ($sourceId <= 0) {
+                continue;
             }
 
-            if ($sourceId <= 0 || ! is_array($row)) {
+            $row = $this->findBestSubContractPayloadMatch($subRows->all(), $child, $usedPayloadIndexes);
+
+            if (! is_array($row)) {
+                Log::warning('[LEASE_SUB_CUTOFF_PAYLOAD_MATCH_FAILED]', [
+                    'source_contract_id' => $sourceId,
+                    'type_contrat' => $child['type_contrat'] ?? data_get($child, 'raw.type_contrat'),
+                    'date_debut' => $child['date_debut'] ?? data_get($child, 'raw.date_debut'),
+                    'date_fin' => $child['date_fin'] ?? data_get($child, 'raw.date_fin'),
+                ]);
+
                 continue;
             }
 
@@ -899,6 +917,54 @@ class ContratLeaseController extends Controller
         }
 
         return $mapped;
+    }
+
+    private function findBestSubContractPayloadMatch(array $payloadRows, array $apiChild, array &$usedIndexes): ?array
+    {
+        $childSignature = $this->subContractSignature($apiChild);
+        $fallbackIndex = null;
+
+        foreach ($payloadRows as $index => $row) {
+            if (! is_array($row) || in_array($index, $usedIndexes, true)) {
+                continue;
+            }
+
+            $candidateSignature = $this->subContractSignature($row);
+
+            if ($candidateSignature === $childSignature) {
+                $usedIndexes[] = $index;
+                return $row;
+            }
+
+            if ($fallbackIndex === null
+                && (int) ($candidateSignature['type_contrat'] ?? 0) === (int) ($childSignature['type_contrat'] ?? 0)
+                && (string) ($candidateSignature['date_debut'] ?? '') === (string) ($childSignature['date_debut'] ?? '')
+                && (float) ($candidateSignature['montant_total'] ?? 0) === (float) ($childSignature['montant_total'] ?? 0)) {
+                $fallbackIndex = $index;
+            }
+        }
+
+        if ($fallbackIndex !== null) {
+            $usedIndexes[] = $fallbackIndex;
+            return $payloadRows[$fallbackIndex];
+        }
+
+        return null;
+    }
+
+    private function subContractSignature(array $row): array
+    {
+        $raw = $row['raw'] ?? [];
+
+        return [
+            'type_contrat' => (int) ($row['type_contrat'] ?? data_get($row, 'type_contrat.id') ?? data_get($raw, 'type_contrat') ?? data_get($raw, 'type_contrat.id') ?? 0),
+            'montant_total' => (string) ($row['montant_total'] ?? data_get($raw, 'montant_total') ?? ''),
+            'montant_par_paiement' => (string) ($row['montant_par_paiement'] ?? data_get($raw, 'montant_par_paiement') ?? ''),
+            'frequence' => mb_strtoupper((string) ($row['frequence'] ?? data_get($raw, 'frequence') ?? ''), 'UTF-8'),
+            'date_debut' => (string) ($row['date_debut'] ?? data_get($raw, 'date_debut') ?? ''),
+            'date_fin' => (string) ($row['date_fin'] ?? data_get($raw, 'date_fin') ?? ''),
+            'prochaine_echeance' => (string) ($row['prochaine_echeance'] ?? data_get($raw, 'prochaine_echeance') ?? ''),
+        ];
     }
 
     private function collectSubContractsFromApiResponse(array $apiResponse): array
@@ -1116,6 +1182,64 @@ class ContratLeaseController extends Controller
                 apiResponse: $apiResponse
             );
         }
+    }
+
+
+    private function cancelActiveCutoffQueuesForDeletedContract(int $sourceContractId): void
+    {
+        if (! auth()->check() || $sourceContractId <= 0) {
+            return;
+        }
+
+        $actor = auth()->user();
+        $partnerId = (int) ($actor->partner_id ?: $actor->id);
+        $activeStatuses = ['PENDING', 'WAITING_STOP', 'WAITING_VEHICLE_STOP', 'READY', 'PROCESSING', 'COMMAND_SENT'];
+
+        $links = LeaseContractLink::query()
+            ->where('partner_id', $partnerId)
+            ->where(function ($query) use ($sourceContractId) {
+                $query->where('source_contract_id', $sourceContractId)
+                    ->orWhere('source_parent_contract_id', $sourceContractId);
+            })
+            ->pluck('id')
+            ->filter()
+            ->values();
+
+        if ($links->isEmpty()) {
+            return;
+        }
+
+        $queues = LeaseCutoffQueue::query()
+            ->where('partner_id', $partnerId)
+            ->whereIn('contract_link_id', $links->all())
+            ->whereIn('status', $activeStatuses)
+            ->get();
+
+        foreach ($queues as $queue) {
+            $queue->update([
+                'status' => 'CANCELLED',
+                'last_checked_at' => now(),
+                'next_check_at' => null,
+            ]);
+
+            if ($queue->history_id) {
+                LeaseCutoffHistory::query()
+                    ->where('partner_id', $partnerId)
+                    ->where('id', $queue->history_id)
+                    ->whereNotIn('status', ['CUT_OFF', 'CANCELLED_PAID', 'CANCELLED_FORGIVEN_BEFORE_CUT', 'FAILED'])
+                    ->update([
+                        'status' => 'CANCELLED_RULE_DISABLED',
+                        'notes' => 'Annulé automatiquement : contrat ou sous-contrat supprimé côté Recouvrement.',
+                    ]);
+            }
+        }
+
+        Log::info('[LEASE_CUTOFF_QUEUES_CANCELLED_AFTER_CONTRACT_DELETE]', [
+            'partner_id' => $partnerId,
+            'source_contract_id' => $sourceContractId,
+            'contract_link_ids' => $links->all(),
+            'cancelled_queues_count' => $queues->count(),
+        ]);
     }
 
     private function specificitesJsonValidationRule(): callable
@@ -1657,13 +1781,34 @@ class ContratLeaseController extends Controller
         report($e);
 
         Log::error("[{$event}]", [
-            ...$context,
+            ...$this->sanitizeLogContext($context),
             'exception_class' => $e::class,
             'message' => $e->getMessage(),
             'lease_request_id' => $e instanceof LeaseApiException ? $e->requestId : null,
             'status' => $e instanceof LeaseApiException ? $e->status : null,
             'api_message' => $e instanceof LeaseApiException ? $e->apiMessage : null,
         ]);
+    }
+
+
+    private function sanitizeLogContext(array $context): array
+    {
+        $sensitiveKeys = [
+            'payload', 'apiPayload', 'api_payload', 'api_response', 'validated', 'input',
+            'body', 'response_body', 'password', 'plainPassword', 'plain_password',
+            'phone', 'telephone', 'email', 'vin', 'immatriculation', 'specificites',
+        ];
+
+        return collect($context)
+            ->reject(fn ($value, $key) => in_array((string) $key, $sensitiveKeys, true))
+            ->map(function ($value) {
+                if (is_array($value)) {
+                    return array_keys($value);
+                }
+
+                return $value;
+            })
+            ->all();
     }
 
     private function clientErrorMessage(Throwable $e, string $fallback): string

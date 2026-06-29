@@ -389,13 +389,40 @@ class LeaseContractLinkService
 
     private function extractSubContracts(array $response): array
     {
-        $rows = $response['sous_contrats']
-            ?? $response['sousContrats']
-            ?? $response['sub_contracts']
-            ?? data_get($response, 'data.sous_contrats')
-            ?? [];
+        $children = [];
 
-        return is_array($rows) ? $rows : [];
+        foreach ([
+            'sous_contrats',
+            'sousContrats',
+            'sub_contracts',
+            'subContracts',
+            'children',
+            'data.sous_contrats',
+            'data.sousContrats',
+            'data.sub_contracts',
+            'data.subContracts',
+            'data.children',
+            'contrat.sous_contrats',
+            'contrat.sub_contracts',
+            'contrat.children',
+        ] as $path) {
+            $rows = data_get($response, $path, []);
+
+            if (! is_array($rows)) {
+                continue;
+            }
+
+            foreach ($rows as $row) {
+                if (is_array($row)) {
+                    $children[] = $row;
+                }
+            }
+        }
+
+        return collect($children)
+            ->unique(fn (array $row) => $this->extractContractId($row) ?: md5(json_encode($row)))
+            ->values()
+            ->all();
     }
 
     private function findLocalDriverFromRecouvrementId(mixed $recouvrementDriverId, int $partnerId): ?User
