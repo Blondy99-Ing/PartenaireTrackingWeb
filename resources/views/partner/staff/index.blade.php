@@ -51,6 +51,7 @@
                         <th>Email</th>
                         <th>Ville</th>
                         <th>Quartier</th>
+                        <th>Permissions</th>
                         <th>Photo</th>
                         <th>Actions</th>
                     </tr>
@@ -66,6 +67,17 @@
                             <td>{{ $member->ville ?? '—' }}</td>
                             <td>{{ $member->quartier ?? '—' }}</td>
                             <td>
+                                @forelse($member->permissions as $permission)
+                                    <span class="inline-block text-[10px] px-2 py-0.5 mb-1 mr-1 rounded role-badge"
+                                          style="background: var(--color-primary-light); color: var(--color-primary);"
+                                          title="{{ $permission->description }}">
+                                        {{ $permission->label }}
+                                    </span>
+                                @empty
+                                    <span class="text-secondary text-xs">—</span>
+                                @endforelse
+                            </td>
+                            <td>
                                 <img src="{{ $member->photo ? asset('storage/' . $member->photo) : 'https://placehold.co/40x40/F58220/ffffff?text=ST' }}"
                                      alt="Photo"
                                      class="h-10 w-10 object-cover rounded-full border border-border-subtle">
@@ -80,6 +92,7 @@
                                         data-email="{{ $member->email }}"
                                         data-ville="{{ $member->ville }}"
                                         data-quartier="{{ $member->quartier }}"
+                                        data-permissions="{{ $member->permissions->pluck('key')->implode(',') }}"
                                         title="Modifier">
                                     <i class="fas fa-edit"></i>
                                 </button>
@@ -106,98 +119,148 @@
 
     </div>
 
-    {{-- ── ADD MODAL ────────────────────────────────────────────────────────── --}}
-    <div id="addStaffModal"
-         class="fixed inset-0 bg-black bg-opacity-75 hidden flex items-center justify-center z-[9999] transition-opacity duration-300">
-        <div class="bg-card rounded-2xl w-full max-w-2xl p-6 relative shadow-lg transform transition-transform duration-300 scale-95 opacity-0 ui-card">
+    {{-- ── ADD FLOW (step 1: détails → step 2: permissions) ─────────────────── --}}
+    {{-- One form wraps both modals so all fields submit together. --}}
+    <form id="addStaffForm" action="{{ route('partner.staff.store') }}" method="POST" enctype="multipart/form-data">
+        @csrf
 
-            <button id="closeAddModalBtn"
-                    class="absolute top-4 right-4 text-secondary hover:text-red-500 text-xl font-bold transition-colors">&times;</button>
+        {{-- STEP 1 — détails --}}
+        <div id="addStaffModal"
+             class="fixed inset-0 bg-black bg-opacity-75 hidden flex items-center justify-center z-[9999] transition-opacity duration-300">
+            <div class="bg-card rounded-2xl w-full max-w-2xl relative shadow-lg transform transition-transform duration-300 scale-95 opacity-0 ui-card max-h-[90vh] flex flex-col overflow-hidden">
 
-            <h2 class="text-xl font-bold font-orbitron mb-6" style="color: var(--color-text);">
-                Ajouter un membre du staff
-            </h2>
+                <button type="button" id="closeAddModalBtn"
+                        class="absolute top-4 right-4 z-10 text-secondary hover:text-red-500 text-xl font-bold transition-colors">&times;</button>
 
-            <form action="{{ route('partner.staff.store') }}" method="POST" enctype="multipart/form-data" class="space-y-4">
-                @csrf
-
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-sm font-medium text-secondary">Nom</label>
-                        <input type="text" name="nom" required class="ui-input-style mt-1" value="{{ old('nom') }}">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-secondary">Prénom</label>
-                        <input type="text" name="prenom" required class="ui-input-style mt-1" value="{{ old('prenom') }}">
-                    </div>
+                <div class="shrink-0 px-6 pt-6 pb-4 border-b border-border-subtle">
+                    <h2 class="text-xl font-bold font-orbitron" style="color: var(--color-text);">
+                        Ajouter un membre du staff
+                    </h2>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-sm font-medium text-secondary">Téléphone</label>
-                        <input type="tel" name="phone" required class="ui-input-style mt-1" value="{{ old('phone') }}">
+                <div class="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-secondary">Nom</label>
+                            <input type="text" name="nom" required class="ui-input-style mt-1" value="{{ old('nom') }}">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-secondary">Prénom</label>
+                            <input type="text" name="prenom" required class="ui-input-style mt-1" value="{{ old('prenom') }}">
+                        </div>
                     </div>
-                    <div>
-                        <label class="block text-sm font-medium text-secondary">Email</label>
-                        <input type="email" name="email" class="ui-input-style mt-1" value="{{ old('email') }}">
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-secondary">Téléphone</label>
+                            <input type="tel" name="phone" required class="ui-input-style mt-1" value="{{ old('phone') }}">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-secondary">Email</label>
+                            <input type="email" name="email" class="ui-input-style mt-1" value="{{ old('email') }}">
+                        </div>
                     </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-secondary">Ville</label>
+                            <input type="text" name="ville" class="ui-input-style mt-1" value="{{ old('ville') }}">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-secondary">Quartier</label>
+                            <input type="text" name="quartier" class="ui-input-style mt-1" value="{{ old('quartier') }}">
+                        </div>
+                    </div>
+
+                    <div class="space-y-2">
+                        <label class="block text-sm font-medium text-secondary">Photo</label>
+                        <label for="photo_add" class="btn-secondary w-full text-center cursor-pointer transition-colors text-base">
+                            Choisir un fichier
+                        </label>
+                        <input type="file" class="hidden" id="photo_add" name="photo" accept="image/*">
+                        <div id="file-name-add" class="text-xs text-secondary italic">Aucun fichier sélectionné</div>
+                        <img id="preview-add" src="#" alt="Aperçu"
+                             class="mt-2 h-24 w-24 object-cover rounded-full hidden border border-border-subtle">
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-secondary">Mot de passe</label>
+                            <input type="password" name="password" required class="ui-input-style mt-1">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-secondary">Confirmer le mot de passe</label>
+                            <input type="password" name="password_confirmation" required class="ui-input-style mt-1">
+                        </div>
+                    </div>
+
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-sm font-medium text-secondary">Ville</label>
-                        <input type="text" name="ville" class="ui-input-style mt-1" value="{{ old('ville') }}">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-secondary">Quartier</label>
-                        <input type="text" name="quartier" class="ui-input-style mt-1" value="{{ old('quartier') }}">
-                    </div>
+                <div class="shrink-0 px-6 py-4 border-t border-border-subtle">
+                    <button type="button" id="addContinueBtn" class="btn-primary w-full">
+                        Continuer — choisir les permissions <i class="fas fa-arrow-right ml-2"></i>
+                    </button>
                 </div>
-
-                <div class="space-y-2">
-                    <label class="block text-sm font-medium text-secondary">Photo</label>
-                    <label for="photo_add" class="btn-secondary w-full text-center cursor-pointer transition-colors text-base">
-                        Choisir un fichier
-                    </label>
-                    <input type="file" class="hidden" id="photo_add" name="photo" accept="image/*">
-                    <div id="file-name-add" class="text-xs text-secondary italic">Aucun fichier sélectionné</div>
-                    <img id="preview-add" src="#" alt="Aperçu"
-                         class="mt-2 h-24 w-24 object-cover rounded-full hidden border border-border-subtle">
-                </div>
-
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-sm font-medium text-secondary">Mot de passe</label>
-                        <input type="password" name="password" required class="ui-input-style mt-1">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-secondary">Confirmer le mot de passe</label>
-                        <input type="password" name="password_confirmation" required class="ui-input-style mt-1">
-                    </div>
-                </div>
-
-                <button type="submit" class="btn-primary w-full mt-6">
-                    <i class="fas fa-user-plus mr-2"></i> Ajouter le membre
-                </button>
-            </form>
+            </div>
         </div>
-    </div>
+
+        {{-- STEP 2 — permissions --}}
+        <div id="addPermsModal"
+             class="fixed inset-0 bg-black bg-opacity-75 hidden flex items-center justify-center z-[10000] transition-opacity duration-300">
+            <div class="bg-card rounded-2xl w-full max-w-2xl relative shadow-lg transform transition-transform duration-300 scale-95 opacity-0 ui-card max-h-[90vh] flex flex-col overflow-hidden">
+
+                <button type="button" id="closeAddPermsBtn"
+                        class="absolute top-4 right-4 z-10 text-secondary hover:text-red-500 text-xl font-bold transition-colors">&times;</button>
+
+                <div class="shrink-0 px-6 pt-6 pb-4 border-b border-border-subtle">
+                    <h2 class="text-xl font-bold font-orbitron" style="color: var(--color-text);">
+                        Permissions du membre
+                    </h2>
+                    <p class="text-sm text-secondary mt-1">
+                        Sélectionnez <strong>au moins une</strong> permission. Le membre ne pourra effectuer
+                        que les actions autorisées.
+                    </p>
+                </div>
+
+                <div class="flex-1 overflow-y-auto px-6 py-4">
+                    @include('partner.staff._permissions', ['idPrefix' => 'add', 'selected' => old('permissions', [])])
+
+                    <div id="addPermsError" class="hidden text-red-500 text-sm mt-3">
+                        Sélectionnez au moins une permission.
+                    </div>
+                </div>
+
+                <div class="shrink-0 px-6 py-4 border-t border-border-subtle flex gap-3">
+                    <button type="button" id="backAddPermsBtn" class="btn-secondary w-1/2">
+                        <i class="fas fa-arrow-left mr-2"></i> Retour
+                    </button>
+                    <button type="submit" class="btn-primary w-1/2">
+                        <i class="fas fa-user-plus mr-2"></i> Créer le membre
+                    </button>
+                </div>
+            </div>
+        </div>
+    </form>
 
     {{-- ── EDIT MODAL ───────────────────────────────────────────────────────── --}}
     <div id="editStaffModal"
          class="fixed inset-0 bg-black bg-opacity-75 hidden flex items-center justify-center z-[9999] transition-opacity duration-300">
-        <div class="bg-card rounded-2xl w-full max-w-2xl p-6 relative shadow-lg transform transition-transform duration-300 scale-95 opacity-0 ui-card">
+        <div class="bg-card rounded-2xl w-full max-w-2xl relative shadow-lg transform transition-transform duration-300 scale-95 opacity-0 ui-card max-h-[90vh] flex flex-col overflow-hidden">
 
             <button id="closeEditModalBtn"
-                    class="absolute top-4 right-4 text-secondary hover:text-red-500 text-xl font-bold transition-colors">&times;</button>
+                    class="absolute top-4 right-4 z-10 text-secondary hover:text-red-500 text-xl font-bold transition-colors">&times;</button>
 
-            <h2 class="text-xl font-bold font-orbitron mb-6" style="color: var(--color-text);">
-                Modifier le membre du staff
-            </h2>
+            <div class="shrink-0 px-6 pt-6 pb-4 border-b border-border-subtle">
+                <h2 class="text-xl font-bold font-orbitron" style="color: var(--color-text);">
+                    Modifier le membre du staff
+                </h2>
+            </div>
 
-            <form id="editStaffForm" method="POST" enctype="multipart/form-data" class="space-y-4">
+            <form id="editStaffForm" method="POST" enctype="multipart/form-data" class="flex flex-col min-h-0 flex-1">
                 @csrf
                 @method('PUT')
+
+                <div class="flex-1 overflow-y-auto px-6 py-4 space-y-4">
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
@@ -256,9 +319,21 @@
                     </div>
                 </div>
 
-                <button type="submit" class="btn-primary w-full mt-6">
-                    <i class="fas fa-save mr-2"></i> Enregistrer les modifications
-                </button>
+                <div class="pt-2 border-t border-border-subtle">
+                    <h3 class="text-sm font-bold uppercase tracking-wide text-secondary mb-1 mt-3">Permissions</h3>
+                    <p class="text-xs text-secondary mb-3">Au moins une permission est requise.</p>
+                    @include('partner.staff._permissions', ['idPrefix' => 'edit', 'selected' => []])
+                    <div id="editPermsError" class="hidden text-red-500 text-sm mt-2">
+                        Sélectionnez au moins une permission.
+                    </div>
+                </div>
+                </div>
+
+                <div class="shrink-0 px-6 py-4 border-t border-border-subtle">
+                    <button type="submit" class="btn-primary w-full">
+                        <i class="fas fa-save mr-2"></i> Enregistrer les modifications
+                    </button>
+                </div>
             </form>
         </div>
     </div>
@@ -309,18 +384,52 @@
                     });
                 }
 
-                // ── Add modal ───────────────────────────────────────────────────
-                const addModal = document.getElementById('addStaffModal');
+                // ── Add flow (step 1 détails → step 2 permissions) ──────────────
+                const addModal     = document.getElementById('addStaffModal');
+                const addPermsModal = document.getElementById('addPermsModal');
+                const addForm      = document.getElementById('addStaffForm');
+                const addPermsError = document.getElementById('addPermsError');
 
                 document.getElementById('openAddModalBtn').addEventListener('click', () => openModal(addModal));
                 document.getElementById('closeAddModalBtn').addEventListener('click', () => closeModal(addModal));
                 addModal.addEventListener('click', e => { if (e.target === addModal) closeModal(addModal); });
+
+                // Step 1 → step 2 : validate the details before showing permissions
+                document.getElementById('addContinueBtn').addEventListener('click', () => {
+                    if (!addForm.reportValidity()) return;
+                    closeModal(addModal);
+                    openModal(addPermsModal);
+                });
+
+                document.getElementById('backAddPermsBtn').addEventListener('click', () => {
+                    closeModal(addPermsModal);
+                    openModal(addModal);
+                });
+                document.getElementById('closeAddPermsBtn').addEventListener('click', () => closeModal(addPermsModal));
+                addPermsModal.addEventListener('click', e => { if (e.target === addPermsModal) closeModal(addPermsModal); });
+
+                // Require at least one permission before submitting the add form
+                addForm.addEventListener('submit', function (e) {
+                    const checked = addForm.querySelectorAll('.add-perm-checkbox:checked').length;
+                    if (checked === 0) {
+                        e.preventDefault();
+                        if (addModal.classList.contains('hidden')) {
+                            addPermsError.classList.remove('hidden');
+                        } else {
+                            // user somehow submitted from step 1 — bring them to permissions
+                            closeModal(addModal);
+                            openModal(addPermsModal);
+                            addPermsError.classList.remove('hidden');
+                        }
+                    }
+                });
 
                 bindPhotoPreview('photo_add', 'preview-add', 'file-name-add', 'Aucun fichier sélectionné');
 
                 // ── Edit modal ──────────────────────────────────────────────────
                 const editModal = document.getElementById('editStaffModal');
                 const editForm  = document.getElementById('editStaffForm');
+                const editPermsError = document.getElementById('editPermsError');
 
                 document.getElementById('closeEditModalBtn').addEventListener('click', () => closeModal(editModal));
                 editModal.addEventListener('click', e => { if (e.target === editModal) closeModal(editModal); });
@@ -344,15 +453,35 @@
                         document.getElementById('file-name-edit').textContent = 'Laisser vide pour conserver la photo actuelle';
                         document.getElementById('preview-edit').classList.add('hidden');
 
+                        // Pre-check the member's current permissions
+                        const granted = (this.dataset.permissions || '').split(',').filter(Boolean);
+                        editForm.querySelectorAll('.edit-perm-checkbox').forEach(cb => {
+                            cb.checked = granted.includes(cb.value);
+                        });
+                        editPermsError.classList.add('hidden');
+
                         editForm.action = `/partner/staff/${id}`;
 
                         openModal(editModal);
                     });
                 });
 
-                // ── Auto-open add modal on validation error ─────────────────────
+                // Require at least one permission before submitting the edit form
+                editForm.addEventListener('submit', function (e) {
+                    const checked = editForm.querySelectorAll('.edit-perm-checkbox:checked').length;
+                    if (checked === 0) {
+                        e.preventDefault();
+                        editPermsError.classList.remove('hidden');
+                    }
+                });
+
+                // ── Auto-open on validation error ───────────────────────────────
                 @if($errors->any())
                 openModal(addModal);
+                @if($errors->has('permissions'))
+                closeModal(addModal);
+                openModal(addPermsModal);
+                @endif
                 @endif
 
             });

@@ -7,6 +7,10 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Support\Collection;
+use App\Enums\PartnerPermission;
+use App\Models\Permission;
 use Laravel\Sanctum\HasApiTokens;
 use Illuminate\Support\Str;
 use Illuminate\Database\Eloquent\Casts\Attribute;
@@ -151,6 +155,16 @@ protected $fillable = [
         return $this->belongsTo(\App\Models\Role::class, 'role_id');
     }
 
+    /**
+     * Permissions explicitly granted to this staff member.
+     */
+    public function permissions(): BelongsToMany
+    {
+        return $this->belongsToMany(Permission::class, 'permission_user')
+            ->withPivot('granted_by')
+            ->withTimestamps();
+    }
+
     public function voituresPartenaire()
     {
         return $this->belongsToMany(Voiture::class, 'association_user_voitures', 'user_id', 'voiture_id');
@@ -224,6 +238,84 @@ public function isDriverAccount(): bool
 public function tenantPartnerId(): int
 {
     return (int) ($this->partner_id ?: $this->id);
+}
+
+/**
+ * Per-request cache of granted permission keys (avoids re-querying the
+ * pivot on every @can / gate check during a single request).
+ */
+private ?Collection $cachedPermissionKeys = null;
+
+/**
+ * Keys of the permissions granted to this user.
+ */
+public function grantedPermissionKeys(): Collection
+{
+    return $this->cachedPermissionKeys ??= $this->permissions()->pluck('key');
+}
+
+/**
+ * Whether this user is allowed to perform the given permission.
+ *
+ * The main partner (no partner_id) implicitly has every permission;
+ * staff members only have what was explicitly granted to them.
+ */
+public function hasPermission(PartnerPermission|string $permission): bool
+{
+    if (is_null($this->partner_id)) {
+        return true;
+    }
+
+    $key = $permission instanceof PartnerPermission
+        ? $permission->value
+        : $permission;
+
+    return $this->grantedPermissionKeys()->contains($key);
+}
+
+/**
+ * Drop the cached permission keys (call after syncing permissions).
+ */
+public function forgetCachedPermissions(): void
+{
+    $this->cachedPermissionKeys = null;
+}
+
+/**
+ * Name of the route this user should land on — the first feature they are
+ * allowed to access. The main partner always lands on the dashboard.
+ */
+public function homeRouteName(): string
+{
+    if (is_null($this->partner_id)) {
+        return 'dashboard';
+    }
+
+    // Each route MUST be gated by the very permission that maps to it, so the
+    // landing page is always reachable (no 403 redirect loop).
+    $map = [
+        PartnerPermission::DashboardView->value        => 'dashboard',
+        PartnerPermission::TrackingView->value         => 'tracking.vehicles',
+        PartnerPermission::LeaseView->value            => 'lease.index',
+        PartnerPermission::LeaseContractsManage->value => 'lease.contrat',
+        PartnerPermission::DriversManage->value        => 'partner.drivers.index',
+        PartnerPermission::AffectationsManage->value   => 'partner.affectations.index',
+        PartnerPermission::EngineControl->value        => 'engine.action.index',
+        // Trajets et alertes sont des modules du dashboard : on y redirige, la
+        // vue n'affichera que l'onglet autorisé (pas de page dédiée).
+        PartnerPermission::AlertsView->value           => 'dashboard',
+        PartnerPermission::TrajetsView->value          => 'dashboard',
+        PartnerPermission::SettingsManage->value       => 'settings.lease.index',
+    ];
+
+    foreach ($map as $key => $routeName) {
+        if ($this->hasPermission($key)) {
+            return $routeName;
+        }
+    }
+
+    // Fallback: profile is always reachable for an authenticated user.
+    return 'profile.edit';
 }
 
 /**

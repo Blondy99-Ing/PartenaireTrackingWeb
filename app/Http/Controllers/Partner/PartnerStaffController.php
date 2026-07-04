@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers\Partner;
 
+use App\Enums\PartnerPermission;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\Partner\PartnerStaffService;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
@@ -21,7 +23,9 @@ class PartnerStaffController extends Controller
 
         $staffMembers = $this->service->listStaff($partner);
 
-        return view('partner.staff.index', compact('staffMembers'));
+        $permissionGroups = PartnerPermission::grouped();
+
+        return view('partner.staff.index', compact('staffMembers', 'permissionGroups'));
     }
 
     public function store(Request $request)
@@ -30,14 +34,19 @@ class PartnerStaffController extends Controller
         $partner = $request->user();
 
         $data = $request->validate([
-            'nom'      => ['required', 'string', 'max:120'],
-            'prenom'   => ['required', 'string', 'max:120'],
-            'phone'    => ['required', 'string', 'max:40'],
-            'email'    => ['nullable', 'email', 'max:190'],
-            'ville'    => ['nullable', 'string', 'max:120'],
-            'quartier' => ['nullable', 'string', 'max:120'],
-            'photo'    => ['nullable', 'image', 'max:4096'],
-            'password' => ['required', 'string', 'min:6', 'confirmed'],
+            'nom'           => ['required', 'string', 'max:120'],
+            'prenom'        => ['required', 'string', 'max:120'],
+            'phone'         => ['required', 'string', 'max:40'],
+            'email'         => ['nullable', 'email', 'max:190'],
+            'ville'         => ['nullable', 'string', 'max:120'],
+            'quartier'      => ['nullable', 'string', 'max:120'],
+            'photo'         => ['nullable', 'image', 'max:4096'],
+            'password'      => ['required', 'string', 'min:6', 'confirmed'],
+            'permissions'   => ['required', 'array', 'min:1'],
+            'permissions.*' => ['string', Rule::in(PartnerPermission::values())],
+        ], [
+            'permissions.required' => 'Sélectionnez au moins une permission pour ce membre du staff.',
+            'permissions.min'      => 'Sélectionnez au moins une permission pour ce membre du staff.',
         ]);
 
         try {
@@ -65,14 +74,19 @@ class PartnerStaffController extends Controller
         $partner = $request->user();
 
         $data = $request->validate([
-            'nom'      => ['required', 'string', 'max:120'],
-            'prenom'   => ['required', 'string', 'max:120'],
-            'phone'    => ['required', 'string', 'max:40'],
-            'email'    => ['nullable', 'email', 'max:190'],
-            'ville'    => ['nullable', 'string', 'max:120'],
-            'quartier' => ['nullable', 'string', 'max:120'],
-            'photo'    => ['nullable', 'image', 'max:4096'],
-            'password' => ['nullable', 'string', 'min:6', 'confirmed'],
+            'nom'           => ['required', 'string', 'max:120'],
+            'prenom'        => ['required', 'string', 'max:120'],
+            'phone'         => ['required', 'string', 'max:40'],
+            'email'         => ['nullable', 'email', 'max:190'],
+            'ville'         => ['nullable', 'string', 'max:120'],
+            'quartier'      => ['nullable', 'string', 'max:120'],
+            'photo'         => ['nullable', 'image', 'max:4096'],
+            'password'      => ['nullable', 'string', 'min:6', 'confirmed'],
+            'permissions'   => ['required', 'array', 'min:1'],
+            'permissions.*' => ['string', Rule::in(PartnerPermission::values())],
+        ], [
+            'permissions.required' => 'Sélectionnez au moins une permission pour ce membre du staff.',
+            'permissions.min'      => 'Sélectionnez au moins une permission pour ce membre du staff.',
         ]);
 
         try {

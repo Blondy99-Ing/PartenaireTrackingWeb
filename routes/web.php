@@ -34,15 +34,17 @@ Route::middleware(['auth:web', 'partner.only'])->group(function () {
     // Le middleware rebuild.dashboard garantit que Redis est rempli
     // à chaque chargement / actualisation de la page
     Route::get('/', [DashboardController::class, 'index'])
-        ->middleware('rebuild.dashboard')
+        ->middleware(['rebuild.dashboard', 'can:dashboard.access'])
         ->name('dashboard');
 
 
-    Route::get('/dashboard/stream', [DashboardController::class, 'dashboardStream'])->name('dashboard.stream');
-    Route::post('/dashboard/rebuild', [DashboardController::class, 'rebuildCache'])->name('dashboard.rebuild');
+    Route::get('/dashboard/stream', [DashboardController::class, 'dashboardStream'])
+        ->middleware('can:dashboard.view')->name('dashboard.stream');
+    Route::post('/dashboard/rebuild', [DashboardController::class, 'rebuildCache'])
+        ->middleware('can:dashboard.view')->name('dashboard.rebuild');
 
     // ── Tracking ───────────────────────────────────────────────────────
-    Route::prefix('tracking')->name('tracking.')->group(function () {
+    Route::prefix('tracking')->name('tracking.')->middleware('can:tracking.view')->group(function () {
         Route::get('vehicles', [VoitureController::class, 'index'])->name('vehicles');
     });
 
@@ -54,7 +56,7 @@ Route::middleware(['auth:web', 'partner.only'])->group(function () {
 
 
     // ── Partner Affectations ───────────────────────────────────────────
-    Route::prefix('partner/affectations')->name('partner.affectations.')->group(function () {
+    Route::prefix('partner/affectations')->name('partner.affectations.')->middleware('can:affectations.manage')->group(function () {
         Route::get('vehicles', [AffectationChauffeurVoitureController::class, 'vehicles'])->name('vehicles');
         Route::get('drivers', [AffectationChauffeurVoitureController::class, 'drivers'])->name('drivers');
         Route::post('assign', [AffectationChauffeurVoitureController::class, 'assign'])->name('assign');
@@ -64,18 +66,21 @@ Route::middleware(['auth:web', 'partner.only'])->group(function () {
     });
 
     // ── Engine / GPS ───────────────────────────────────────────────────
-    Route::get('/engine/actions', [ControlGpsController::class, 'index'])->name('engine.action.index');
-    Route::get('/engine/history', [ControlGpsController::class, 'history'])->name('engine.action.history');
+    Route::middleware('can:engine.control')->group(function () {
+        Route::get('/engine/actions', [ControlGpsController::class, 'index'])->name('engine.action.index');
+        Route::get('/engine/history', [ControlGpsController::class, 'history'])->name('engine.action.history');
 
-    Route::get('/voitures/engine-status/batch', [ControlGpsController::class, 'engineStatusBatch'])
-        ->name('voitures.engineStatusBatch');
-    Route::get('/voitures/{voiture}/engine-status', [ControlGpsController::class, 'engineStatus'])
-        ->name('voitures.engineStatus');
-    Route::post('/voitures/{voiture}/toggle-engine', [ControlGpsController::class, 'toggleEngine'])
-        ->name('voitures.toggleEngine');
+        Route::get('/voitures/engine-status/batch', [ControlGpsController::class, 'engineStatusBatch'])
+            ->name('voitures.engineStatusBatch');
+        Route::get('/voitures/{voiture}/engine-status', [ControlGpsController::class, 'engineStatus'])
+            ->name('voitures.engineStatus');
+        Route::post('/voitures/{voiture}/toggle-engine', [ControlGpsController::class, 'toggleEngine'])
+            ->name('voitures.toggleEngine');
+    });
 
     // ── Alerts ─────────────────────────────────────────────────────────
-    Route::get('/alerts', [AlertController::class, 'index'])->name('alerts.index');
+    Route::get('/alerts', [AlertController::class, 'index'])
+        ->middleware('can:alerts.view')->name('alerts.index');
 
 
 
@@ -86,12 +91,14 @@ Route::middleware(['auth:web', 'partner.only'])->group(function () {
 
 
     // ── Trajets ────────────────────────────────────────────────────────
-    Route::get('/trajets', [TrajetController::class, 'index'])->name('trajets.index');
-    Route::get('/trajets/{vehicle_id}/detail/{trajet_id}', [TrajetController::class, 'showTrajet'])
-        ->name('trajets.detail.api');
-    //Route::get('/voitures/{id}/trajets', [TrajetController::class, 'byVoiture'])->name('voitures.trajets');
-    Route::get('/trajets/show/{voiture_id}/{trajet_id}', [TrajetController::class, 'showTrajet'])
-        ->name('trajets.show');
+    Route::middleware('can:trajets.view')->group(function () {
+        Route::get('/trajets', [TrajetController::class, 'index'])->name('trajets.index');
+        Route::get('/trajets/{vehicle_id}/detail/{trajet_id}', [TrajetController::class, 'showTrajet'])
+            ->name('trajets.detail.api');
+        //Route::get('/voitures/{id}/trajets', [TrajetController::class, 'byVoiture'])->name('voitures.trajets');
+        Route::get('/trajets/show/{voiture_id}/{trajet_id}', [TrajetController::class, 'showTrajet'])
+            ->name('trajets.show');
+    });
 
     // ── Vehicles ───────────────────────────────────────────────────────
     Route::get('/add-vehicle', fn() => view('vehicles.create'))->name('vehicles.add');
@@ -100,15 +107,18 @@ Route::middleware(['auth:web', 'partner.only'])->group(function () {
 
     //gestion des lease
     //gestion des lease
-    Route::get('lease', [LeaseController::class, 'index'])->name('lease.index');
+    Route::get('lease', [LeaseController::class, 'index'])
+        ->middleware('can:lease.view')->name('lease.index');
     Route::post('/leases/payments/cash', [\App\Http\Controllers\Leases\LeaseController::class, 'payCash'])
-    ->name('leases.payments.cash');
+    ->middleware('can:lease.payments')->name('leases.payments.cash');
 
 Route::post('/leases/payments/mobile', [\App\Http\Controllers\Leases\LeaseController::class, 'payMobile'])
-    ->name('leases.payments.mobile');
+    ->middleware('can:lease.payments')->name('leases.payments.mobile');
 
 
     //gestion contrat de lease
+Route::middleware('can:lease.contracts.manage')->group(function () {
+
 Route::get('contrats', [ContratLeaseController::class, 'index'])
     ->name('lease.contrat');
 
@@ -133,22 +143,22 @@ Route::post('contrats/cutoff-policy', [ContratLeaseController::class, 'updateCut
 Route::post('contrats/bulk-cutoff-policy', [ContratLeaseController::class, 'bulkUpdateCutoffPolicies'])
     ->name('lease.contrat.bulk-cutoff-policy');
 
+});
 
-//parametre 
+
+//parametre
 Route::get('/settings/lease', [LeaseSettingsController::class, 'index'])
-    ->name('settings.lease.index');
+    ->middleware('can:settings.manage')->name('settings.lease.index');
 
 
 // Paramètres Lease
-Route::get('/settings/lease', [LeaseSettingsController::class, 'index'])
-    ->name('settings.lease.index');
-
 Route::post('/settings/lease/contract-types', [LeaseSettingsController::class, 'storeContractType'])
-    ->name('settings.lease.contract-types.store');
+    ->middleware('can:settings.manage')->name('settings.lease.contract-types.store');
 
 //type de contrats
 Route::prefix('internal-api/lease')
     ->name('internal.lease.')
+    ->middleware('can:lease.contracts.manage')
     ->group(function () {
         Route::get('/sub-contract-types', [SubContractTypeController::class, 'index'])
             ->name('sub-contract-types.index');
@@ -157,7 +167,7 @@ Route::prefix('internal-api/lease')
             ->name('sub-contract-types.store');
     });
 
-//modification de mot de passe
+//modification de mot de passe (propre compte — accessible à tout le staff)
 Route::put('/settings/security/password', [LeaseSettingsController::class, 'updatePassword'])
     ->name('settings.security.password.update');
 
@@ -165,32 +175,33 @@ Route::put('/settings/security/password', [LeaseSettingsController::class, 'upda
 
 
 // regle de coupure automatique de vehicule en leases
-Route::get('lease/cutoff-rules', [LeaseCutoffRuleController::class, 'index'])
-    ->name('lease.cutoff-rules.index');
+Route::middleware('can:lease.contracts.manage')->group(function () {
+    Route::get('lease/cutoff-rules', [LeaseCutoffRuleController::class, 'index'])
+        ->name('lease.cutoff-rules.index');
     Route::put('/settings/lease/cutoff-default-rules', [LeaseSettingsController::class, 'updateCutoffDefaultRules'])
-    ->name('settings.lease.cutoff-default-rules.update');
+        ->name('settings.lease.cutoff-default-rules.update');
 
-// activation/désactivation en masse des règles spécifiques existantes
-Route::post('/leases/contract-rules/bulk-toggle', [\App\Http\Controllers\Leases\LeaseController::class, 'bulkToggleContractCutoffRules'])
-    ->name('leases.contract-rules.bulk-toggle.update');
+    // activation/désactivation en masse des règles spécifiques existantes
+    Route::post('/leases/contract-rules/bulk-toggle', [\App\Http\Controllers\Leases\LeaseController::class, 'bulkToggleContractCutoffRules'])
+        ->name('leases.contract-rules.bulk-toggle.update');
 
+    Route::post('lease/cutoff-rules', [LeaseCutoffRuleController::class, 'store'])
+        ->name('lease.cutoff-rules.store');
 
-Route::post('lease/cutoff-rules', [LeaseCutoffRuleController::class, 'store'])
-    ->name('lease.cutoff-rules.store');
-
-Route::post('lease/cutoff-rules/type-contrats', [LeaseCutoffRuleController::class, 'storeContractType'])
-    ->name('lease.cutoff-rules.type-contrats.store');
+    Route::post('lease/cutoff-rules/type-contrats', [LeaseCutoffRuleController::class, 'storeContractType'])
+        ->name('lease.cutoff-rules.type-contrats.store');
+});
 
     //pardonner un lease non payé  en rallumant le vehicuel
     Route::post('/leases/{leaseId}/forgive', [\App\Http\Controllers\Leases\LeaseController::class, 'forgive'])
-    ->name('leases.forgive');
+    ->middleware('can:lease.payments')->name('leases.forgive');
 
 // histirique de coupure automatique
 Route::get('lease/cutoff-history', [LeaseCutoffHistoryController::class, 'index'])
-    ->name('lease.cutoff-history.index');
+    ->middleware('can:lease.view')->name('lease.cutoff-history.index');
 //dashbaord lease
 Route::get('/leases/dashboard', [DashbaordLeaseController::class, 'index'])
-        ->name('leases.dashboard');
+        ->middleware('can:lease.view')->name('leases.dashboard');
 
 
 
@@ -199,6 +210,7 @@ Route::get('/leases/dashboard', [DashbaordLeaseController::class, 'index'])
 // ── Settings Geofences ───────────────────────────────────────────────
 Route::prefix('settings/geofences')
     ->name('settings.geofences.')
+    ->middleware('can:settings.manage')
     ->group(function () {
         Route::get('/', [GeofenceSettingsController::class, 'index'])
             ->name('index');
@@ -219,7 +231,7 @@ Route::prefix('settings/geofences')
 
     //time_zone
     Route::put('/settings/time-zone', [VehicleTimeZoneSettingsController::class, 'update'])
-    ->name('settings.timezone.update');
+    ->middleware('can:settings.manage')->name('settings.timezone.update');
 
 
 
@@ -228,6 +240,7 @@ Route::prefix('settings/geofences')
 // ── Partner Drivers / Chauffeurs ───────────────────────────────────
 Route::prefix('partner')
     ->name('partner.')
+    ->middleware('can:drivers.manage')
     ->group(function () {
         Route::get('drivers', [PartnerDriverController::class, 'index'])
             ->name('drivers.index');
@@ -248,9 +261,10 @@ Route::prefix('partner')
             ->name('drivers.destroy');
     });
 
-// ── Partner Staff ──────────────────────────────────────────────────
+// ── Partner Staff (réservé au partenaire principal) ─────────────────
     Route::prefix('partner/staff')
         ->name('partner.staff.')
+        ->middleware('can:manage-staff')
         ->group(function () {
             Route::get('/', [PartnerStaffController::class, 'index'])
                 ->name('index');

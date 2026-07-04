@@ -1704,7 +1704,8 @@
         <nav aria-label="Navigation principale">
             <ul class="navbar-nav" role="list">
 
-                {{-- Dashboard --}}
+                {{-- Dashboard (accessible aussi aux modules trajets/alertes) --}}
+                @can('dashboard.access')
                 <li>
                     <a href="{{ route('dashboard') }}" class="{{ request()->routeIs('dashboard') ? 'active' : '' }}"
                         aria-current="{{ request()->routeIs('dashboard') ? 'page' : 'false' }}">
@@ -1717,8 +1718,10 @@
                 <li aria-hidden="true">
                     <div class="navbar-sep"></div>
                 </li>
+                @endcan
 
                 {{-- Suivi & Flotte (dropdown) --}}
+                @if(auth()->user()->hasPermission('tracking.view') || auth()->user()->hasPermission('drivers.manage') || auth()->user()->hasPermission('trajets.view'))
                 <li>
                     <button
                         class="nav-dropdown-toggle {{ request()->is('tracking*') || request()->is('users*') || request()->is('trajets*') ? 'active' : '' }}"
@@ -1730,6 +1733,7 @@
                     </button>
 
                     <ul class="nav-dropdown-menu" id="nav-drop-flotte" role="menu">
+                        @can('tracking.view')
                         <li role="none">
                             <a href="{{ route('tracking.vehicles') }}" role="menuitem"
                                 class="{{ request()->routeIs('tracking.vehicles') ? 'active' : '' }}"
@@ -1738,6 +1742,8 @@
                                 Véhicules
                             </a>
                         </li>
+                        @endcan
+                        @can('drivers.manage')
                         <li role="none">
                             <a href="{{ route('partner.drivers.index') }}" role="menuitem"
                                 class="{{ request()->routeIs('users.*') ? 'active' : '' }}"
@@ -1746,19 +1752,8 @@
                                 Chauffeurs
                             </a>
                         </li>
-
-                        {{--    
-                        <li role="none">
-                            <a href="{{ route('partner.staff.index') }}" role="menuitem"
-                               class="{{ request()->routeIs('partner.staff.*') ? 'active' : '' }}"
-                               aria-current="{{ request()->routeIs('partner.staff.*') ? 'page' : 'false' }}">
-                                <span class="nav-icon" aria-hidden="true"><i class="fas fa-user-shield"></i></span>
-                                Staff
-                            </a>
-
-                        </li>
-
-                        --}}
+                        @endcan
+                        @can('trajets.view')
                         <li role="none">
                             <a href="{{ route('dashboard') }}#trajets"
                                 class="{{ request()->routeIs('trajets.*') ? 'active' : '' }}"
@@ -1767,10 +1762,25 @@
                                 Trajets
                             </a>
                         </li>
+                        @endcan
                     </ul>
                 </li>
+                @endif
+
+                {{-- Staff (réservé au partenaire principal) --}}
+                @can('manage-staff')
+                <li>
+                    <a href="{{ route('partner.staff.index') }}"
+                        class="{{ request()->routeIs('partner.staff.*') ? 'active' : '' }}"
+                        aria-current="{{ request()->routeIs('partner.staff.*') ? 'page' : 'false' }}">
+                        <span class="nav-icon" aria-hidden="true"><i class="fas fa-user-shield"></i></span>
+                        <span class="nav-label">Staff</span>
+                    </a>
+                </li>
+                @endcan
 
                 {{-- Alertes --}}
+                @can('alerts.view')
                 <li>
                     <a href="{{ route('dashboard') }}#alertes"
                         class="{{ request()->routeIs('alerts.*') ? 'active' : '' }}" data-dashboard-tab="alertes">
@@ -1778,8 +1788,10 @@
                         Alertes
                     </a>
                 </li>
+                @endcan
 
                 {{-- Moteur --}}
+                @can('engine.control')
                 <li>
                     <a href="{{ route('engine.action.index') }}"
                         class="{{ request()->routeIs('engine.*') ? 'active' : '' }}"
@@ -1788,9 +1800,10 @@
                         <span class="nav-label">Moteur</span>
                     </a>
                 </li>
-                
-                {{-- Suivi & Flotte (dropdown) --}}
-           
+                @endcan
+
+                {{-- Leases (dropdown) --}}
+                @if(auth()->user()->hasPermission('lease.view') || auth()->user()->hasPermission('lease.contracts.manage') || auth()->user()->hasPermission('lease.payments'))
                 <li>
                     <button
                         class="nav-dropdown-toggle {{ request()->is('tracking*') || request()->is('contrat*') || request()->is('lease*') ? 'active' : '' }}"
@@ -1802,6 +1815,7 @@
                     </button>
 
                     <ul class="nav-dropdown-menu" id="nav-drop-lease" role="menu">
+                        @can('lease.contracts.manage')
                         <li role="none">
                             <a href="{{ route('lease.contrat') }}" role="menuitem"
                                 class="{{ request()->routeIs('lease.*') ? 'active' : '' }}"
@@ -1811,6 +1825,8 @@
                                 Contrats Chauffeurs
                             </a>
                         </li>
+                        @endcan
+                        @can('lease.view')
                         <li role="none">
                             <a href="{{ route('lease.index') }}" role="menuitem"
                                 class="{{ request()->routeIs('lease.*') ? 'active' : '' }}"
@@ -1819,6 +1835,8 @@
                                 Paiements Leases
                             </a>
                         </li>
+                        @endcan
+                        @can('lease.contracts.manage')
                         <li role="none">
                             <a href="{{ route('lease.cutoff-rules.index') }}" role="menuitem"
                                 class="{{ request()->routeIs('lease.*') ? 'active' : '' }}"
@@ -1828,7 +1846,10 @@
                                 </span>
                                 Paramètre Coupure Auto
                             </a>
-                            <li role="none">
+                        </li>
+                        @endcan
+                        @can('lease.view')
+                        <li role="none">
                             <a href="{{ route('lease.cutoff-history.index') }}" role="menuitem"
                                 class="{{ request()->routeIs('lease.*') ? 'active' : '' }}"
                                 aria-current="{{ request()->routeIs('lease.*') ? 'page' : 'false' }}">
@@ -1849,11 +1870,11 @@
                                 Dashboard Lease
                             </a>
                         </li>
-
-                </li>
-            </ul>
+                        @endcan
+                    </ul>
 
             </li>
+            @endif
              
 
 
@@ -1936,42 +1957,56 @@
     ════════════════════════════════════════════════════════════ --}}
     <div class="mobile-drawer" id="mobile-drawer" role="dialog" aria-modal="true" aria-label="Menu de navigation">
 
+        @can('dashboard.view')
         <a href="{{ route('dashboard') }}" class="{{ request()->routeIs('dashboard') ? 'active' : '' }}">
             <span class="nav-icon" aria-hidden="true"><i class="fas fa-tachometer-alt"></i></span>
             Dashboard
         </a>
+        @endcan
 
         <div class="drawer-section-title">Flotte</div>
 
+        @can('tracking.view')
         <a href="{{ route('tracking.vehicles') }}"
             class="{{ request()->routeIs('tracking.vehicles') ? 'active' : '' }}">
             <span class="nav-icon" aria-hidden="true"><i class="fas fa-car"></i></span>
             Véhicules
         </a>
+        @endcan
+        @can('drivers.manage')
         <a href="{{ route('partner.drivers.index') }}" class="{{ request()->routeIs('users.*') ? 'active' : '' }}">
             <span class="nav-icon" aria-hidden="true"><i class="fas fa-users"></i></span>
             Chauffeurs
         </a>
+        @endcan
+        @can('manage-staff')
         <a href="{{ route('partner.staff.index') }}"
            class="{{ request()->routeIs('partner.staff.*') ? 'active' : '' }}">
             <span class="nav-icon" aria-hidden="true"><i class="fas fa-user-shield"></i></span>
             Staff
         </a>
+        @endcan
+        @can('trajets.view')
         <a href="{{ route('trajets.index') }}" class="{{ request()->routeIs('trajets.*') ? 'active' : '' }}">
             <span class="nav-icon" aria-hidden="true"><i class="fas fa-route"></i></span>
             Trajets
         </a>
+        @endcan
 
         <div class="drawer-section-title">Supervision</div>
 
+        @can('alerts.view')
         <a href="#" class="{{ request()->routeIs('alerts.*') ? 'active' : '' }}">
             <span class="nav-icon" aria-hidden="true"><i class="fas fa-bell"></i></span>
             Alertes
         </a>
+        @endcan
+        @can('engine.control')
         <a href="{{ route('engine.action.index') }}" class="{{ request()->routeIs('engine.*') ? 'active' : '' }}">
             <span class="nav-icon" aria-hidden="true"><i class="fas fa-power-off"></i></span>
             Moteur
         </a>
+        @endcan
 
         <div class="drawer-logout">
             <a href="#" onclick="event.preventDefault(); document.getElementById('form-logout-drawer').submit();">

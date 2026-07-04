@@ -1176,10 +1176,22 @@ $alertTypesMeta = [
 'speed' => ['Vitesse', 'fa-gauge-high'],
 'time_zone' => ['Time Zone', 'fa-calendar-alt'],
 ];
+
+/**
+ * Modules visibles selon les permissions. On utilise can() (et non
+ * hasPermission()) pour que le partenaire principal — qui passe par
+ * Gate::before — voie tout, tandis qu'un staff ne voit que ses modules.
+ */
+$dashUser   = auth()->user();
+$canFlotte  = $dashUser->can('tracking.view') || $dashUser->can('dashboard.view');
+$canTrajets = $dashUser->can('trajets.view');
+$canAlertes = $dashUser->can('alerts.view');
+$defaultTab = $canFlotte ? 'flotte' : ($canTrajets ? 'trajets' : ($canAlertes ? 'alertes' : 'flotte'));
 @endphp
 
 <div class="kpi-sticky" id="kpiBar">
     <div class="kpi-grid">
+        @if($canFlotte)
         <div class="card kpi" style="grid-column:span 2" onclick="window.switchTab('flotte')">
             <div>
                 <p class="lbl">Chauffeurs</p>
@@ -1197,7 +1209,9 @@ $alertTypesMeta = [
                 <i class="fas fa-car-alt" style="color:var(--color-secondary-text,#8b949e)"></i>
             </div>
         </div>
+        @endif
 
+        @if($canAlertes)
         <div class="card kpi-panel" style="grid-column:span 8">
             <div class="kpi-types">
                 @foreach($alertTypesMeta as $k => [$label,$icon])
@@ -1213,6 +1227,7 @@ $alertTypesMeta = [
                 @endforeach
             </div>
         </div>
+        @endif
     </div>
 </div>
 
@@ -1223,9 +1238,15 @@ $alertTypesMeta = [
             <div class="card" style="height:100%;display:flex;flex-direction:column;min-height:0">
 
                 <div class="tabs">
-                    <button class="tab active" id="tab-flotte" onclick="window.switchTab('flotte')">📍 Flotte</button>
-                    <button class="tab" id="tab-trajets" onclick="window.switchTab('trajets')">🛣️ Trajets</button>
-                    <button class="tab" id="tab-alertes" onclick="window.switchTab('alertes')">🚨 <span class="badge" id="bAlerts">0</span></button>
+                    @if($canFlotte)
+                    <button class="tab {{ $defaultTab === 'flotte' ? 'active' : '' }}" id="tab-flotte" onclick="window.switchTab('flotte')">📍 Flotte</button>
+                    @endif
+                    @if($canTrajets)
+                    <button class="tab {{ $defaultTab === 'trajets' ? 'active' : '' }}" id="tab-trajets" onclick="window.switchTab('trajets')">🛣️ Trajets</button>
+                    @endif
+                    @if($canAlertes)
+                    <button class="tab {{ $defaultTab === 'alertes' ? 'active' : '' }}" id="tab-alertes" onclick="window.switchTab('alertes')">🚨 <span class="badge" id="bAlerts">0</span></button>
+                    @endif
                 </div>
 
                 <div class="search">
@@ -1236,7 +1257,7 @@ $alertTypesMeta = [
                     </div>
                 </div>
 
-                <div class="pane active" id="pane-flotte">
+                <div class="pane {{ $defaultTab === 'flotte' ? 'active' : '' }}" id="pane-flotte">
                     <div class="modebar">
                         <button class="mbtn" id="mode-flotte-simple" onclick="window.setMode('flotte','simple')">Liste</button>
                         <button class="mbtn active" id="mode-flotte-detailed" onclick="window.setMode('flotte','detailed')">Détaillé</button>
@@ -1257,7 +1278,7 @@ $alertTypesMeta = [
                     </div>
                 </div>
 
-                <div class="pane" id="pane-trajets">
+                <div class="pane {{ $defaultTab === 'trajets' ? 'active' : '' }}" id="pane-trajets">
                     <div class="modebar">
                         <button class="mbtn" id="mode-trajets-simple" onclick="window.setMode('trajets','simple')">Liste</button>
                         <button class="mbtn active" id="mode-trajets-detailed" onclick="window.setMode('trajets','detailed')">Détaillé</button>
@@ -1290,7 +1311,7 @@ $alertTypesMeta = [
                     </div>
                 </div>
 
-                <div class="pane" id="pane-alertes">
+                <div class="pane {{ $defaultTab === 'alertes' ? 'active' : '' }}" id="pane-alertes">
                     <div class="modebar">
                         <button class="mbtn" id="mode-alertes-simple" onclick="window.setMode('alertes','simple')">Liste</button>
                         <button class="mbtn active" id="mode-alertes-detailed" onclick="window.setMode('alertes','detailed')">Détaillé</button>
@@ -3733,6 +3754,10 @@ $alertTypesMeta = [
         loadGoogleMaps();
         measureHeights();
         loadAlerts();
+@if($defaultTab !== 'flotte')
+        // Staff limité à un module (trajets/alertes) : on active son onglet.
+        window.switchTab(@json($defaultTab));
+@endif
     });
 })();
 </script>

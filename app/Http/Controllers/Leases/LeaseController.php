@@ -29,6 +29,7 @@ class LeaseController extends Controller
     {
         $contracts = [];
         $leaseData = [];
+        $leasePagination = [];
         $contractTypes = [];
         $pageWarnings = [];
         $pageError = null;
@@ -61,7 +62,16 @@ class LeaseController extends Controller
                 'page',
             ]);
 
-            $leaseData = $leaseApiService->fetchLeases(null, $contracts, $leaseFilters);
+            $leaseResult     = $leaseApiService->fetchLeases(null, $contracts, $leaseFilters);
+            $leaseData       = $leaseResult['data'];
+            $leasePagination = [
+                'count'        => $leaseResult['count'],
+                'current_page' => $leaseResult['current_page'],
+                'page_size'    => $leaseResult['page_size'],
+                'total_pages'  => $leaseResult['total_pages'],
+                'has_next'     => $leaseResult['has_next'],
+                'has_previous' => $leaseResult['has_previous'],
+            ];
             $cutoffHub = $leaseApiService->buildPaymentCutoffHub($leaseData);
 
             Log::info('[LEASE_PAGE_INDEX_DONE]', [
@@ -110,6 +120,7 @@ class LeaseController extends Controller
             'leases' => $leaseData,
             'payments' => $leaseData,
             'paymentData' => $leaseData,
+            'leasePagination' => $leasePagination,
             'contracts' => $contracts,
             'contractTypes' => $contractTypes,
             'cutoffHub' => $cutoffHub,

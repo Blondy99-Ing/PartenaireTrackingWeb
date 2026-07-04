@@ -1711,6 +1711,7 @@ input:checked + .fl-slider:before {
 
     const RAW_DATA = @json($lease_data ?? []);
     const HUB_DATA = @json($cutoffHub ?? []);
+    const PAGINATION = @json($leasePagination ?? []);
     const CONNECTED_USER_NAME = @json($connectedUserName ?? 'Utilisateur connecté');
 
     const CONTRACT_RULES_BULK_TOGGLE_URL = @json(route('leases.contract-rules.bulk-toggle.update'));
@@ -2127,6 +2128,19 @@ input:checked + .fl-slider:before {
         }
     };
 
+    // Un filtre est actif dès qu'un critère (statut, coupure, période, type,
+    // méthode) est différent de « all » ou qu'une recherche texte est saisie.
+    // Dans ce cas la pagination est annulée et TOUS les résultats correspondants
+    // sont affichés, quelle que soit la page d'origine.
+    function hasActiveFilters() {
+        return activeFilters.statut !== 'all'
+            || activeFilters.coupure !== 'all'
+            || activeFilters.date !== 'all'
+            || activeFilters.type_contrat !== 'all'
+            || activeFilters.methode !== 'all'
+            || searchQuery.trim() !== '';
+    }
+
     function applyFilters() {
         let data = [...RAW_DATA];
 
@@ -2283,8 +2297,12 @@ input:checked + .fl-slider:before {
             return;
         }
 
-        const start = (currentPage - 1) * perPage;
-        const end = start + perPage;
+        const filtersOn = hasActiveFilters();
+
+        // Filtre actif : on affiche l'intégralité des résultats correspondants.
+        // Sinon : pagination client classique (perPage lignes par page).
+        const start = filtersOn ? 0 : (currentPage - 1) * perPage;
+        const end = filtersOn ? filteredData.length : start + perPage;
         const page = filteredData.slice(start, end);
 
         const info = document.getElementById('tableInfo');
@@ -2292,8 +2310,13 @@ input:checked + .fl-slider:before {
         if (info) {
             const startVal = filteredData.length ? start + 1 : 0;
             const endVal = Math.min(end, filteredData.length);
+            const totalLabel = PAGINATION && PAGINATION.count > 0
+                ? ` — ${PAGINATION.count} au total`
+                : '';
 
-            info.textContent = `${filteredData.length} ligne${filteredData.length !== 1 ? 's' : ''} (${startVal}–${endVal})`;
+            info.textContent = filtersOn
+                ? `${filteredData.length} résultat${filteredData.length !== 1 ? 's' : ''} filtré${filteredData.length !== 1 ? 's' : ''}${totalLabel}`
+                : `${filteredData.length} ligne${filteredData.length !== 1 ? 's' : ''} (${startVal}–${endVal})${totalLabel}`;
         }
 
         if (!page.length) {
@@ -2487,30 +2510,43 @@ input:checked + .fl-slider:before {
     }
 
     function renderPagination() {
-        const totalPages = Math.ceil(filteredData.length / perPage) || 1;
+        const totalClientPages = Math.ceil(filteredData.length / perPage) || 1;
         const pag = document.getElementById('pagination');
 
         if (!pag) {
             return;
         }
 
-        let html = `<button class="page-btn${currentPage === 1 ? ' disabled' : ''}" onclick="window.goPage(${currentPage - 1})">‹</button>`;
-
-        for (let i = 1; i <= totalPages; i++) {
-            if (totalPages > 7) {
-                if (i !== 1 && i !== totalPages && Math.abs(i - currentPage) > 2) {
-                    if (i === 2 || i === totalPages - 1) {
-                        html += `<span style="font-size:.7rem;padding:0 .15rem;color:var(--color-secondary-text);">…</span>`;
-                    }
-
-                    continue;
-                }
-            }
-
-            html += `<button class="page-btn${i === currentPage ? ' active' : ''}" onclick="window.goPage(${i})">${i}</button>`;
+        // Filtre actif : la pagination est annulée, tous les résultats sont
+        // déjà affichés d'un seul bloc.
+        if (hasActiveFilters()) {
+            pag.innerHTML = '';
+            return;
         }
 
-        html += `<button class="page-btn${currentPage === totalPages ? ' disabled' : ''}" onclick="window.goPage(${currentPage + 1})">›</button>`;
+        let html = '';
+
+        // Pagination client sur l'intégralité des échéances chargées.
+        if (totalClientPages > 1) {
+            html += `<button class="page-btn${currentPage === 1 ? ' disabled' : ''}" onclick="window.goPage(${currentPage - 1})">‹</button>`;
+
+            for (let i = 1; i <= totalClientPages; i++) {
+                if (totalClientPages > 7) {
+                    if (i !== 1 && i !== totalClientPages && Math.abs(i - currentPage) > 2) {
+                        if (i === 2 || i === totalClientPages - 1) {
+                            html += `<span style="font-size:.7rem;padding:0 .15rem;color:var(--color-secondary-text);">…</span>`;
+                        }
+
+                        continue;
+                    }
+                }
+
+                html += `<button class="page-btn${i === currentPage ? ' active' : ''}" onclick="window.goPage(${i})">${i}</button>`;
+            }
+
+            html += `<button class="page-btn${currentPage === totalClientPages ? ' disabled' : ''}" onclick="window.goPage(${currentPage + 1})">›</button>`;
+        }
+
         pag.innerHTML = html;
     }
 
