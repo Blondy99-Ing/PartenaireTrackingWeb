@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Commande;
 use App\Models\Location;
 use App\Models\SimGps;
+use App\Models\User;
 use App\Models\Voiture;
 use App\Services\GpsControlService;
 use Carbon\Carbon;
@@ -19,6 +20,20 @@ class ControlGpsController extends Controller
     public function __construct(private GpsControlService $gps) {}
 
     /**
+     * Resolve the tenant partner that owns the fleet.
+     *
+     * Vehicles are associated with the partner account. A staff member
+     * (partner_id set) must see the partner's vehicles, not their own
+     * (empty) association — otherwise the fleet appears empty.
+     */
+    private function tenantPartner(User $user): User
+    {
+        return $user->partner_id
+            ? (User::find($user->partner_id) ?? $user)
+            : $user;
+    }
+
+    /**
      * Partner engine-control page.
      * GET /engine/actions
      */
@@ -26,8 +41,9 @@ class ControlGpsController extends Controller
     {
         /** @var \App\Models\User $user */
         $user = auth('web')->user();
+        $tenant = $this->tenantPartner($user);
 
-        $voitures = $user->voitures()
+        $voitures = $tenant->voitures()
             ->select([
                 'voitures.id',
                 'voitures.immatriculation',
@@ -74,7 +90,7 @@ class ControlGpsController extends Controller
             ], 422);
         }
 
-        $voitures = $user->voitures()
+        $voitures = $this->tenantPartner($user)->voitures()
             ->whereIn('voitures.id', $ids->all())
             ->get(['voitures.id', 'voitures.mac_id_gps'])
             ->keyBy('id');
@@ -130,7 +146,7 @@ class ControlGpsController extends Controller
         /** @var \App\Models\User $user */
         $user = auth('web')->user();
 
-        $allowed = $user->voitures()->where('voitures.id', $voiture->id)->exists();
+        $allowed = $this->tenantPartner($user)->voitures()->where('voitures.id', $voiture->id)->exists();
         if (!$allowed) {
             return response()->json(['success' => false, 'message' => UserMessages::ACCESS_DENIED], 403);
         }
@@ -174,7 +190,7 @@ class ControlGpsController extends Controller
         /** @var \App\Models\User $user */
         $user = auth('web')->user();
 
-        $allowed = $user->voitures()->where('voitures.id', $voiture->id)->exists();
+        $allowed = $this->tenantPartner($user)->voitures()->where('voitures.id', $voiture->id)->exists();
         if (!$allowed) {
             return response()->json(['success' => false, 'message' => UserMessages::ACCESS_DENIED], 403);
         }
@@ -289,7 +305,7 @@ class ControlGpsController extends Controller
         /** @var \App\Models\User $user */
         $user = auth('web')->user();
 
-        $voitureIds = $user->voitures()->pluck('voitures.id')->all();
+        $voitureIds = $this->tenantPartner($user)->voitures()->pluck('voitures.id')->all();
 
         $items = Commande::query()
             ->with([

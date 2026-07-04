@@ -59,26 +59,86 @@ class PartnerLeaseApiService
             ->filter(fn ($value) => $value !== null && $value !== '')
             ->all();
 
+        /**
+         * On charge TOUTES les pages de l'API de recouvrement afin que le
+         * filtrage et la pagination côté client (jusqu'à 500 lignes par page)
+         * portent sur l'intégralité des contrats, et non sur la seule page DRF
+         * par défaut (25 lignes). Un contrat parent et ses sous-contrats peuvent
+         * en effet se retrouver sur des pages API différentes : ne charger que la
+         * première page casserait aussi le regroupement parent/enfants.
+         * Le paramètre `page` éventuel est ignoré : c'est la vue qui pagine.
+         */
+        unset($query['page']);
+
+        /**
+         * On demande la page maximale supportée par l'API (500) afin de ramener
+         * l'intégralité des contrats en un minimum de requêtes. Cela réduit aussi
+         * fortement le risque de pagination instable : lorsque plusieurs contrats
+         * partagent la même valeur de tri (ex. `created_at` identique après un
+         * import en masse), l'ordre des lignes n'est pas garanti entre deux
+         * requêtes de page distinctes, ce qui peut dupliquer une ligne et en
+         * sauter une autre. Le dédoublonnage par id ci-dessous fournit un
+         * garde-fou supplémentaire.
+         */
+        $query['page_size'] = 500;
+
         Log::info('[LEASE_API_FETCH_CONTRACTS_START]', [
             'query' => $query,
         ]);
 
-        $json = $this->get('/contrats/', $query);
-        $rows = $this->unwrapApiRows($json);
+        $rows        = [];
+        $apiCount    = 0;
+        $pageNumber  = 1;
+        $pagesLoaded = 0;
+        $maxPages    = 400; // garde-fou : ~200 000 contrats au maximum
+
+        while ($pageNumber <= $maxPages) {
+            $json = $this->get('/contrats/', $query + ['page' => $pageNumber]);
+
+            if ($pageNumber === 1) {
+                $apiCount = (int) ($json['count'] ?? 0);
+            }
+
+            $pageRows = $this->unwrapApiRows($json);
+
+            if (empty($pageRows)) {
+                break;
+            }
+
+            foreach ($pageRows as $pageRow) {
+                $rows[] = $pageRow;
+            }
+
+            $pagesLoaded = $pageNumber;
+
+            // API non paginée (liste brute) ou dernière page atteinte.
+            if (empty($json['next'])) {
+                break;
+            }
+
+            $pageNumber++;
+        }
 
         Log::info('[LEASE_API_FETCH_CONTRACTS_ROWS]', [
-            'raw_type' => $this->describeArrayShape($json),
             'rows_count' => count($rows),
+            'api_count' => $apiCount,
+            'pages_loaded' => $pagesLoaded,
         ]);
 
         $contracts = collect($rows)
             ->filter(fn ($row) => is_array($row))
             ->map(fn (array $row) => $this->normalizeContract($row))
+            // Garde-fou anti-doublons : une pagination instable côté API peut
+            // renvoyer deux fois la même ligne. On conserve la première occurrence
+            // de chaque id (les contrats sans id exploitable sont conservés tels quels).
+            ->unique(fn (array $row) => ! empty($row['id']) ? 'id:' . $row['id'] : spl_object_id((object) $row))
             ->values()
             ->all();
 
         Log::info('[LEASE_API_FETCH_CONTRACTS_DONE]', [
             'contracts_count' => count($contracts),
+            'rows_before_dedup' => count($rows),
+            'api_count' => $apiCount,
             'sample_ids' => collect($contracts)->pluck('id')->take(5)->values()->all(),
         ]);
 
@@ -514,18 +574,60 @@ private function extractRows(mixed $response): array
             }
         }
 
+        /**
+         * On charge TOUTES les pages de l'API de recouvrement afin que le
+         * filtrage et la pagination côté client portent sur l'intégralité des
+         * échéances, et non uniquement sur une page de 25 lignes. Le paramètre
+         * `page` éventuel est ignoré : c'est la vue qui pagine ensuite.
+         */
+        unset($query['page']);
+
         Log::info('[LEASE_API_FETCH_LEASES_START]', [
             'status' => $status,
             'query' => $query,
             'contracts_count_for_enrichment' => count($contracts),
         ]);
 
-        $json = $this->get('/leases/', $query);
-        $rows = $this->unwrapApiRows($json);
+        $rows        = [];
+        $apiCount    = 0;
+        $pageNumber  = 1;
+        $pagesLoaded = 0;
+        $maxPages    = 400; // garde-fou : ~10 000 échéances au maximum
+
+        while ($pageNumber <= $maxPages) {
+            $json = $this->get('/leases/', $query + ['page' => $pageNumber]);
+
+            if ($pageNumber === 1) {
+                $apiCount = (int) ($json['count'] ?? 0);
+            }
+
+            $pageRows = $this->unwrapApiRows($json);
+
+            if (empty($pageRows)) {
+                break;
+            }
+
+            foreach ($pageRows as $pageRow) {
+                $rows[] = $pageRow;
+            }
+
+            $pagesLoaded = $pageNumber;
+
+            if (empty($json['next'])) {
+                break;
+            }
+
+            $pageNumber++;
+        }
+
+        $pageSize    = 25;
+        $currentPage = 1;
+        $totalPages  = 1;
 
         Log::info('[LEASE_API_FETCH_LEASES_ROWS]', [
-            'raw_type' => $this->describeArrayShape($json),
             'rows_count' => count($rows),
+            'api_count' => $apiCount,
+            'pages_loaded' => $pagesLoaded,
             'first_row_keys' => isset($rows[0]) && is_array($rows[0])
                 ? array_keys($rows[0])
                 : [],
@@ -606,12 +708,79 @@ private function extractRows(mixed $response): array
             'leases_count' => count($leases),
             'payments_count' => count($payments),
             'payments_linked_count' => count($paymentMetaByLeaseId),
+            'api_count' => $apiCount,
+            'current_page' => $currentPage,
+            'total_pages' => $totalPages,
             'sample_ids' => collect($leases)->pluck('id')->take(5)->values()->all(),
             'sample_statuses' => collect($leases)->pluck('statut')->take(10)->values()->all(),
             'sample_contract_types' => collect($leases)->pluck('type_contrat_label')->take(10)->values()->all(),
         ]);
 
-        return $leases;
+        return [
+            'data'         => $leases,
+            'count'        => $apiCount,
+            'current_page' => $currentPage,
+            'page_size'    => $pageSize,
+            'total_pages'  => $totalPages,
+            // Toutes les pages sont désormais chargées côté serveur : la
+            // navigation entre pages se fait entièrement côté client.
+            'has_next'     => false,
+            'has_previous' => false,
+        ];
+    }
+
+    /**
+     * Index léger : lease_id => libellé du type de contrat, toutes échéances
+     * confondues, SANS l'enrichissement coûteux de fetchLeases (paiements,
+     * coupures, pardons…).
+     *
+     * Sert au dashboard « Paiements du jour » : un paiement ne porte que
+     * `lease_id`, et le lease payé n'appartient pas forcément à la période
+     * affichée. Sans cet index, le type retomberait sur « Contrat principal ».
+     *
+     * @return array<int,string> lease_id => type_contrat_libelle
+     */
+    public function fetchLeaseTypeLabels(): array
+    {
+        $map         = [];
+        $pageNumber  = 1;
+        $maxPages    = 400; // garde-fou
+
+        while ($pageNumber <= $maxPages) {
+            $json = $this->get('/leases/', ['page' => $pageNumber, 'page_size' => 500]);
+            $rows = $this->unwrapApiRows($json);
+
+            if (empty($rows)) {
+                break;
+            }
+
+            foreach ($rows as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+
+                $leaseId = (int) ($row['id'] ?? 0);
+                if ($leaseId <= 0) {
+                    continue;
+                }
+
+                $map[$leaseId] = (string) (
+                    $row['type_contrat_libelle']
+                    ?? $row['type_contrat_label']
+                    ?? ''
+                );
+            }
+
+            if (empty($json['next'])) {
+                break;
+            }
+
+            $pageNumber++;
+        }
+
+        Log::info('[LEASE_API_FETCH_LEASE_TYPE_LABELS_DONE]', ['count' => count($map)]);
+
+        return $map;
     }
 
     /**
@@ -1018,7 +1187,8 @@ private function extractRows(mixed $response): array
         ]);
 
         $contracts = $this->fetchContracts();
-        $leaseData = $this->fetchLeases(null, $contracts);
+        // fetchLeases() renvoie une structure paginée : on ne garde que les lignes.
+        $leaseData = $this->fetchLeases(null, $contracts)['data'] ?? [];
 
         $result = [
             'hub' => $this->buildPaymentCutoffHub($leaseData),
@@ -1085,7 +1255,8 @@ private function extractRows(mixed $response): array
         ]);
 
         $contracts = $this->fetchContracts();
-        $leaseData = $this->fetchLeases(null, $contracts);
+        // fetchLeases() renvoie une structure paginée : on ne garde que les lignes.
+        $leaseData = $this->fetchLeases(null, $contracts)['data'] ?? [];
 
         return [
             'hub' => $this->buildPaymentCutoffHub($leaseData),
@@ -2168,7 +2339,7 @@ protected function cutoffStatusUiType(?string $status): string
             'methode_label' => $methodFamily ? $this->paymentMethodLabel($methodFamily) : null,
             'methode_raw' => $rawMethod,
 
-            'reference' => (string) ($row['reference'] ?? ''),
+            // Le champ `reference` n'est plus renvoyé par l'API /paiements/ : retiré.
             'transaction_id' => (string) ($row['transaction_id'] ?? ''),
             'statut' => $status,
 
@@ -2540,10 +2711,6 @@ protected function cutoffStatusUiType(?string $status): string
             ?? $row['paiement_statut']
             ?? null;
 
-        $paymentReference = $paymentMeta['reference']
-            ?? $row['reference']
-            ?? null;
-
         $paymentTransactionId = $paymentMeta['transaction_id']
             ?? $row['transaction_id']
             ?? null;
@@ -2614,7 +2781,6 @@ protected function cutoffStatusUiType(?string $status): string
              */
             'paiement_id' => $paymentMeta['id'] ?? null,
             'paiement_statut' => $paymentStatus,
-            'paiement_reference' => $paymentReference,
             'paiement_transaction_id' => $paymentTransactionId,
             'date_paiement' => $paymentDate,
 

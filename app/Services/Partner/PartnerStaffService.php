@@ -2,6 +2,7 @@
 
 namespace App\Services\Partner;
 
+use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\Keycloak\KeycloakAdminService;
@@ -49,7 +50,7 @@ class PartnerStaffService
         $partner = $this->resolveTenantPartner($actor);
 
         return User::query()
-            ->with('role')
+            ->with(['role', 'permissions'])
             ->where('partner_id', $partner->id)
             ->whereHas('role', fn ($q) => $q->where('slug', self::STAFF_LOCAL_ROLE_SLUG))
             ->latest()
@@ -91,6 +92,9 @@ class PartnerStaffService
                 data:    $data,
                 roleId:  $roleId,
             );
+
+            // 1b. Permissions granted by the partner (local only)
+            $this->syncPermissions($staff, $data['permissions'] ?? [], $actor);
 
             // 2. Keycloak provisioning
             // resolveRoleName() reads role.slug = 'partner_admin' and maps it
@@ -223,6 +227,11 @@ class PartnerStaffService
                     $this->throwConflictFromDuplicate($e->getMessage());
                 }
                 throw $e;
+            }
+
+            // Permissions are local-only; sync them within the same transaction.
+            if (array_key_exists('permissions', $data)) {
+                $this->syncPermissions($staff, $data['permissions'] ?? [], $actor);
             }
 
             if (empty($staff->keycloak_id)) {
@@ -378,6 +387,26 @@ class PartnerStaffService
 
             throw $e;
         }
+    }
+
+    /**
+     * Sync the granted permissions for a staff member (local pivot only).
+     * `granted_by` records who performed the grant.
+     *
+     * @param  list<string>  $keys  permission keys (already validated)
+     */
+    private function syncPermissions(User $staff, array $keys, User $actor): void
+    {
+        $permissionIds = Permission::query()
+            ->whereIn('key', $keys)
+            ->pluck('id');
+
+        $syncPayload = $permissionIds
+            ->mapWithKeys(fn ($id) => [$id => ['granted_by' => $actor->id]])
+            ->all();
+
+        $staff->permissions()->sync($syncPayload);
+        $staff->forgetCachedPermissions();
     }
 
     private function resolveTenantPartner(User $actor): User

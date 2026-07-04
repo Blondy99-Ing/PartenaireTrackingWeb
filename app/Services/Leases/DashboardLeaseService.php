@@ -63,7 +63,16 @@ class DashboardLeaseService
         }
 
         try {
-            $selectedLeases = $this->leaseApiService->fetchLeases(null, $contracts, $this->leaseFiltersForPeriod($selectedPeriod));
+            /**
+             * fetchLeases() renvoie désormais une structure paginée
+             * ['data' => [...leases], 'count' => ..., 'current_page' => ..., ...].
+             * Le dashboard ne consomme que les lignes de lease : on extrait `data`.
+             * Sans cette extraction, collect()->sum() itérerait aussi sur les
+             * entiers de pagination (count, page_size...) et les passerait à
+             * leaseExpected(array $lease) → TypeError.
+             */
+            $leasesResult = $this->leaseApiService->fetchLeases(null, $contracts, $this->leaseFiltersForPeriod($selectedPeriod));
+            $selectedLeases = $leasesResult['data'] ?? [];
         } catch (Throwable $e) {
             report($e);
             $warnings[] = 'Les échéances de la période sélectionnée ne sont pas disponibles.';
@@ -120,7 +129,7 @@ class DashboardLeaseService
             ],
             'tables' => [
                 'drivers_risk' => $this->buildDriversRiskTable($selectedLeases, $cutoffData),
-                'payments_today' => $this->buildPaymentsTable($payments, $selectedLeases),
+                'payments_today' => $this->buildPaymentsTable($payments, $selectedLeases, $contracts, $cutoffData),
                 'cutoffs' => $this->buildCutoffTimeline($cutoffData),
                 'contract_rules' => $this->buildContractRulesTable($cutoffData),
             ],
@@ -707,7 +716,7 @@ class DashboardLeaseService
             ->all();
     }
 
-    private function buildPaymentsTable(array $payments, array $selectedLeases = []): array
+    private function buildPaymentsTable(array $payments, array $selectedLeases = [], array $contracts = [], array $cutoffData = []): array
     {
         /**
          * Source normale : /paiements/. Fallback : leases du jour déjà payés.
@@ -744,10 +753,67 @@ class DashboardLeaseService
                 ];
             });
 
+        /**
+         * Véhicule par chauffeur — MÊME logique que le bloc « Chauffeurs à suivre » :
+         * on affiche l'immatriculation portée par le CONTRAT PRINCIPAL du chauffeur,
+         * résolue via resolveMainContractVehicleForDriverRows() (leases du jour +
+         * liens locaux lease_contract_links). On mappe par nom de chauffeur car le
+         * lease précis qui a été payé n'appartient pas forcément à la période
+         * affichée, alors que le véhicule du chauffeur, lui, reste le même.
+         */
+        $mainLinksBySourceContractId = collect($cutoffData['links'] ?? [])
+            ->filter(fn (LeaseContractLink $link) => $link->contract_kind !== LeaseContractLink::KIND_SUB)
+            ->filter(fn (LeaseContractLink $link) => $link->source_contract_id)
+            ->keyBy(fn (LeaseContractLink $link) => (int) $link->source_contract_id);
+
+        $vehicleByDriver = collect($selectedLeases)
+            ->filter(fn ($l) => is_array($l))
+            ->groupBy(fn ($l) => (string) ($l['chauffeur'] ?? 'Chauffeur'))
+            ->map(fn (Collection $rows) => $this->resolveMainContractVehicleForDriverRows($rows, $mainLinksBySourceContractId));
+
+        /**
+         * Type de contrat réel (Moto, Casque, Phone, Caution, Royal care…) indexé
+         * par id de contrat, depuis la liste des contrats. Indispensable car le
+         * paiement/lease affiché ne porte pas toujours un libellé de type exploitable
+         * (sinon on retombe sur « Contrat principal » par défaut).
+         */
+        $typeByContractId = collect($contracts)
+            ->filter(fn ($c) => is_array($c))
+            ->mapWithKeys(fn ($c) => [
+                (int) ($c['source_contrat_id'] ?? $c['id'] ?? 0) => $this->displayTypeLabel($c),
+            ]);
+
+        /**
+         * Type de contrat par lease_id. Les paiements ne portent que `lease_id` ;
+         * on résout d'abord depuis les leases du jour déjà chargés, puis — pour les
+         * paiements dont le lease n'est pas dans la période (ex. échéance passée) —
+         * via un index léger lease_id => libellé récupéré à la demande.
+         */
+        $typeByLeaseId = collect($selectedLeases)
+            ->filter(fn ($l) => is_array($l) && (int) ($l['id'] ?? $l['source_lease_id'] ?? 0) > 0)
+            ->mapWithKeys(fn ($l) => [(int) ($l['id'] ?? $l['source_lease_id']) => $this->displayTypeLabel($l)]);
+
+        $missingLeaseIds = collect($payments)
+            ->map(fn ($p) => (int) ($p['lease_id'] ?? 0))
+            ->filter(fn ($id) => $id > 0 && ! $typeByLeaseId->has($id))
+            ->unique();
+
+        if ($missingLeaseIds->isNotEmpty()) {
+            try {
+                foreach ($this->leaseApiService->fetchLeaseTypeLabels() as $lid => $label) {
+                    if (! $typeByLeaseId->has((int) $lid)) {
+                        $typeByLeaseId->put((int) $lid, $this->cleanLabel((string) $label, 'Sous-contrat'));
+                    }
+                }
+            } catch (Throwable $e) {
+                Log::warning('[LEASE_DASHBOARD_PAYMENT_TYPE_INDEX_FAILED]', ['error' => $e->getMessage()]);
+            }
+        }
+
         return collect($payments)
             ->concat($fallbackPaidLeases)
             ->sortByDesc(fn ($payment) => optional($this->safeCarbon($payment['date_paiement'] ?? null))->timestamp ?? 0)
-            ->map(function ($payment) use ($leasesById) {
+            ->map(function ($payment) use ($leasesById, $vehicleByDriver, $typeByContractId, $typeByLeaseId) {
                 $leaseId = (int) ($payment['lease_id'] ?? data_get($payment, 'raw.id') ?? 0);
                 $lease = $leaseId > 0 ? $leasesById->get($leaseId) : null;
                 $raw = is_array($payment['raw'] ?? null) ? $payment['raw'] : [];
@@ -758,14 +824,40 @@ class DashboardLeaseService
                     ?? data_get($lease, 'chauffeur')
                     ?? '—';
 
-                $vehicle = $this->rowVehicleLabel($lease ?: $raw);
-                $type = $lease ? $this->displayTypeLabel($lease) : $this->displayTypeLabel($raw);
+                // Véhicule : immatriculation du contrat principal du chauffeur
+                // (identique au bloc « Chauffeurs à suivre »).
+                $vehicle = $vehicleByDriver->get((string) $driver);
+                if (! $vehicle || $vehicle === '—') {
+                    $vehicle = $this->rowVehicleLabel($lease ?: $raw);
+                }
+
+                // Type : nom réel du type de contrat.
+                // 1) via lease_id (leases du jour + index léger) ;
+                // 2) sinon via l'id de contrat ;
+                // 3) sinon repli sur le libellé porté par le lease/paiement.
+                $type = $leaseId > 0 ? $typeByLeaseId->get($leaseId) : null;
+
+                if (! $type || $type === '') {
+                    $contractId = (int) (
+                        $payment['contrat_id']
+                        ?? data_get($lease, 'source_contrat_id')
+                        ?? data_get($payment, 'raw.contrat_id')
+                        ?? data_get($payment, 'raw.contrat.id')
+                        ?? 0
+                    );
+                    $type = $contractId > 0 ? $typeByContractId->get($contractId) : null;
+                }
+
+                if (! $type || $type === '') {
+                    $type = $lease ? $this->displayTypeLabel($lease) : $this->displayTypeLabel($raw);
+                }
+
                 $method = $payment['methode_label'] ?? $payment['methode'] ?? $payment['method'] ?? '—';
 
                 return [
-                    'time' => $this->formatTime($payment['date_paiement'] ?? null),
+                    'date_paiement' => $this->formatDateTime($payment['date_paiement'] ?? null),
                     'driver' => $driver ?: '—',
-                    'lease' => $vehicle !== '—' ? $vehicle : (! empty($leaseId) ? 'Lease ' . $leaseId : '—'),
+                    'lease' => $vehicle !== '—' ? $vehicle : '—',
                     'contract_type' => $type ?: '—',
                     'amount' => $this->toFloat($payment['montant'] ?? $payment['amount'] ?? 0),
                     'method' => $method ?: '—',
@@ -1161,5 +1253,11 @@ class DashboardLeaseService
     {
         $date = $this->safeCarbon($value);
         return $date ? $date->format('H:i') : '—';
+    }
+
+    private function formatDateTime(?string $value): string
+    {
+        $date = $this->safeCarbon($value);
+        return $date ? $date->format('d/m/Y H:i') : '—';
     }
 }

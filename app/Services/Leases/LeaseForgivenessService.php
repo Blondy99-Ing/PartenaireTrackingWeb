@@ -505,7 +505,9 @@ class LeaseForgivenessService
 
     private function findLeaseFromApi(int $leaseId): ?array
     {
-        $leases = $this->leaseApi->fetchLeases();
+        // fetchLeases() renvoie une structure paginée ['data' => [...], ...] :
+        // on n'itère que sur les lignes de lease.
+        $leases = $this->leaseApi->fetchLeases()['data'] ?? [];
 
         foreach ($leases as $lease) {
             if (! is_array($lease)) {

@@ -822,11 +822,11 @@
                 </div>
                 <div class="table-scroll payments">
                     <table class="dashboard-table" id="paymentsTable">
-                        <thead><tr><th>Heure</th><th>Chauffeur</th><th>Véhicule</th><th>Type contrat</th><th>Montant</th><th>Méthode</th><th>Statut</th></tr></thead>
+                        <thead><tr><th>Date de paiement</th><th>Chauffeur</th><th>Véhicule</th><th>Type contrat</th><th>Montant</th><th>Méthode</th><th>Statut</th></tr></thead>
                         <tbody>
                         @forelse(($tables['payments_today'] ?? []) as $payment)
                             <tr data-search="{{ $payment['search'] ?? '' }}">
-                                <td>{{ $payment['time'] ?? '—' }}</td>
+                                <td>{{ $payment['date_paiement'] ?? '—' }}</td>
                                 <td><span class="driver-name">{{ $payment['driver'] ?? '—' }}</span></td>
                                 <td>{{ $payment['lease'] ?? '—' }}</td>
                                 <td>{{ $payment['contract_type'] ?? '—' }}</td>

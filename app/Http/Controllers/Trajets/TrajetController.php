@@ -23,6 +23,16 @@ class TrajetController extends Controller
      */
     public function index(Request $request)
     {
+        /**
+         * Les trajets sont un module du dashboard, pas une page autonome.
+         * Toute navigation HTML (lien menu, redirection post-connexion d'un staff
+         * n'ayant que la permission trajets) est renvoyée vers le dashboard, qui
+         * consomme ensuite cet endpoint en AJAX (?format=json) pour ses données.
+         */
+        if (! $request->expectsJson() && $request->query('format') !== 'json') {
+            return redirect()->route('dashboard');
+        }
+
         $userId = auth()->id();
         $tz = 'Africa/Douala';
 
@@ -86,7 +96,8 @@ class TrajetController extends Controller
             ]);
         }
 
-        return view('trajets.index', compact('trajets'));
+        // Inatteignable en pratique (le HTML est redirigé plus haut), garde-fou.
+        return redirect()->route('dashboard');
     }
 
     /**
