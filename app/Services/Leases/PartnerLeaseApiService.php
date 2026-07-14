@@ -805,60 +805,120 @@ private function extractRows(mixed $response): array
     public function fetchPayments(array $filters = []): array
     {
         $query = collect($filters)
-            ->only([
-                'search',
-                'statut',
-                'statut__in',
-                'methode',
-                'methode__in',
-                'est_annule',
-                'date_paiement',
-                'date_paiement_start',
-                'date_paiement_end',
-                'created_at_start',
-                'created_at_end',
-                'montant_min',
-                'montant_max',
-                'contrat_id',
-                'lease_id',
-                'session_id',
-                'enregistre_par_id',
-                'chauffeur_id',
-                'page',
-            ])
-            ->filter(fn ($value) => $value !== null && $value !== '')
-            ->all();
+        ->only([
+            'search',
+            'statut',
+            'statut__in',
+            'methode',
+            'methode__in',
+            'est_annule',
+            'date_paiement',
+            'date_paiement_start',
+            'date_paiement_end',
+            'created_at_start',
+            'created_at_end',
+            'montant_min',
+            'montant_max',
+            'contrat_id',
+            'lease_id',
+            'session_id',
+            'enregistre_par_id',
+            'chauffeur_id',
+            'page',
+        ])
+        ->filter(fn ($value) => $value !== null && $value !== '')
+        ->all();
 
-        Log::info('[LEASE_API_FETCH_PAYMENTS_START]', [
-            'query' => $query,
-        ]);
+    /**
+     * Comme pour les contrats, on ignore la pagination demandée par la vue.
+     * La vue paginera côté client si nécessaire.
+     *
+     * Objectif :
+     * éviter que /paiements/ ne retourne seulement les 25 lignes par défaut
+     * de l’API recouvrement.
+     */
+    unset($query['page']);
 
-        $json = $this->get('/paiements/', $query);
-        $rows = $this->unwrapApiRows($json);
+    /**
+     * L’API recouvrement supporte 500 éléments par page.
+     * On force donc page_size=500 pour réduire le nombre d’appels API.
+     */
+    $query['page_size'] = 500;
 
-        Log::info('[LEASE_API_FETCH_PAYMENTS_ROWS]', [
-            'raw_type' => $this->describeArrayShape($json),
-            'rows_count' => count($rows),
-            'first_row_keys' => isset($rows[0]) && is_array($rows[0])
-                ? array_keys($rows[0])
-                : [],
-        ]);
+    Log::info('[LEASE_API_FETCH_PAYMENTS_START]', [
+        'query' => $query,
+    ]);
 
-        $payments = collect($rows)
-            ->filter(fn ($row) => is_array($row))
-            ->map(fn (array $row) => $this->normalizePayment($row))
-            ->filter(fn (array $row) => ! empty($row['lease_id']))
-            ->values()
-            ->all();
+    $rows        = [];
+    $apiCount    = 0;
+    $pageNumber  = 1;
+    $pagesLoaded = 0;
+    $maxPages    = 400; // garde-fou : ~200 000 paiements maximum
 
-        Log::info('[LEASE_API_FETCH_PAYMENTS_DONE]', [
-            'query' => $query,
-            'payments_count' => count($payments),
-            'sample_ids' => collect($payments)->pluck('id')->take(5)->values()->all(),
-            'sample_lease_ids' => collect($payments)->pluck('lease_id')->take(5)->values()->all(),
-        ]);
+    while ($pageNumber <= $maxPages) {
+        $json = $this->get('/paiements/', $query + ['page' => $pageNumber]);
 
-        return $payments;
+        if ($pageNumber === 1) {
+            $apiCount = (int) ($json['count'] ?? 0);
+        }
+
+        $pageRows = $this->unwrapApiRows($json);
+
+        if (empty($pageRows)) {
+            break;
+        }
+
+        foreach ($pageRows as $pageRow) {
+            $rows[] = $pageRow;
+        }
+
+        $pagesLoaded = $pageNumber;
+
+        /**
+         * Si l’API n’est pas paginée, ou si on est à la dernière page,
+         * on arrête la boucle.
+         */
+        if (empty($json['next'])) {
+            break;
+        }
+
+        $pageNumber++;
+    }
+
+    Log::info('[LEASE_API_FETCH_PAYMENTS_ROWS]', [
+        'raw_rows_count' => count($rows),
+        'api_count' => $apiCount,
+        'pages_loaded' => $pagesLoaded,
+        'first_row_keys' => isset($rows[0]) && is_array($rows[0])
+            ? array_keys($rows[0])
+            : [],
+    ]);
+
+    $payments = collect($rows)
+        ->filter(fn ($row) => is_array($row))
+        ->map(fn (array $row) => $this->normalizePayment($row))
+        ->filter(fn (array $row) => ! empty($row['lease_id']))
+
+        /**
+         * Garde-fou anti-doublons :
+         * si l’API renvoie deux fois le même paiement à cause d’une pagination instable,
+         * on conserve une seule occurrence par id.
+         */
+        ->unique(fn (array $row) => ! empty($row['id']) ? 'id:' . $row['id'] : spl_object_id((object) $row))
+        ->values()
+        ->all();
+
+    Log::info('[LEASE_API_FETCH_PAYMENTS_DONE]', [
+        'query' => $query,
+        'payments_count' => count($payments),
+        'rows_before_dedup' => count($rows),
+        'api_count' => $apiCount,
+        'pages_loaded' => $pagesLoaded,
+        'sample_ids' => collect($payments)->pluck('id')->take(5)->values()->all(),
+        'sample_lease_ids' => collect($payments)->pluck('lease_id')->take(5)->values()->all(),
+    ]);
+
+    return $payments;
     }
 
     /**

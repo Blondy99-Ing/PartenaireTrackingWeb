@@ -711,7 +711,7 @@ class DashboardLeaseService
                 ];
             })
             ->sortBy(fn ($row) => ($row['rule_status']['label'] === 'Aucune règle' ? '0' : '1') . $row['vehicle'] . $row['type'])
-            ->take(12)
+            ->take(500) // même plafond que la page (500 max), au lieu de 12
             ->values()
             ->all();
     }
