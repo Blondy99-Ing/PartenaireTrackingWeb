@@ -295,14 +295,14 @@ class LeaseApiClientService
 
         $rows = $this->unwrapRows($json);
 
-        $next = $json['next'] ?? null;
+        $next = $this->forceApiHttps($json['next'] ?? null);
 
         while (is_string($next) && trim($next) !== '') {
             $nextJson = $this->getAbsoluteUrl($next);
 
             $rows = array_merge($rows, $this->unwrapRows($nextJson));
 
-            $next = $nextJson['next'] ?? null;
+            $next = $this->forceApiHttps($nextJson['next'] ?? null);
         }
 
         Log::info('[LEASE_API] Rows Recouvrement normalisées.', [
@@ -492,6 +492,22 @@ class LeaseApiClientService
         Cache::put($this->tokenCacheKey, $accessToken, now()->addSeconds($ttl));
 
         return $accessToken;
+    }
+
+    /**
+     * L'API recouvrement renvoie parfois des liens de pagination `next` en http://
+     * (TLS terminé par un proxy en amont). Suivre ce http:// provoque une
+     * redirection 301 vers https:// pendant laquelle Guzzle retire l'entête
+     * Authorization (changement de schéma) → 401 dès la page 2. On force donc
+     * https:// afin d'appeler directement l'URL sécurisée sans redirection.
+     */
+    private function forceApiHttps(mixed $url): ?string
+    {
+        if (! is_string($url) || trim($url) === '') {
+            return null;
+        }
+
+        return preg_replace('#^http://#i', 'https://', trim($url));
     }
 
     private function unwrapRows(array $json): array
