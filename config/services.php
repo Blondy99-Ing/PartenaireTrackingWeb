@@ -68,6 +68,20 @@ return [
 'partner_lease_api' => [
     'base_url' => env('PARTNER_LEASE_API_BASE_URL'),
     'timeout' => (int) env('PARTNER_LEASE_API_TIMEOUT', 20),
+
+    /*
+     | Identifiants du token technique recouvrement.
+     | IMPORTANT : lus via config() (et non env() direct dans le service) afin de
+     | survivre à `php artisan config:cache`. Sous config cache, tout env() hors
+     | des fichiers config/*.php renvoie null : c'est ce qui cassait le mint du
+     | token en production (erreur "LEASE_AUTH_TOKEN_URL manquant").
+     */
+    'token_url' => env('LEASE_AUTH_TOKEN_URL'),
+    'client_id' => env('LEASE_AUTH_CLIENT_ID'),
+    'client_secret' => env('LEASE_AUTH_CLIENT_SECRET'),
+    'username' => env('LEASE_AUTH_USERNAME'),
+    'password' => env('LEASE_AUTH_PASSWORD'),
+    'scope' => env('LEASE_AUTH_SCOPE', 'openid email profile'),
 ],
 
 'keycloak' => [

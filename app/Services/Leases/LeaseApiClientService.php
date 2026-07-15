@@ -35,6 +35,22 @@ class LeaseApiClientService
             ?: env('PARTNER_LEASE_API_TIMEOUT')
             ?: 20
         );
+
+        /*
+         | La clé de cache du token est namespacée par compte technique.
+         | Plusieurs instances (prod, test) peuvent partager la même base de cache
+         | avec un préfixe vide : sans ce namespace, l'instance de test écrasait le
+         | token de prod dans lease_cutoff (mauvais compte -> 0 impayé retourné).
+         | sha1 pour ne jamais exposer l'email en clair dans la clé.
+         */
+        $leaseUsername = trim((string) (
+            config('services.partner_lease_api.username')
+            ?: env('LEASE_AUTH_USERNAME', '')
+        ));
+
+        if ($leaseUsername !== '') {
+            $this->tokenCacheKey = 'lease_api:recouvrement_access_token:' . sha1($leaseUsername);
+        }
     }
 
     public function getLastDiagnostics(): array
@@ -313,8 +329,8 @@ class LeaseApiClientService
             'url' => $url,
             'query' => $query,
             'auth_mode' => 'lease_auth_technical_token',
-            'client_id' => env('LEASE_AUTH_CLIENT_ID'),
-            'username' => env('LEASE_AUTH_USERNAME'),
+            'client_id' => config('services.partner_lease_api.client_id'),
+            'username' => config('services.partner_lease_api.username'),
         ]);
 
         $response = Http::acceptJson()
@@ -356,8 +372,8 @@ class LeaseApiClientService
             'query' => $query,
             'status' => $response->status(),
             'base_url' => $this->baseUrl,
-            'username' => env('LEASE_AUTH_USERNAME'),
-            'client_id' => env('LEASE_AUTH_CLIENT_ID'),
+            'username' => config('services.partner_lease_api.username'),
+            'client_id' => config('services.partner_lease_api.client_id'),
             'json_keys' => array_slice(array_keys($json), 0, 20),
             'api_count' => $json['count'] ?? null,
             'results_count' => $resultsCount,
@@ -407,12 +423,14 @@ class LeaseApiClientService
             return $cached;
         }
 
-        $tokenUrl = trim((string) env('LEASE_AUTH_TOKEN_URL', ''));
-        $clientId = trim((string) env('LEASE_AUTH_CLIENT_ID', ''));
-        $clientSecret = trim((string) env('LEASE_AUTH_CLIENT_SECRET', ''));
-        $username = trim((string) env('LEASE_AUTH_USERNAME', ''));
-        $password = (string) env('LEASE_AUTH_PASSWORD', '');
-        $scope = trim((string) env('LEASE_AUTH_SCOPE', 'openid email profile'));
+        // Lecture via config() pour survivre à config:cache (cf. config/services.php).
+        // Fallback env() conservé pour compatibilité si le cache de config est absent.
+        $tokenUrl = trim((string) (config('services.partner_lease_api.token_url') ?: env('LEASE_AUTH_TOKEN_URL', '')));
+        $clientId = trim((string) (config('services.partner_lease_api.client_id') ?: env('LEASE_AUTH_CLIENT_ID', '')));
+        $clientSecret = trim((string) (config('services.partner_lease_api.client_secret') ?: env('LEASE_AUTH_CLIENT_SECRET', '')));
+        $username = trim((string) (config('services.partner_lease_api.username') ?: env('LEASE_AUTH_USERNAME', '')));
+        $password = (string) (config('services.partner_lease_api.password') ?: env('LEASE_AUTH_PASSWORD', ''));
+        $scope = trim((string) (config('services.partner_lease_api.scope') ?: env('LEASE_AUTH_SCOPE', 'openid email profile')));
 
         if ($tokenUrl === '') {
             throw new RuntimeException('LEASE_AUTH_TOKEN_URL manquant.');
