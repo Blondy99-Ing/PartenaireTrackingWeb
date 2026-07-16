@@ -877,6 +877,9 @@
     $specificDate = $filters['specific_date'] ?? '';
     $dateFrom     = $filters['date_from'] ?? '';
     $dateTo       = $filters['date_to'] ?? '';
+    // Les timestamps sont stockés en UTC (APP_TIMEZONE=UTC). On affiche en heure
+    // locale (Africa/Douala / WAT) pour rester cohérent avec les heures de coupure.
+    $tz           = config('app.display_timezone', 'Africa/Douala');
 @endphp
 
 <div class="ch">
@@ -900,7 +903,11 @@
             </span>
             <span class="ch-hero-chip">
                 <i class="fas fa-calendar-day" style="font-size:.7rem;"></i>
-                {{ now()->format('d/m/Y') }}
+                {{ now($tz)->format('d/m/Y') }}
+            </span>
+            <span class="ch-hero-chip" title="Toutes les heures sont affichées en heure locale (Africa/Douala, UTC+1)">
+                <i class="fas fa-clock" style="font-size:.7rem;"></i>
+                Heure locale · WAT
             </span>
         </div>
     </div>
@@ -1299,8 +1306,8 @@
                     <td>
                         @if($history->scheduled_for)
                             <div class="ch-date-cell">
-                                <div class="ch-date-main">{{ optional($history->scheduled_for)->format('d/m/Y') }}</div>
-                                <div class="ch-date-time">{{ optional($history->scheduled_for)->format('H:i') }}</div>
+                                <div class="ch-date-main">{{ $history->scheduled_for?->copy()->setTimezone($tz)->format('d/m/Y') }}</div>
+                                <div class="ch-date-time">{{ $history->scheduled_for?->copy()->setTimezone($tz)->format('H:i') }}</div>
                             </div>
                         @else
                             <span class="ch-dash">—</span>
@@ -1317,7 +1324,7 @@
                                     </div>
                                     <div class="ch-tl-label">{{ $step['label'] }}</div>
                                     @if($step['done'])
-                                        <div class="ch-tl-time">{{ optional($step['val'])->format('d/m H:i') }}</div>
+                                        <div class="ch-tl-time">{{ $step['val']?->copy()->setTimezone($tz)->format('d/m H:i') }}</div>
                                     @else
                                         <div class="ch-tl-time">&nbsp;</div>
                                     @endif
@@ -1431,19 +1438,19 @@
                                 </div>
                                 <div class="ch-detail-field">
                                     <span class="ch-detail-field-key">Planifié</span>
-                                    <span class="ch-detail-field-val">{{ optional($history->scheduled_for)->format('d/m/Y H:i:s') ?? '—' }}</span>
+                                    <span class="ch-detail-field-val">{{ $history->scheduled_for?->copy()->setTimezone($tz)->format('d/m/Y H:i:s') ?? '—' }}</span>
                                 </div>
                                 <div class="ch-detail-field">
                                     <span class="ch-detail-field-key">Détecté</span>
-                                    <span class="ch-detail-field-val">{{ optional($history->detected_at)->format('d/m/Y H:i:s') ?? '—' }}</span>
+                                    <span class="ch-detail-field-val">{{ $history->detected_at?->copy()->setTimezone($tz)->format('d/m/Y H:i:s') ?? '—' }}</span>
                                 </div>
                                 <div class="ch-detail-field">
                                     <span class="ch-detail-field-key">Commande</span>
-                                    <span class="ch-detail-field-val">{{ optional($history->cutoff_requested_at)->format('d/m/Y H:i:s') ?? '—' }}</span>
+                                    <span class="ch-detail-field-val">{{ $history->cutoff_requested_at?->copy()->setTimezone($tz)->format('d/m/Y H:i:s') ?? '—' }}</span>
                                 </div>
                                 <div class="ch-detail-field">
                                     <span class="ch-detail-field-key">Confirmée</span>
-                                    <span class="ch-detail-field-val">{{ optional($history->cutoff_executed_at)->format('d/m/Y H:i:s') ?? '—' }}</span>
+                                    <span class="ch-detail-field-val">{{ $history->cutoff_executed_at?->copy()->setTimezone($tz)->format('d/m/Y H:i:s') ?? '—' }}</span>
                                 </div>
                             </div>
 
