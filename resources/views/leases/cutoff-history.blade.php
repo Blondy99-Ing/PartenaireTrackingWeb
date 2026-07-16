@@ -116,12 +116,11 @@
 ══════════════════════════════════════════════════════════════ */
 .ch-kpi-strip {
     display: grid;
-    grid-template-columns: repeat(7, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: .5rem;
 }
 
-@media (max-width: 1400px) { .ch-kpi-strip { grid-template-columns: repeat(4, 1fr); } }
-@media (max-width: 900px)  { .ch-kpi-strip { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 640px) { .ch-kpi-strip { grid-template-columns: repeat(2, 1fr); } }
 
 .ch-kpi {
     background: var(--color-card);
@@ -469,6 +468,7 @@
 .ch-badge-sent      { background: #f5f3ff; color: #6d28d9; border-color: #ddd6fe; }
 .ch-badge-cut       { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
 .ch-badge-cancelled { background: #f3f4f6; color: #4b5563; border-color: #e5e7eb; }
+.ch-badge-review    { background: #fffbeb; color: #b45309; border-color: #fde68a; }
 .ch-badge-failed    { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
 
 .dark-mode .ch-badge-pending   { background: rgba(29,78,216,.18);  color: #93c5fd; border-color: rgba(147,197,253,.25); }
@@ -476,6 +476,7 @@
 .dark-mode .ch-badge-sent      { background: rgba(109,40,217,.18); color: #c4b5fd; border-color: rgba(196,181,253,.25); }
 .dark-mode .ch-badge-cut       { background: rgba(4,120,87,.18);   color: #6ee7b7; border-color: rgba(110,231,183,.25); }
 .dark-mode .ch-badge-cancelled { background: rgba(75,85,99,.18);   color: #9ca3af; border-color: rgba(156,163,175,.25); }
+.dark-mode .ch-badge-review    { background: rgba(180,83,9,.18);   color: #fcd34d; border-color: rgba(252,211,77,.25); }
 .dark-mode .ch-badge-failed    { background: rgba(185,28,28,.18);  color: #fca5a5; border-color: rgba(252,165,165,.25); }
 
 /* ══════════════════════════════════════════════════════════════
@@ -913,6 +914,7 @@
             ['label' => 'Attente arrêt',   'val' => $summary['waiting_stop'] ?? 0,   'dot' => '#c2410c', 'key' => 'WAITING_STOP'],
             ['label' => 'Cmd. envoyée',    'val' => $summary['command_sent'] ?? 0,   'dot' => '#6d28d9', 'key' => 'COMMAND_SENT'],
             ['label' => 'Annulés / payés', 'val' => $summary['cancelled_paid'] ?? 0,'dot' => '#4b5563', 'key' => 'CANCELLED_PAID'],
+            ['label' => 'À vérifier',      'val' => $summary['cancelled_unverified'] ?? 0, 'dot' => '#b45309', 'key' => 'CANCELLED_UNVERIFIED'],
             ['label' => 'Pardon avant',    'val' => $summary['cancelled_forgiven_before_cut'] ?? 0, 'dot' => '#0f766e', 'key' => 'CANCELLED_FORGIVEN_BEFORE_CUT'],
             ['label' => 'Rallumés',        'val' => $summary['reactivated_after_forgiveness'] ?? 0, 'dot' => '#15803d', 'key' => 'REACTIVATED_AFTER_FORGIVENESS'],
             ['label' => 'Échecs finaux',   'val' => $summary['failed'] ?? 0,         'dot' => '#b91c1c', 'key' => 'FAILED'],
@@ -1064,6 +1066,7 @@
                     'WAITING_STOP'   => 'ch-badge-waiting',
                     'COMMAND_SENT'   => 'ch-badge-sent',
                     'CANCELLED_PAID' => 'ch-badge-cancelled',
+                    'CANCELLED_UNVERIFIED' => 'ch-badge-review',
                     'FAILED'         => 'ch-badge-failed',
                     default          => 'ch-badge-pending',
                 } }}">
@@ -1098,6 +1101,7 @@
                         'WAITING_STOP'   => 'ch-badge-waiting',
                         'COMMAND_SENT'   => 'ch-badge-sent',
                         'CUT_OFF'        => 'ch-badge-cut',
+                        'CANCELLED_UNVERIFIED' => 'ch-badge-review',
                         'CANCELLED_PAID',
                         'CANCELLED_RULE_MISSING',
                         'CANCELLED_RULE_DISABLED',
@@ -1115,6 +1119,7 @@
                         'COMMAND_SENT'   => 'Cmd. envoyée',
                         'CUT_OFF'        => 'Coupure conf.',
                         'CANCELLED_PAID' => 'Annulé / payé',
+                        'CANCELLED_UNVERIFIED' => 'À vérifier',
                         'CANCELLED_RULE_MISSING' => 'Annulé : règle absente',
                         'CANCELLED_RULE_DISABLED' => 'Annulé : règle incomplète',
                         'CANCELLED_FORGIVEN_BEFORE_CUT' => 'Pardon avant coupure — dette ouverte',
@@ -1131,6 +1136,7 @@
                         'COMMAND_SENT'   => 'fa-paper-plane',
                         'CUT_OFF'        => 'fa-check',
                         'CANCELLED_PAID' => 'fa-ban',
+                        'CANCELLED_UNVERIFIED' => 'fa-circle-question',
                         'CANCELLED_RULE_MISSING' => 'fa-link-slash',
                         'CANCELLED_RULE_DISABLED' => 'fa-toggle-off',
                         'CANCELLED_FORGIVEN_BEFORE_CUT' => 'fa-shield-heart',
@@ -1209,6 +1215,7 @@
                         'WAITING_STOP' => 'Coupure en attente d’arrêt du véhicule',
                         'PENDING' => 'Coupure planifiée',
                         'CANCELLED_PAID' => 'Coupure annulée : paiement régularisé',
+                        'CANCELLED_UNVERIFIED' => 'Coupure annulée : à vérifier (paiement non confirmé)',
                         'CANCELLED_RULE_MISSING' => 'Coupure annulée : règle de coupure absente',
                         'CANCELLED_RULE_DISABLED' => 'Coupure annulée : règle de coupure inactive',
                         'CANCELLED_FORGIVEN_BEFORE_CUT' => 'Coupure annulée : pardon accordé avant coupure',
@@ -1225,7 +1232,6 @@
                         ?? $history->driver?->nom_complet
                         ?? $history->driver?->name
                         ?? null;
-                @endphp
                 @endphp
 
                 {{-- ── MAIN ROW ── --}}
