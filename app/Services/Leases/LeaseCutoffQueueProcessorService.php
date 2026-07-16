@@ -257,7 +257,7 @@ class LeaseCutoffQueueProcessorService
                 $vehicleState = $this->gps->getVehicleStateByMacId($macId, $movingThreshold);
 
                 if (! ($vehicleState['success'] ?? false)) {
-                    $this->markWaiting($item, 'La coupure est reportée : l’état GPS du véhicule est indisponible.', null, null);
+                    $this->markWaiting($item, 'Commande EN ATTENTE : impossible de lire l’état du boîtier GPS (état inconnu). Aucune commande n’a été envoyée — la coupure sera tentée automatiquement dès que le boîtier répondra.', null, null);
                     $waiting++;
                     Log::warning('[LEASE_CUTOFF_PROCESS] Attente : état véhicule indisponible', array_merge($ctx, [
                         'vehicle_state' => $vehicleState,
@@ -292,7 +292,7 @@ class LeaseCutoffQueueProcessorService
                             ['source' => 'post_send_verification', 'message' => 'La commande précédemment envoyée est confirmée par l’état moteur live.'],
                             $speed,
                             $uiStatus,
-                            'La commande de coupure avait déjà été envoyée ; le moteur est maintenant confirmé coupé après vérification différée.'
+                            sprintf('Coupure CONFIRMÉE : le boîtier rapporte le moteur coupé (relais ouvert), après %d vérification(s). La commande a bien pris effet.', (int) $item->retry_count)
                         );
                         $processed++;
                         Log::info('[LEASE_CUTOFF_PROCESS] Succès : commande confirmée après vérification différée', $ctx);
@@ -300,7 +300,7 @@ class LeaseCutoffQueueProcessorService
                     }
 
                     if ($item->retry_count >= $maxChecks) {
-                        $this->markFailed($item, 'La commande de coupure a déjà été envoyée, mais le moteur n’a pas pu être confirmé coupé après plusieurs vérifications différées. Échec final de confirmation.');
+                        $this->markFailed($item, sprintf('Commande ENVOYÉE mais NON CONFIRMÉE après %d vérifications : le boîtier rapporte toujours le moteur « %s » (relais non coupé). Le boîtier n’a pas exécuté la coupure — causes probables : mot de passe commande du boîtier incorrect, mot-clé de commande inadapté au modèle, ou boîtier injoignable. Aucune preuve que le véhicule soit réellement coupé.', $maxChecks, $engineState));
                         $failed++;
                         Log::warning('[LEASE_CUTOFF_PROCESS] Échec : commande non confirmée après plusieurs vérifications', $ctx);
                         continue;
@@ -308,7 +308,7 @@ class LeaseCutoffQueueProcessorService
 
                     $this->markCommandStillPending(
                         $item,
-                        'La commande de coupure a déjà été envoyée ; le système attend encore la confirmation réelle de l’état moteur avant de conclure.',
+                        sprintf('Commande ENVOYÉE, en attente de confirmation moteur — vérification %d/%d. Le boîtier rapporte pour l’instant le moteur « %s » (pas encore confirmé coupé).', (int) $item->retry_count, $maxChecks, $engineState),
                         $speed,
                         $uiStatus
                     );
@@ -331,21 +331,21 @@ class LeaseCutoffQueueProcessorService
                 }
 
                 if ($isOnline === false) {
-                    $this->markWaiting($item, 'La coupure est reportée : le véhicule est actuellement offline côté provider GPS.', $speed, $uiStatus);
+                    $this->markWaiting($item, sprintf('Commande EN ATTENTE : boîtier HORS-LIGNE (%s). Aucune commande envoyée — la coupure sera tentée dès le retour en ligne du boîtier.', $uiStatus), $speed, $uiStatus);
                     $waiting++;
                     Log::info('[LEASE_CUTOFF_PROCESS] Attente : véhicule offline', $ctx);
                     continue;
                 }
 
                 if ($isMoving === null) {
-                    $this->markWaiting($item, 'La coupure est reportée : l’état de mouvement du véhicule est incertain.', $speed, $uiStatus);
+                    $this->markWaiting($item, 'Commande EN ATTENTE : état de mouvement INCERTAIN (donnée GPS ambiguë). Coupure différée par sécurité jusqu’à un état fiable.', $speed, $uiStatus);
                     $waiting++;
                     Log::info('[LEASE_CUTOFF_PROCESS] Attente : mouvement incertain', $ctx);
                     continue;
                 }
 
                 if ($isMoving === true) {
-                    $this->markWaiting($item, 'La coupure est reportée : le véhicule est encore en mouvement.', $speed, $uiStatus);
+                    $this->markWaiting($item, sprintf('Commande EN ATTENTE : véhicule EN MOUVEMENT (%s km/h). Par sécurité, la coupure n’est envoyée qu’à l’arrêt du véhicule.', $speed !== null ? $speed : '?'), $speed, $uiStatus);
                     $waiting++;
                     Log::info('[LEASE_CUTOFF_PROCESS] Attente : véhicule en mouvement', $ctx);
                     continue;
@@ -358,7 +358,7 @@ class LeaseCutoffQueueProcessorService
 
                 $commandStatus = (string) ($command['status'] ?? 'FAILED');
                 if ($commandStatus === 'FAILED') {
-                    $this->markFailed($item, 'Le provider GPS a refusé ou échoué l’envoi de la commande.');
+                    $this->markFailed($item, sprintf('Commande REFUSÉE par le provider GPS : %s. La coupure n’a pas été transmise au boîtier.', (string) ($command['message'] ?? $command['return_msg'] ?? 'raison non précisée par le provider')));
                     $failed++;
                     Log::warning('[LEASE_CUTOFF_PROCESS] Échec : provider a rejeté la commande', array_merge($ctx, [
                         'command_result' => $command,
@@ -366,14 +366,20 @@ class LeaseCutoffQueueProcessorService
                     continue;
                 }
 
+                $cmdNo = $command['cmd_no'] ?? null;
+                $providerMsg = (string) ($command['message'] ?? 'commande acceptée');
+                $cmdRef = $cmdNo
+                    ? 'réf. commande ' . $cmdNo
+                    : 'AUCUN numéro de commande renvoyé par le provider — la délivrance réelle au boîtier n’est pas garantie';
+
                 $this->markCommandSent(
                     $item,
                     $command,
                     $speed,
                     $uiStatus,
                     $commandStatus === 'PENDING_VERIFICATION'
-                        ? 'La commande de coupure a été transmise, mais le provider GPS demande une vérification différée avant confirmation définitive.'
-                        : 'La commande de coupure a été envoyée. Le système attend la confirmation du moteur.'
+                        ? sprintf('Commande de coupure TRANSMISE au provider (%s ; %s), mais le provider demande une vérification différée avant confirmation. En attente de la confirmation moteur.', $providerMsg, $cmdRef)
+                        : sprintf('Commande de coupure ENVOYÉE et acceptée par le provider (%s ; %s). En attente de la confirmation réelle du moteur (relais coupé) avant de conclure.', $providerMsg, $cmdRef)
                 );
                 $waiting++;
                 Log::info('[LEASE_CUTOFF_PROCESS] Commande envoyée, passage en COMMAND_SENT', array_merge($ctx, [
