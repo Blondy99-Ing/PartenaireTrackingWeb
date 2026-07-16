@@ -289,6 +289,50 @@ class LeaseApiClientService
         return (float) $reste > 0;
     }
 
+    /**
+     * Récupère un lease par son id, indépendamment de sa date_echeance actuelle.
+     *
+     * Indispensable pour la coupure : la date_echeance d'un lease impayé « roule »
+     * côté recouvrement (ex. 2026-07-15 -> 2026-07-16) alors que la queue garde la
+     * date d'origine. Vérifier par id donne le statut/reste réels, non biaisés par
+     * ce décalage de date.
+     */
+    public function fetchLeaseById(int $leaseId): ?array
+    {
+        if ($leaseId <= 0) {
+            return null;
+        }
+
+        foreach ($this->getRows('/leases/', ['id' => $leaseId]) as $row) {
+            if (is_array($row) && $this->extractLeaseId($row) === $leaseId) {
+                return $row;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Cherche un paiement RÉEL (non annulé) pour ce lease.
+     *
+     * Sert de preuve d'audit : on n'écrit « payé » que si un paiement existe
+     * vraiment, jamais sur la seule absence du lease de la liste NON_PAYE.
+     */
+    public function findPaymentForLease(int $leaseId): ?array
+    {
+        if ($leaseId <= 0) {
+            return null;
+        }
+
+        foreach ($this->getRows('/paiements/', ['lease_id' => $leaseId, 'est_annule' => 'false']) as $row) {
+            if (is_array($row) && ! empty($row['id'])) {
+                return $row;
+            }
+        }
+
+        return null;
+    }
+
     private function getRows(string $endpoint, array $query = []): array
     {
         $json = $this->get($endpoint, $query);

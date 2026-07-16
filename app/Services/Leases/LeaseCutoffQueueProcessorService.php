@@ -66,7 +66,6 @@ class LeaseCutoffQueueProcessorService
         $waiting = 0;
         $cancelled = 0;
         $failed = 0;
-        $nonPaidByDate = [];
 
         foreach ($items as $item) {
             $ctx = [
@@ -120,35 +119,77 @@ class LeaseCutoffQueueProcessorService
                     continue;
                 }
 
-                if (! isset($nonPaidByDate[$dueDate])) {
-                    $nonPaidByDate[$dueDate] = $this->leaseApi->fetchNonPaidLeasesForDateIndexedByLeaseId($dueDate);
+                /**
+                 * Re-vérification du paiement PAR LEASE (et non par date figée).
+                 *
+                 * Pourquoi : la date_echeance d'un lease impayé « roule » côté
+                 * recouvrement (ex. 2026-07-15 -> 2026-07-16) alors que la queue
+                 * garde la date d'origine. L'ancienne vérification, filtrée sur
+                 * cette date figée, concluait à tort « payé » et annulait la coupure
+                 * d'un lease pourtant toujours NON_PAYE (reste > 0, aucun paiement).
+                 *
+                 * On vérifie donc le lease par son id, et on n'écrit « payé » que si
+                 * un paiement RÉEL existe. L'audit reste ainsi fidèle à la réalité.
+                 */
+                $leaseNow = $this->leaseApi->fetchLeaseById($leaseId);
 
-                    Log::info('[LEASE_CUTOFF_PROCESS] Revalidation NON_PAYE par date', array_merge($ctx, [
-                        'date_echeance' => $dueDate,
-                        'received_lease_ids' => array_keys($nonPaidByDate[$dueDate]),
-                        'received_count' => count($nonPaidByDate[$dueDate]),
-                    ]));
-                }
-
-                $stillNonPaidLease = $nonPaidByDate[$dueDate][$leaseId] ?? null;
-
-                if (! $stillNonPaidLease) {
-                    $this->markCancelledPaid(
+                if ($leaseNow === null) {
+                    $this->markCancelledUnverified(
                         $item,
-                        sprintf(
-                            'Le lease #%d n’est plus retourné comme NON_PAYE pour l’échéance du %s. La coupure est annulée par sécurité, car le paiement peut avoir été régularisé avant exécution.',
-                            $leaseId,
-                            $dueDate
-                        )
+                        sprintf('Le lease #%d est introuvable côté recouvrement au moment de l’exécution. Coupure annulée par prudence, SANS confirmation de paiement.', $leaseId)
                     );
                     $cancelled++;
-                    Log::warning('[LEASE_CUTOFF_PROCESS] Queue annulée : lease exact absent des NON_PAYE', array_merge($ctx, [
-                        'date_echeance' => $dueDate,
-                        'expected_lease_id' => $leaseId,
-                        'received_lease_ids' => array_keys($nonPaidByDate[$dueDate]),
-                    ]));
+                    Log::warning('[LEASE_CUTOFF_PROCESS] Queue annulée : lease introuvable côté recouvrement (aucune preuve de paiement)', $ctx);
                     continue;
                 }
+
+                if (! $this->leaseApi->isNonPaidLeaseRow($leaseNow)) {
+                    /**
+                     * Le lease n'est réellement plus NON_PAYE. On EXIGE une preuve de
+                     * paiement avant d'écrire CANCELLED_PAID, sinon on trace un statut
+                     * distinct « à vérifier » plutôt que d'affirmer un paiement faux.
+                     */
+                    $payment = $this->leaseApi->findPaymentForLease($leaseId);
+
+                    if ($payment) {
+                        $this->markCancelledPaid(
+                            $item,
+                            sprintf('Le lease #%d est réglé (paiement #%s, montant %s). Coupure automatique annulée.',
+                                $leaseId,
+                                (string) ($payment['id'] ?? '?'),
+                                (string) ($payment['montant'] ?? '?')
+                            ),
+                            $payment
+                        );
+                        Log::info('[LEASE_CUTOFF_PROCESS] Queue annulée : paiement réel confirmé', array_merge($ctx, [
+                            'payment_id' => $payment['id'] ?? null,
+                            'montant' => $payment['montant'] ?? null,
+                        ]));
+                    } else {
+                        $this->markCancelledUnverified(
+                            $item,
+                            sprintf('Le lease #%d n’est plus retourné comme NON_PAYE, mais AUCUN paiement n’a été trouvé (échéance probablement modifiée côté recouvrement). Coupure annulée à vérifier — non confirmée comme payée.', $leaseId)
+                        );
+                        Log::warning('[LEASE_CUTOFF_PROCESS] Queue annulée : plus NON_PAYE mais sans paiement trouvé (à vérifier)', array_merge($ctx, [
+                            'lease_statut' => $leaseNow['statut'] ?? null,
+                            'reste_a_payer' => $leaseNow['reste_a_payer'] ?? null,
+                        ]));
+                    }
+
+                    $cancelled++;
+                    continue;
+                }
+
+                /**
+                 * Ici le lease est TOUJOURS NON_PAYE (reste > 0), quelle que soit sa
+                 * date_echeance actuelle : on poursuit vers la coupure.
+                 */
+                Log::info('[LEASE_CUTOFF_PROCESS] Lease toujours NON_PAYE (vérifié par id) : poursuite de la coupure', array_merge($ctx, [
+                    'lease_statut' => $leaseNow['statut'] ?? null,
+                    'reste_a_payer' => $leaseNow['reste_a_payer'] ?? null,
+                    'date_echeance_actuelle' => $leaseNow['date_echeance'] ?? null,
+                    'date_echeance_queue' => $dueDate,
+                ]));
 
                 /**
                  * Revérification de la règle spécifique avant commande GPS.
@@ -392,9 +433,9 @@ class LeaseCutoffQueueProcessorService
         return null;
     }
 
-    private function markCancelledPaid(LeaseCutoffQueue $item, string $reason): void
+    private function markCancelledPaid(LeaseCutoffQueue $item, string $reason, ?array $payment = null): void
     {
-        DB::transaction(function () use ($item, $reason) {
+        DB::transaction(function () use ($item, $reason, $payment) {
             $item->update([
                 'status' => 'CANCELLED',
                 'last_checked_at' => now(),
@@ -405,7 +446,41 @@ class LeaseCutoffQueueProcessorService
                 $item->history->update([
                     'status' => 'CANCELLED_PAID',
                     'reason' => $reason,
-                    'notes' => 'Événement clôturé sans coupure : le lease exact n’est plus confirmé NON_PAYE au moment de l’exécution.',
+                    'command_response' => $payment ? [
+                        'source' => 'payment_verified',
+                        'payment_id' => $payment['id'] ?? null,
+                        'montant' => $payment['montant'] ?? null,
+                        'date_paiement' => $payment['date_paiement'] ?? $payment['created_at'] ?? null,
+                    ] : null,
+                    'notes' => $payment
+                        ? 'Coupure annulée : paiement réel confirmé côté recouvrement.'
+                        : 'Coupure annulée après confirmation que le lease n’est plus dû.',
+                ]);
+            }
+        });
+    }
+
+    /**
+     * Annulation SANS preuve de paiement.
+     *
+     * Cas : lease introuvable, ou lease qui n'est plus NON_PAYE mais sans paiement
+     * réel trouvé (typiquement une date_echeance modifiée côté recouvrement). On
+     * n'affirme JAMAIS « payé » sans preuve : statut distinct pour un audit honnête.
+     */
+    private function markCancelledUnverified(LeaseCutoffQueue $item, string $reason): void
+    {
+        DB::transaction(function () use ($item, $reason) {
+            $item->update([
+                'status' => 'CANCELLED',
+                'last_checked_at' => now(),
+                'next_check_at' => null,
+            ]);
+
+            if ($item->history) {
+                $item->history->update([
+                    'status' => 'CANCELLED_UNVERIFIED',
+                    'reason' => $reason,
+                    'notes' => 'Coupure annulée sans preuve de paiement : à vérifier manuellement. Le lease peut être encore dû (échéance modifiée côté recouvrement).',
                 ]);
             }
         });

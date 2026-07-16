@@ -31,6 +31,7 @@ class LeaseCutoffPlannerService
     private const HISTORY_TERMINAL_STATUSES = [
         'CUT_OFF',
         'CANCELLED_PAID',
+        'CANCELLED_UNVERIFIED',
         'CANCELLED_RULE_MISSING',
         'CANCELLED_RULE_DISABLED',
         'CANCELLED_FORGIVEN_BEFORE_CUT',
