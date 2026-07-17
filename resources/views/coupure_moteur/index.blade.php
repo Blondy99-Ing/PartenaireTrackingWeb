@@ -1351,7 +1351,7 @@ confirmBtn?.addEventListener('click', async () => {
         });
 
         if (res.status === 419) {
-            window.showToastMsg?.('Session expirée', 'Rechargement en cours…', 'error');
+            window.showToast?.('Session expirée', 'Rechargement en cours…', 'error');
             setTimeout(() => window.location.reload(), 1000);
             return;
         }
@@ -1381,22 +1381,24 @@ confirmBtn?.addEventListener('click', async () => {
         const ok = res.ok && data?.success;
 
         if (!ok) {
-            window.showToastMsg?.('Erreur commande', data?.message || 'Échec de la commande moteur.', 'error');
+            window.showToast?.('Erreur commande', data?.message || 'Échec de la commande moteur.', 'error');
             setUI(id, { success: false });
             return;
         }
 
         setUI(id, { success: true, engine: { cut: expectedCut }, gps: { online: null } });
-        window.showToastMsg?.(
+        window.showToast?.(
             'Commande envoyée',
             (data.message || 'Commande en cours…') + (data.cmd_no ? ` · CmdNo: ${data.cmd_no}` : ''),
             'success'
         );
 
-        const p = await pollConfirm(statusUrl, expectedCut, 10, 900);
+        // Le boîtier met généralement 20-40 s à remonter le nouvel état.
+        // On sonde donc pendant ~1 min (12 essais espacés de 4 s) au lieu de ~9 s.
+        const p = await pollConfirm(statusUrl, expectedCut, 12, 4000);
         if (p.confirmed && p.json) {
             setUI(id, p.json);
-            window.showToastMsg?.(
+            window.showToast?.(
                 'Confirmé',
                 expectedCut ? 'Moteur coupé — confirmé par le GPS.' : 'Moteur rétabli — confirmé par le GPS.',
                 'success'
@@ -1407,11 +1409,11 @@ confirmBtn?.addEventListener('click', async () => {
                 headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
             });
             if (r.ok && r.json?.success) setUI(id, r.json);
-            window.showToastMsg?.('En attente', "Commande envoyée — le GPS n'a pas encore confirmé.", 'error');
+            window.showToast?.('En attente', "Commande envoyée — le GPS n'a pas encore confirmé.", 'error');
         }
 
     } catch {
-        window.showToastMsg?.('Erreur réseau', 'Impossible de contacter le serveur.', 'error');
+        window.showToast?.('Erreur réseau', 'Impossible de contacter le serveur.', 'error');
     } finally {
         document.querySelector(`.engine-toggle[data-id="${id}"]`)?.classList.remove('is-loading');
     }
