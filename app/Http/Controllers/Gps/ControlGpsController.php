@@ -104,6 +104,16 @@ class ControlGpsController extends Controller
             ->all();
 
         $latestByMac = $this->latestLocationsByMac($macIds);
+
+        // Statut online LIVE (device-list 18gps, 1 appel par compte, caché 15 s).
+        // Plus fiable que la dernière position stockée pour l'état en ligne/hors-ligne.
+        $liveOnline = [];
+        try {
+            $liveOnline = $this->gps->getLiveOnlineMap();
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
         $out = [];
 
         foreach ($ids as $id) {
@@ -127,7 +137,24 @@ class ControlGpsController extends Controller
             }
 
             $loc = $latestByMac[$mac] ?? null;
-            $out[$id] = $this->buildEnginePayloadFromLocalLocation($mac, $loc);
+            $payload = $this->buildEnginePayloadFromLocalLocation($mac, $loc);
+
+            // Overlay du statut online LIVE quand le boîtier est présent dans la
+            // device-list (le moteur, lui, reste décodé depuis le bit `status`).
+            if (isset($liveOnline[$mac])) {
+                $lo = $liveOnline[$mac];
+                $payload['gps']['online']  = $lo['is_online'];
+                $payload['gps']['state']   = $lo['state'];
+                $payload['gps']['message'] = match ($lo['state']) {
+                    'ONLINE_MOVING'     => 'GPS en mouvement',
+                    'ONLINE_STATIONARY' => 'GPS connecté - véhicule arrêté',
+                    'OFFLINE'           => 'GPS hors ligne',
+                    default             => 'État GPS inconnu',
+                };
+                $payload['meta']['online_source'] = 'live';
+            }
+
+            $out[$id] = $payload;
         }
 
         return response()->json(['success' => true, 'data' => $out]);

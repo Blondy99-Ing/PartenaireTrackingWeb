@@ -248,6 +248,21 @@
 }
 .en-table tbody td.td-center { text-align: center; }
 
+/* ── Filtre rapide moteur (coupé / non coupé) ───────────────── */
+.engine-filter-chips { display: inline-flex; gap: .4rem; flex-wrap: wrap; }
+.efilter-chip {
+    display: inline-flex; align-items: center; gap: .35rem;
+    height: 34px; padding: 0 .7rem; border-radius: 100px;
+    border: 1px solid var(--color-border); background: transparent;
+    color: var(--color-secondary-text); font-size: .78rem; font-weight: 600;
+    cursor: pointer; white-space: nowrap; transition: background .14s, border-color .14s, color .14s;
+}
+.efilter-chip i { font-size: .6rem; }
+.efilter-chip:hover { border-color: var(--color-primary-border); color: var(--color-primary); }
+.efilter-chip.active { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+.efilter-chip[data-engine-filter="cut"].active { background: #dc2626; border-color: #dc2626; }
+.efilter-chip[data-engine-filter="on"].active  { background: #16a34a; border-color: #16a34a; }
+
 /* ── Cellules spéciales ─────────────────────────────────────── */
 .immat-badge {
     font-family: var(--font-display);
@@ -706,6 +721,13 @@
                        aria-label="Rechercher un véhicule">
             </div>
 
+            <div class="engine-filter-chips" role="group" aria-label="Filtrer par état moteur">
+                <button type="button" class="efilter-chip active" data-engine-filter="all">Tous</button>
+                <button type="button" class="efilter-chip" data-engine-filter="cut"><i class="fas fa-ban"></i> Coupés</button>
+                <button type="button" class="efilter-chip" data-engine-filter="on"><i class="fas fa-check-circle"></i> Non coupés</button>
+                <button type="button" class="efilter-chip" data-engine-filter="unknown"><i class="fas fa-question-circle"></i> Inconnu</button>
+            </div>
+
         </div>
 
         {{-- Tableau --}}
@@ -730,7 +752,7 @@
                             ? trim(($chauffeur->nom ?? '').' '.($chauffeur->prenom ?? ''))
                             : null;
                     @endphp
-                    <tr data-search="{{ strtolower($voiture->immatriculation.' '.($voiture->marque ?? '').' '.($voiture->model ?? '').' '.($chauffeurName ?? '')) }}">
+                    <tr data-engine="unknown" data-search="{{ strtolower($voiture->immatriculation.' '.($voiture->marque ?? '').' '.($voiture->model ?? '').' '.($chauffeurName ?? '')) }}">
 
                         <td>
                             <span class="immat-badge">{{ $voiture->immatriculation }}</span>
@@ -988,14 +1010,41 @@ function renderTable() {
     pagNav.appendChild(mkBtn('<i class="fas fa-chevron-right"></i>', currentPage + 1, currentPage === pages));
 }
 
-document.getElementById('engineSearch').addEventListener('input', function () {
-    const q = this.value.toLowerCase().trim();
-    filtered = q ? allRows.filter(r => r.dataset.search.includes(q)) : allRows.slice();
-    currentPage = 1;
+let searchQuery      = '';
+let engineFilter     = 'all';
+let _filterScheduled = false;
+
+function applyFilters(resetPage = false) {
+    filtered = allRows.filter(r =>
+        (!searchQuery || r.dataset.search.includes(searchQuery)) &&
+        (engineFilter === 'all' || (r.dataset.engine || 'unknown') === engineFilter)
+    );
+    if (resetPage) currentPage = 1;
     renderTable();
+}
+
+// Coalesce les nombreux setUI() du batch en un seul rendu (via rAF).
+function scheduleFilter() {
+    if (_filterScheduled) return;
+    _filterScheduled = true;
+    requestAnimationFrame(() => { _filterScheduled = false; applyFilters(false); });
+}
+
+document.getElementById('engineSearch').addEventListener('input', function () {
+    searchQuery = this.value.toLowerCase().trim();
+    applyFilters(true);
 });
 
-renderTable();
+document.querySelectorAll('.efilter-chip').forEach(chip => {
+    chip.addEventListener('click', function () {
+        document.querySelectorAll('.efilter-chip').forEach(c => c.classList.remove('active'));
+        this.classList.add('active');
+        engineFilter = this.dataset.engineFilter || 'all';
+        applyFilters(true);
+    });
+});
+
+applyFilters();
 
 /* ════════════════════════════════════════════════════════════════
    MODAL
@@ -1032,6 +1081,7 @@ function setUI(id, payload) {
     if (!btn || !engineBadge || !gpsBadge) return;
 
     btn.classList.remove('is-loading');
+    const row = btn.closest('tr');
 
     if (!payload || payload.success === false) {
         btn.classList.remove('is-on', 'is-cut');
@@ -1039,11 +1089,13 @@ function setUI(id, payload) {
         engineBadge.className = 'engine-badge loading';
         gpsBadge.textContent  = 'GPS: N/A';
         gpsBadge.className    = 'gps-badge-status unknown';
-        updateKpi(); return;
+        if (row) row.dataset.engine = 'unknown';
+        updateKpi(); scheduleFilter(); return;
     }
 
     const cut    = !!payload.engine?.cut;
     const online = payload.gps?.online;
+    if (row) row.dataset.engine = cut ? 'cut' : 'on';
 
     btn.dataset.cut = cut ? '1' : '0';
     btn.classList.toggle('is-cut', cut);
@@ -1060,6 +1112,7 @@ function setUI(id, payload) {
     else                       { gpsBadge.textContent = 'GPS: N/A';     gpsBadge.className = 'gps-badge-status unknown'; }
 
     updateKpi();
+    scheduleFilter();
 }
 
 function updateKpi() {

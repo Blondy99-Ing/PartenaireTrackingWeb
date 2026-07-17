@@ -941,6 +941,64 @@ class GpsControlService
         return $this->callGetDate('getDeviceList', [], true);
     }
 
+    /**
+     * Statut LIVE (online / mouvement / vitesse) de tous les boîtiers, indexé par mac.
+     *
+     * Un seul appel getDeviceList par compte (mis en cache 15 s) : pas N appels pour
+     * une liste. Le champ `offline` de la device-list donne l'état online RÉEL du
+     * boîtier (0 = hors-ligne, 1 = arrêté, 2 = en mouvement), contrairement à la
+     * dernière position stockée en base qui peut être périmée.
+     *
+     * NB : la device-list ne porte PAS le bit `status` moteur -> l'état de coupure
+     * reste lu depuis la dernière position (champ status).
+     *
+     * @return array<string,array{is_online:?bool,state:string,speed:?float,last_seen:mixed,account:string}>
+     */
+    public function getLiveOnlineMap(array $accounts = ['tracking', 'mobility']): array
+    {
+        $map = [];
+
+        foreach ($accounts as $acc) {
+            $acc = strtolower(trim($acc));
+            if (! in_array($acc, ['tracking', 'mobility'], true)) {
+                continue;
+            }
+
+            try {
+                $rows = Cache::remember("gps18gps:{$acc}:devicelist_online", 15, function () use ($acc) {
+                    $this->setAccount($acc);
+                    return $this->getAccountDeviceList();
+                });
+            } catch (\Throwable $e) {
+                report($e);
+                continue;
+            }
+
+            foreach ($rows as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+
+                $mac = trim((string) ($row['macid'] ?? $row['macId'] ?? $row['macID'] ?? ''));
+                if ($mac === '') {
+                    continue;
+                }
+
+                $conn = $this->decodeOfflineCodeFromDeviceList($row['offline'] ?? null);
+
+                $map[$mac] = [
+                    'is_online' => $conn['is_online'] ?? null,
+                    'state'     => (string) ($conn['state'] ?? 'UNKNOWN'),
+                    'speed'     => is_numeric($row['speed'] ?? null) ? (float) $row['speed'] : null,
+                    'last_seen' => $row['gpstime'] ?? $row['server_time'] ?? $row['updtime'] ?? null,
+                    'account'   => $acc,
+                ];
+            }
+        }
+
+        return $map;
+    }
+
     public function getSubUnitDeviceList(string $unitId, string $mapType = ''): array
     {
         $payload = [
