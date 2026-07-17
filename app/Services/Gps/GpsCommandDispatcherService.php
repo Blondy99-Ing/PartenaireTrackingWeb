@@ -111,51 +111,89 @@ class GpsCommandDispatcherService
      */
     private function classifyProviderResponse(array $resp): array
     {
+        /*
+         | Le vrai résultat de la commande est dans data[0] (ReturnMsg / CmdNo),
+         | PAS au niveau racine. L'enveloppe racine (success/errorCode) dit juste
+         | « l'appel HTTP a abouti » : elle vaut « true/200 » même quand le boîtier
+         | REFUSE (ex. PWD_ERROR avec CmdNo = GUID vide). Lire uniquement la racine
+         | faisait conclure à tort « SENT » sur un rejet. On lit donc data[0].
+         */
+
+        // 1) Enveloppe globale (l'appel a-t-il abouti côté API ?).
         $success = $resp['success'] ?? null;
-        $errorCode = trim((string) ($resp['errorCode'] ?? ''));
-        $returnMsg = trim((string) ($resp['returnMsg'] ?? ($resp['errorDescribe'] ?? '')));
-        $cmdNo = trim((string) ($resp['cmdNo'] ?? ''));
+        $errorCode = trim((string) ($resp['errorCode'] ?? ($resp['code'] ?? '')));
 
-        $providerAccepted = false;
+        $globalOk = (
+            $success === true || $success === 1 || $success === '1'
+            || (is_string($success) && strtolower(trim($success)) === 'true')
+        ) && in_array($errorCode, ['', '0', '200'], true);
 
-        if ($success === true || $success === 1 || $success === '1') {
-            $providerAccepted = true;
-        } elseif (is_string($success) && strtolower(trim($success)) === 'true') {
-            $providerAccepted = true;
-        }
+        if (! $globalOk) {
+            $msg = trim((string) ($resp['errorDescribe'] ?? $resp['msg'] ?? $resp['message'] ?? ''));
 
-        if ($providerAccepted && in_array($errorCode, ['', '0', '200'], true)) {
             return [
-                'status' => 'SENT',
-                'cmd_no' => $cmdNo !== '' ? $cmdNo : null,
-                'return_msg' => $returnMsg,
-                'message' => $cmdNo !== '' ? 'Commande acceptée par le provider' : 'Commande acceptée',
+                'status' => 'FAILED',
+                'cmd_no' => null,
+                'return_msg' => $errorCode ?: $msg,
+                'message' => 'Appel provider en échec : ' . ($msg !== '' ? $msg : ($errorCode ?: 'erreur inconnue')),
             ];
         }
 
-        /**
-         * Cas ambiguës : le provider ne confirme pas proprement,
-         * mais on ne veut PAS conclure tout de suite à un échec.
-         *
-         * Exemples :
-         * - timeout HTTP
-         * - erreur provider temporaire
-         * - pas de cmdNo mais aucune preuve forte de rejet définitif
-         */
+        // 2) Résultat réel du boîtier.
+        $row = $resp['data'][0] ?? null;
+
+        if (! is_array($row)) {
+            return [
+                'status' => 'PENDING_VERIFICATION',
+                'cmd_no' => null,
+                'return_msg' => '',
+                'message' => 'Réponse provider sans détail de commande ; vérification différée requise.',
+            ];
+        }
+
+        $returnMsg = strtoupper(trim((string) ($row['ReturnMsg'] ?? $row['returnMsg'] ?? '')));
+        $cmdNoRaw  = trim((string) ($row['CmdNo'] ?? $row['cmdNo'] ?? ''));
+        // Un GUID « 00000000-… » signifie qu'AUCUNE commande n'a été créée.
+        $cmdNo = ($cmdNoRaw !== '' && $cmdNoRaw !== '00000000-0000-0000-0000-000000000000')
+            ? $cmdNoRaw
+            : null;
+
+        $acceptedNow   = ['SEND_OK', 'SEND_SUCCESS', 'SENDOK', 'SUCCESS'];
+        $queuedOffline = ['USER_LEAVE', 'NOT ONLINE', 'NOT_ONLINE', 'OFFLINE'];
+
+        if (in_array($returnMsg, $acceptedNow, true)) {
+            return [
+                'status' => 'SENT',
+                'cmd_no' => $cmdNo,
+                'return_msg' => $returnMsg,
+                'message' => 'Commande acceptée par le boîtier (' . $returnMsg . ($cmdNo ? ', réf. ' . $cmdNo : '') . ').',
+            ];
+        }
+
+        if (in_array($returnMsg, $queuedOffline, true)) {
+            return [
+                'status' => 'PENDING_VERIFICATION',
+                'cmd_no' => $cmdNo,
+                'return_msg' => $returnMsg,
+                'message' => 'Commande mise en file : boîtier hors-ligne (' . $returnMsg . '). Elle sera livrée au retour en ligne.',
+            ];
+        }
+
         if ($this->isAmbiguousProviderSituation($errorCode, $returnMsg)) {
             return [
                 'status' => 'PENDING_VERIFICATION',
-                'cmd_no' => $cmdNo !== '' ? $cmdNo : null,
+                'cmd_no' => $cmdNo,
                 'return_msg' => $returnMsg,
-                'message' => $returnMsg !== '' ? $returnMsg : 'Réponse ambiguë provider, vérification différée requise',
+                'message' => $returnMsg !== '' ? $returnMsg : 'Réponse ambiguë provider, vérification différée requise.',
             ];
         }
 
+        // Tout le reste (PWD_ERROR, etc.) = rejet réel du boîtier.
         return [
             'status' => 'FAILED',
             'cmd_no' => null,
             'return_msg' => $returnMsg,
-            'message' => $returnMsg !== '' ? $returnMsg : 'Commande refusée par le provider',
+            'message' => 'Commande refusée par le boîtier' . ($returnMsg !== '' ? ' : ' . $returnMsg : '') . '.',
         ];
     }
 

@@ -31,7 +31,7 @@ class DashboardCacheService
     public function __construct()
     {
         // 18GPS documentation: online/offline is judged with a 25-minute signal threshold.
-        $this->gpsOfflineMinutes = (int) env('GPS_OFFLINE_THRESHOLD_MINUTES', 25);
+        $this->gpsOfflineMinutes = (int) config('gps.offline_threshold_minutes', 25);
     }
 
     private function kStats(int $partnerId): string      { return "dash:p:$partnerId:stats"; }

@@ -63,36 +63,46 @@ class GpsControlService
 
     public function __construct()
     {
+        /*
+         | Lecture via config('gps.…') et NON via env() direct.
+         |
+         | Sous `php artisan config:cache`, Laravel ne charge plus le .env : tout
+         | env() hors des fichiers config/ renvoie null. C'est ce qui vidait le
+         | mot de passe de commande des boîtiers (pwd = '') et faisait rejeter
+         | toutes les commandes par le provider (PWD_ERROR, CmdNo vide).
+         | Voir config/gps.php.
+         */
+
         // ✅ API identique
-        $this->apiBaseUrl = rtrim((string) env('GPS_API_URL', 'http://apitest.18gps.net/GetDateServices.asmx'), '/');
+        $this->apiBaseUrl = rtrim((string) config('gps.api_url', 'http://apitest.18gps.net/GetDateServices.asmx'), '/');
         $this->loginUrl   = $this->apiBaseUrl . '/loginSystem';
         $this->getDateUrl = $this->apiBaseUrl . '/GetDate';
 
         // ✅ params loginSystem (identiques)
-        $this->loginType        = (string) env('GPS_LOGIN_TYPE', 'ENTERPRISE');
-        $this->language         = (string) env('GPS_LANGUAGE', 'en');
-        $this->timeZone         = (string) env('GPS_TIMEZONE', '8');
-        $this->apply            = (string) env('GPS_APPLY', 'APP');
-        $this->isMd5            = (int) env('GPS_IS_MD5', 0);
-        $this->providerLoginUrl = (string) env('GPS_LOGIN_URL', 'http://appzzl.18gps.net/');
+        $this->loginType        = (string) config('gps.login_type', 'ENTERPRISE');
+        $this->language         = (string) config('gps.language', 'en');
+        $this->timeZone         = (string) config('gps.timezone', '8');
+        $this->apply            = (string) config('gps.apply', 'APP');
+        $this->isMd5            = (int) config('gps.is_md5', 0);
+        $this->providerLoginUrl = (string) config('gps.login_url', 'http://appzzl.18gps.net/');
 
-        $this->tokenTtlSeconds    = (int) env('GPS_TOKEN_TTL', 1140);
-        $this->httpTimeoutSeconds = (int) env('GPS_HTTP_TIMEOUT', 20);
+        $this->tokenTtlSeconds    = (int) config('gps.token_ttl', 1140);
+        $this->httpTimeoutSeconds = (int) config('gps.http_timeout', 20);
 
-        $this->accBitIndex   = (int) env('GPS_STATUS_ACC_INDEX', 0);
-        $this->relayBitIndex = (int) env('GPS_STATUS_RELAY_INDEX', 2);
-        $this->relayInvert   = (bool) env('GPS_STATUS_RELAY_INVERT', false);
-        $this->bitOrder      = strtoupper((string) env('GPS_STATUS_BIT_ORDER', 'MSB'));
+        $this->accBitIndex   = (int) config('gps.status.acc_index', 0);
+        $this->relayBitIndex = (int) config('gps.status.relay_index', 2);
+        $this->relayInvert   = (bool) config('gps.status.relay_invert', false);
+        $this->bitOrder      = strtoupper((string) config('gps.status.bit_order', 'MSB'));
 
         // ✅ defaults latest location/connectivity
-        $this->defaultMapType = (string) env('GPS_MAP_TYPE', 'BAIDU');
-        $this->defaultOption  = (string) env('GPS_MAP_OPTION', 'cn');
-        $this->offlineThresholdMinutes = (int) env('GPS_OFFLINE_THRESHOLD_MINUTES', 25);
+        $this->defaultMapType = (string) config('gps.map_type', 'BAIDU');
+        $this->defaultOption  = (string) config('gps.map_option', 'cn');
+        $this->offlineThresholdMinutes = (int) config('gps.offline_threshold_minutes', 25);
 
-        $this->accountResolveTtlSeconds = (int) env('GPS_ACCOUNT_RESOLVE_TTL', 300);
+        $this->accountResolveTtlSeconds = (int) config('gps.account_resolve_ttl', 300);
 
         // ✅ compte par défaut
-        $this->setAccount((string) env('GPS_DEFAULT_ACCOUNT', 'tracking'));
+        $this->setAccount((string) config('gps.default_account', 'tracking'));
     }
 
     /**
@@ -102,23 +112,23 @@ class GpsControlService
      */
     public function setAccount(string $account): void
     {
-        $account = strtolower(trim($account)) ?: strtolower((string) env('GPS_DEFAULT_ACCOUNT', 'tracking'));
+        $default = (string) config('gps.default_account', 'tracking');
+        $account = strtolower(trim($account)) ?: strtolower($default);
 
         if (!in_array($account, ['tracking', 'mobility'], true)) {
-            $account = strtolower((string) env('GPS_DEFAULT_ACCOUNT', 'tracking')) ?: 'tracking';
+            $account = strtolower($default) ?: 'tracking';
         }
 
-        $key = strtoupper($account); // TRACKING / MOBILITY
+        // Lecture via config('gps.accounts.…') — compatible config:cache.
+        $loginName = (string) config("gps.accounts.{$account}.login_name", '');
+        $password  = (string) config("gps.accounts.{$account}.login_password", '');
+        $devicePwd = (string) (config("gps.accounts.{$account}.device_cmd_password") ?? $password);
 
-        $loginName = (string) env("GPS_{$key}_LOGIN_NAME", '');
-        $password  = (string) env("GPS_{$key}_LOGIN_PASSWORD", '');
-        $devicePwd = (string) env("GPS_{$key}_DEVICE_CMD_PASSWORD", $password);
-
-        // fallback compat si variables multi-compte manquantes
+        // fallback compat si identifiants par compte manquants
         if ($loginName === '' || $password === '') {
-            $loginName = (string) env('GPS_LOGIN_NAME', '');
-            $password  = (string) env('GPS_LOGIN_PASSWORD', '');
-            $devicePwd = (string) env('GPS_DEVICE_CMD_PASSWORD', $password);
+            $loginName = (string) config('gps.login_name', '');
+            $password  = (string) config('gps.login_password', '');
+            $devicePwd = (string) (config('gps.device_cmd_password') ?? $password);
         }
 
         $this->account           = $account;

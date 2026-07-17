@@ -253,7 +253,7 @@ class LeaseCutoffQueueProcessorService
                 $ctx['mac_id_gps'] = $macId;
                 $ctx['immatriculation'] = $vehicle->immatriculation ?? null;
 
-                $movingThreshold = (float) env('GPS_MOVING_THRESHOLD', 5.0);
+                $movingThreshold = (float) config('gps.moving_threshold', 5.0);
                 $vehicleState = $this->gps->getVehicleStateByMacId($macId, $movingThreshold);
 
                 if (! ($vehicleState['success'] ?? false)) {
