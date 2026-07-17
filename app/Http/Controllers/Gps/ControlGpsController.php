@@ -222,6 +222,21 @@ class ControlGpsController extends Controller
             return response()->json(['success' => false, 'message' => UserMessages::ACCESS_DENIED], 403);
         }
 
+        /*
+         | Confirmation par mot de passe.
+         |
+         | Couper/rallumer un moteur immobilise un véhicule réel : on redemande le
+         | mot de passe du partenaire connecté avant d'exécuter. On réutilise la
+         | règle `current_password` (même mécanisme que l'écran de changement de
+         | mot de passe de l'app, qui maintient le hash local à jour).
+         */
+        $request->validate([
+            'password' => ['required', 'string', 'current_password:web'],
+        ], [
+            'password.required' => 'Veuillez saisir votre mot de passe pour confirmer.',
+            'password.current_password' => 'Mot de passe incorrect.',
+        ]);
+
         $mac = trim((string) $voiture->mac_id_gps);
         if ($mac === '') {
            return response()->json(['success' => false, 'message' => UserMessages::VEHICLE_UNAVAILABLE], 422);

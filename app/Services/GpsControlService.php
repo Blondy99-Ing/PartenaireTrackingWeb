@@ -941,20 +941,44 @@ class GpsControlService
         return $this->callGetDate('getDeviceList', [], true);
     }
 
+    /** Clé de cache de la carte des statuts online (partagée requête web <-> cron). */
+    private const ONLINE_MAP_CACHE_KEY = 'gps18gps:online_map';
+
     /**
      * Statut LIVE (online / mouvement / vitesse) de tous les boîtiers, indexé par mac.
      *
-     * Un seul appel getDeviceList par compte (mis en cache 15 s) : pas N appels pour
-     * une liste. Le champ `offline` de la device-list donne l'état online RÉEL du
-     * boîtier (0 = hors-ligne, 1 = arrêté, 2 = en mouvement), contrairement à la
-     * dernière position stockée en base qui peut être périmée.
+     * IMPORTANT : par défaut cette méthode NE contacte PAS le provider — elle lit
+     * uniquement le cache alimenté en tâche de fond par `gps:refresh-online-map`
+     * (planifié chaque minute).
+     *
+     * Pourquoi : getDeviceList est un appel lourd (~84 Ko, plusieurs centaines de
+     * boîtiers) qui dépasse régulièrement les 20 s. Le faire dans une requête web
+     * faisait expirer le fetch du front (15 s) et basculait TOUS les véhicules en
+     * « N/A ». Ici la page répond donc instantanément, et si le cache est froid on
+     * renvoie simplement [] : l'appelant retombe sur la dernière position en base.
      *
      * NB : la device-list ne porte PAS le bit `status` moteur -> l'état de coupure
      * reste lu depuis la dernière position (champ status).
      *
+     * @param bool $allowFetch true uniquement hors requête web (commande planifiée / CLI).
      * @return array<string,array{is_online:?bool,state:string,speed:?float,last_seen:mixed,account:string}>
      */
-    public function getLiveOnlineMap(array $accounts = ['tracking', 'mobility']): array
+    public function getLiveOnlineMap(bool $allowFetch = false): array
+    {
+        $map = Cache::get(self::ONLINE_MAP_CACHE_KEY);
+
+        if (is_array($map)) {
+            return $map;
+        }
+
+        return $allowFetch ? $this->refreshLiveOnlineMap() : [];
+    }
+
+    /**
+     * Reconstruit la carte des statuts online depuis le provider et la met en cache.
+     * À n'appeler QUE hors requête web (commande planifiée), car c'est lent.
+     */
+    public function refreshLiveOnlineMap(array $accounts = ['tracking', 'mobility'], int $ttlSeconds = 180): array
     {
         $map = [];
 
@@ -965,10 +989,8 @@ class GpsControlService
             }
 
             try {
-                $rows = Cache::remember("gps18gps:{$acc}:devicelist_online", 15, function () use ($acc) {
-                    $this->setAccount($acc);
-                    return $this->getAccountDeviceList();
-                });
+                $this->setAccount($acc);
+                $rows = $this->getAccountDeviceList();
             } catch (\Throwable $e) {
                 report($e);
                 continue;
@@ -994,6 +1016,15 @@ class GpsControlService
                     'account'   => $acc,
                 ];
             }
+        }
+
+        /*
+         | On ne remplace le cache que si on a réellement obtenu des données : en cas
+         | de panne/timeout provider, mieux vaut garder la dernière carte valide que
+         | de l'écraser par du vide (ce qui ferait retomber la page sur la base).
+         */
+        if (! empty($map)) {
+            Cache::put(self::ONLINE_MAP_CACHE_KEY, $map, $ttlSeconds);
         }
 
         return $map;

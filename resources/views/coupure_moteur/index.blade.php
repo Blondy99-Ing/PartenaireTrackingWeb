@@ -551,6 +551,21 @@
 .confirm-action-box.cut     { background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.2); color: #dc2626; }
 .confirm-action-box.restore { background: rgba(22,163,74,.08); border: 1px solid rgba(22,163,74,.2); color: #16a34a; }
 
+/* ── Confirmation par mot de passe ──────────────────────────── */
+.confirm-pwd-wrap { margin: .85rem 0 .25rem; text-align: left; }
+.confirm-pwd-label {
+    display: flex; align-items: center; gap: .4rem;
+    font-size: .74rem; font-weight: 700; color: var(--color-secondary-text);
+    margin-bottom: .4rem;
+}
+.confirm-pwd-label i { font-size: .68rem; color: var(--color-primary); }
+.confirm-pwd-input { width: 100%; }
+.confirm-pwd-input.is-invalid { border-color: #dc2626; box-shadow: 0 0 0 3px rgba(239,68,68,.15); }
+.confirm-pwd-error {
+    margin: .4rem 0 0; font-size: .74rem; font-weight: 600; color: #dc2626;
+    display: flex; align-items: center; gap: .35rem;
+}
+
 .confirm-hint {
     font-size: 0.68rem;
     color: var(--color-secondary-text);
@@ -905,6 +920,20 @@
             Commande transmise au module GPS. Le statut sera mis à jour automatiquement après confirmation.
         </p>
 
+        {{-- Confirmation par mot de passe : action sensible (immobilisation d'un véhicule). --}}
+        <div class="confirm-pwd-wrap">
+            <label class="confirm-pwd-label" for="enginePassword">
+                <i class="fas fa-lock" aria-hidden="true"></i>
+                Saisissez votre mot de passe pour confirmer
+            </label>
+            <input type="password"
+                   id="enginePassword"
+                   class="ui-input-style confirm-pwd-input"
+                   autocomplete="current-password"
+                   placeholder="Mot de passe">
+            <p class="confirm-pwd-error" id="enginePasswordError" role="alert" hidden></p>
+        </div>
+
         <div class="confirm-footer">
             <button type="button" id="cancelEngineBtn" class="btn-secondary">Annuler</button>
             <button type="button" id="confirmEngineBtn" class="btn-danger">
@@ -948,6 +977,21 @@ const actionText = document.getElementById('confirmActionText');
 const btnIcon    = document.getElementById('confirmBtnIcon');
 const btnLabel   = document.getElementById('confirmBtnLabel');
 const btnSpinner = document.getElementById('confirmSpinner');
+const pwdInput   = document.getElementById('enginePassword');
+const pwdError   = document.getElementById('enginePasswordError');
+
+function showPwdError(msg) {
+    if (pwdError) {
+        pwdError.innerHTML = '<i class="fas fa-circle-exclamation" aria-hidden="true"></i> ' + msg;
+        pwdError.hidden = false;
+    }
+    pwdInput?.classList.add('is-invalid');
+}
+
+function clearPwdError() {
+    if (pwdError) { pwdError.hidden = true; pwdError.textContent = ''; }
+    pwdInput?.classList.remove('is-invalid');
+}
 
 /* ════════════════════════════════════════════════════════════════
    RECHERCHE + PAGINATION
@@ -1050,9 +1094,15 @@ applyFilters();
    MODAL
 ════════════════════════════════════════════════════════════════ */
 function openModal()  {
+    // Le mot de passe n'est jamais conservé d'une confirmation à l'autre.
+    if (pwdInput) pwdInput.value = '';
+    clearPwdError();
     modal.style.display = 'flex';
     document.body.style.overflow = 'hidden';
-    requestAnimationFrame(() => requestAnimationFrame(() => panel.classList.add('open')));
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+        panel.classList.add('open');
+        pwdInput?.focus();
+    }));
 }
 function closeModal() {
     panel.classList.remove('open');
@@ -1084,28 +1134,44 @@ function setUI(id, payload) {
     const row = btn.closest('tr');
 
     if (!payload || payload.success === false) {
+        // On distingue « véhicule sans boîtier » d'une vraie indisponibilité.
+        const noGps = payload?.message === 'NO_MAC_ID';
         btn.classList.remove('is-on', 'is-cut');
-        engineBadge.innerHTML = '<i class="fas fa-question-circle" style="font-size:0.5rem;"></i> N/A';
+        engineBadge.innerHTML = noGps
+            ? '<i class="fas fa-plug-circle-xmark" style="font-size:0.5rem;"></i> PAS DE GPS'
+            : '<i class="fas fa-question-circle" style="font-size:0.5rem;"></i> N/A';
         engineBadge.className = 'engine-badge loading';
-        gpsBadge.textContent  = 'GPS: N/A';
+        gpsBadge.textContent  = noGps ? 'GPS: absent' : 'GPS: N/A';
         gpsBadge.className    = 'gps-badge-status unknown';
         if (row) row.dataset.engine = 'unknown';
         updateKpi(); scheduleFilter(); return;
     }
 
-    const cut    = !!payload.engine?.cut;
+    /*
+     * Un moteur dont le bit `status` n'a pas été remonté par le boîtier est
+     * INCONNU : on ne doit pas l'afficher « ACTIF » (c'était le cas avant, et
+     * c'était faux/trompeur).
+     */
+    const st     = payload.engine?.engineState || 'UNKNOWN';
+    const known  = (st === 'CUT' || st === 'ON' || st === 'OFF');
+    const cut    = (st === 'CUT');
     const online = payload.gps?.online;
-    if (row) row.dataset.engine = cut ? 'cut' : 'on';
+    if (row) row.dataset.engine = known ? (cut ? 'cut' : 'on') : 'unknown';
 
     btn.dataset.cut = cut ? '1' : '0';
     btn.classList.toggle('is-cut', cut);
-    btn.classList.toggle('is-on',  !cut);
+    btn.classList.toggle('is-on',  known && !cut);
     btn.title = cut ? 'Rétablir le moteur' : 'Couper le moteur';
 
-    engineBadge.innerHTML = cut
-        ? '<i class="fas fa-ban" style="font-size:0.5rem;"></i> COUPÉ'
-        : '<i class="fas fa-check-circle" style="font-size:0.5rem;"></i> ACTIF';
-    engineBadge.className = 'engine-badge ' + (cut ? 'cut' : 'on');
+    if (!known) {
+        engineBadge.innerHTML = '<i class="fas fa-question-circle" style="font-size:0.5rem;"></i> INCONNU';
+        engineBadge.className = 'engine-badge loading';
+    } else {
+        engineBadge.innerHTML = cut
+            ? '<i class="fas fa-ban" style="font-size:0.5rem;"></i> COUPÉ'
+            : '<i class="fas fa-check-circle" style="font-size:0.5rem;"></i> ACTIF';
+        engineBadge.className = 'engine-badge ' + (cut ? 'cut' : 'on');
+    }
 
     if (online === true)       { gpsBadge.textContent = 'GPS: ONLINE';  gpsBadge.className = 'gps-badge-status online'; }
     else if (online === false) { gpsBadge.textContent = 'GPS: OFFLINE'; gpsBadge.className = 'gps-badge-status offline'; }
@@ -1166,15 +1232,34 @@ const pollConfirm = async (statusUrl, expectedCut, tries = 10, interval = 900) =
 /* ════════════════════════════════════════════════════════════════
    BATCH STATUS
 ════════════════════════════════════════════════════════════════ */
-fetchJson(`${batchUrl}?ids=${encodeURIComponent(ids.join(','))}&_t=${Date.now()}`, {
-    cache: 'no-store', credentials: 'same-origin',
-    headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
-}, 15000)
-.then(({ ok, json }) => {
-    if (!ok || !json) throw new Error();
-    ids.forEach(id => setUI(id, json.data?.[id] ?? { success: false }));
-})
-.catch(() => ids.forEach(id => setUI(id, { success: false })));
+/*
+ * Le batch lit un cache côté serveur (rafraîchi chaque minute par
+ * gps:refresh-online-map) : il doit répondre quasi instantanément.
+ * On retente donc 2 fois avant de basculer en N/A, pour ne pas afficher une
+ * fausse erreur sur un simple hoquet réseau.
+ */
+async function loadBatchStatus(attempt = 1) {
+    try {
+        const { ok, json } = await fetchJson(
+            `${batchUrl}?ids=${encodeURIComponent(ids.join(','))}&_t=${Date.now()}`,
+            {
+                cache: 'no-store', credentials: 'same-origin',
+                headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+            },
+            20000
+        );
+        if (!ok || !json) throw new Error('batch');
+        ids.forEach(id => setUI(id, json.data?.[id] ?? { success: false }));
+    } catch (e) {
+        if (attempt < 3) {
+            setTimeout(() => loadBatchStatus(attempt + 1), 1200 * attempt);
+            return;
+        }
+        ids.forEach(id => setUI(id, { success: false }));
+    }
+}
+
+loadBatchStatus();
 
 /* ════════════════════════════════════════════════════════════════
    OUVRIR MODALE
@@ -1235,14 +1320,25 @@ confirmBtn?.addEventListener('click', async () => {
     const expectedCut = !!pendingExpectedCut;
     const label       = expectedCut ? 'Coupure…' : 'Allumage…';
 
+    const password = pwdInput?.value ?? '';
+    if (!password) {
+        showPwdError('Veuillez saisir votre mot de passe pour confirmer.');
+        pwdInput?.focus();
+        return;
+    }
+
+    clearPwdError();
     confirmBtn.disabled = true;
     btnSpinner.style.display = 'inline-block';
 
-    closeModal();
-    setPending(id, label);
-
+    /*
+     * On envoie la commande AVANT de fermer la modale : si le mot de passe est
+     * refusé (422), on doit pouvoir afficher l'erreur et laisser réessayer sans
+     * avoir à rouvrir la modale.
+     */
+    let res, data;
     try {
-        const res = await fetch(toggleUrl, {
+        res = await fetch(toggleUrl, {
             method: 'POST',
             credentials: 'same-origin',
             headers: {
@@ -1251,7 +1347,7 @@ confirmBtn?.addEventListener('click', async () => {
                 Accept: 'application/json',
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ action })
+            body: JSON.stringify({ action, password })
         });
 
         if (res.status === 419) {
@@ -1260,8 +1356,29 @@ confirmBtn?.addEventListener('click', async () => {
             return;
         }
 
-        const data = await res.json().catch(() => null);
-        const ok   = res.ok && data?.success;
+        data = await res.json().catch(() => null);
+    } catch {
+        showPwdError('Erreur réseau. Veuillez réessayer.');
+        confirmBtn.disabled = false;
+        btnSpinner.style.display = 'none';
+        return;
+    }
+
+    // Mot de passe refusé : la modale reste ouverte.
+    if (res.status === 422 && data?.errors?.password) {
+        showPwdError(data.errors.password[0] || 'Mot de passe incorrect.');
+        confirmBtn.disabled = false;
+        btnSpinner.style.display = 'none';
+        pwdInput?.select();
+        return;
+    }
+
+    // Mot de passe validé : on ferme et on suit la commande.
+    closeModal();
+    setPending(id, label);
+
+    try {
+        const ok = res.ok && data?.success;
 
         if (!ok) {
             window.showToastMsg?.('Erreur commande', data?.message || 'Échec de la commande moteur.', 'error');
