@@ -66,34 +66,64 @@ class LeaseForgivenessService
             throw new RuntimeException("Contrat introuvable pour ce lease.");
         }
 
-        $contracts = $this->leaseApi->fetchContractsIndexedById();
-        $contract = $contracts[$contractId] ?? null;
-
-        if (! is_array($contract)) {
-            throw new RuntimeException("Contrat {$contractId} introuvable côté recouvrement.");
-        }
-
-        $immat = trim((string) ($contract['immatriculation'] ?? ''));
-
-        if ($immat === '') {
-            throw new RuntimeException("Immatriculation introuvable pour le contrat {$contractId}.");
-        }
-
-        $vehicle = Voiture::query()
-            ->where('immatriculation', $immat)
-            ->first();
-
-        if (! $vehicle) {
-            throw new RuntimeException("Véhicule local introuvable pour l’immatriculation {$immat}.");
-        }
-
+        /**
+         * Le lien local (lease_contract_links) connaît déjà le véhicule associé
+         * à ce contrat, y compris pour les sous-contrats (Caution, Téléphone,
+         * Royal care, ...) dont la ligne /contrats/ ne renvoie pas toujours
+         * d'immatriculation directement — elle est parfois seulement portée par
+         * le contrat parent. On ne retombe sur l'API que si aucun lien n'existe
+         * encore localement.
+         */
         $contractLink = LeaseContractLink::query()
             ->where('partner_id', $partnerId)
             ->where('source_contract_id', $contractId)
-            ->where('vehicle_id', $vehicle->id)
             ->where('status', '!=', 'DELETED')
             ->latest('id')
             ->first();
+
+        $vehicle = $contractLink?->vehicle_id
+            ? Voiture::query()->find($contractLink->vehicle_id)
+            : null;
+
+        if (! $vehicle) {
+            $contracts = $this->leaseApi->fetchContractsIndexedById();
+            $contract = $contracts[$contractId] ?? null;
+
+            if (! is_array($contract)) {
+                throw new RuntimeException("Contrat {$contractId} introuvable côté recouvrement.");
+            }
+
+            $parentContractId = $this->extractParentContractId($contract);
+            $parentContract = $parentContractId > 0 ? ($contracts[$parentContractId] ?? null) : null;
+
+            $immat = trim((string) (
+                $contract['immatriculation']
+                ?? $contract['vehicule']
+                ?? ($parentContract['immatriculation'] ?? null)
+                ?? ($parentContract['vehicule'] ?? null)
+                ?? ''
+            ));
+
+            if ($immat === '') {
+                throw new RuntimeException("Immatriculation introuvable pour le contrat {$contractId}.");
+            }
+
+            $vehicle = Voiture::query()
+                ->where('immatriculation', $immat)
+                ->first();
+
+            if (! $vehicle) {
+                throw new RuntimeException("Véhicule local introuvable pour l’immatriculation {$immat}.");
+            }
+
+            $contractLink = LeaseContractLink::query()
+                ->where('partner_id', $partnerId)
+                ->where('source_contract_id', $contractId)
+                ->where('vehicle_id', $vehicle->id)
+                ->where('status', '!=', 'DELETED')
+                ->latest('id')
+                ->first();
+        }
 
         $dueDate = $this->extractLeaseDueDate($lease);
 
@@ -501,6 +531,22 @@ class LeaseForgivenessService
 
             return 'UNKNOWN';
         }
+    }
+
+    /**
+     * Recouvrement peut renvoyer le parent sous plusieurs formes :
+     * parent: 37, parent: {id: 37, ...}, ou absent. Ne jamais caster un
+     * tableau directement en int (PHP le transformerait en 1).
+     */
+    private function extractParentContractId(array $contract): int
+    {
+        $parent = $contract['parent'] ?? $contract['parent_id'] ?? null;
+
+        if (is_array($parent)) {
+            return (int) ($parent['id'] ?? 0);
+        }
+
+        return (int) ($parent ?: 0);
     }
 
     private function findLeaseFromApi(int $leaseId): ?array
