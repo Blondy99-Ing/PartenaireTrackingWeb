@@ -1726,9 +1726,14 @@
                         </div>
 
                         <div class="lc-field">
+                            <label>Jours d'activité / semaine <small>(journalier)</small></label>
+                            <input type="number" class="lc-input" name="jours_actifs_semaine" id="createActiveDaysPerWeek" min="1" max="7" step="1" value="6">
+                        </div>
+
+                        <div class="lc-field">
                             <label>Date fin</label>
                             <input type="date" class="lc-input" name="date_fin" id="createDateFin" readonly required>
-                            
+
                         </div>
 
                         <div class="lc-field">
@@ -1924,9 +1929,14 @@
                     </div>
 
                     <div class="lc-field">
+                        <label>Jours d'activité / semaine <small>(journalier)</small></label>
+                        <input type="number" class="lc-input" name="jours_actifs_semaine" id="addSubActiveDaysPerWeek" min="1" max="7" step="1" value="6">
+                    </div>
+
+                    <div class="lc-field">
                         <label>Date fin</label>
                         <input type="date" class="lc-input" name="date_fin" id="addSubDateFin" readonly required>
-                        
+
                     </div>
 
                     <div class="lc-field">
@@ -2139,6 +2149,11 @@
                     <div class="lc-field">
                         <label>Date début</label>
                         <input type="date" class="lc-input" name="date_debut" id="editStartDate" required>
+                    </div>
+
+                    <div class="lc-field">
+                        <label>Jours d'activité / semaine <small>(journalier)</small></label>
+                        <input type="number" class="lc-input" name="jours_actifs_semaine" id="editActiveDaysPerWeek" min="1" max="7" step="1" value="6">
                     </div>
 
                     <div class="lc-field">
@@ -3205,7 +3220,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         $('#createDateDebut').value = $('#createDateDebut').value || start;
         $('#createProchaineEcheance').value = $('#createProchaineEcheance').value || start;
-        $('#createDateFin').value = calculateContractEndDate(start, $('[name="montant_total"]', $('#createContractForm'))?.value, $('[name="montant_paye"]', $('#createContractForm'))?.value, $('[name="montant_par_paiement"]', $('#createContractForm'))?.value, $('[name="frequence"]', $('#createContractForm'))?.value, activeDaysForForm($('#createContractForm')));
+        $('#createDateFin').value = calculateContractEndDate(start, $('[name="montant_total"]', $('#createContractForm'))?.value, $('[name="montant_paye"]', $('#createContractForm'))?.value, $('[name="montant_par_paiement"]', $('#createContractForm'))?.value, $('[name="frequence"]', $('#createContractForm'))?.value, activePerWeekForForm($('#createContractForm')));
     }
 
     function openAddSubDrawer(contract) {
@@ -3227,7 +3242,7 @@ document.addEventListener('DOMContentLoaded', () => {
             $('[name="montant_paye"]', $('#addSubForm'))?.value,
             $('[name="montant_par_paiement"]', $('#addSubForm'))?.value,
             $('[name="frequence"]', $('#addSubForm'))?.value,
-            activeDaysForForm($('#addSubForm'))
+            activePerWeekForForm($('#addSubForm'))
         );
 
         console.log('[LEASE_ADD_SUB_CONTEXT]', {
@@ -3299,7 +3314,7 @@ document.addEventListener('DOMContentLoaded', () => {
             paidAmount,
             item.versement || item.montant_par_paiement || '',
             item.frequence || 'JOURNALIER',
-            activeDaysForItem(item)
+            activePerWeekForForm($('#editContractForm'))
         ) || item.date_fin || '';
 
         setValue('#editEndDate', endDate);
@@ -3438,7 +3453,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         $('[data-sub-start]', card).value = start;
         $('[data-sub-due]', card).value = start;
-        $('[data-sub-end]', card).value = calculateContractEndDate(start, $('[data-sub-total]', card).value, $('[data-sub-paid]', card).value, $('[data-sub-installment]', card).value, $('[data-sub-frequency]', card).value, activeDaysForForm(card));
+        $('[data-sub-end]', card).value = calculateContractEndDate(start, $('[data-sub-total]', card).value, $('[data-sub-paid]', card).value, $('[data-sub-installment]', card).value, $('[data-sub-frequency]', card).value, activePerWeekForForm(card));
 
         bindAutoEndDate(card, {
             start: '[data-sub-start]',
@@ -3600,36 +3615,60 @@ document.addEventListener('DOMContentLoaded', () => {
         return `${yyyy}-${mm}-${dd}`;
     }
 
-    function calculateContractEndDate(dateDebut, total, paid, installment, frequency, activeDays = []) {
+    // Nombre de jours d'activité dans la semaine (1..7), lu depuis le formulaire.
+    function activePerWeekForForm(root) {
+        if (!root) return 7;
+        const el = root.querySelector('[name="jours_actifs_semaine"], [data-sub-active-per-week]');
+        const n = parseInt(el?.value, 10);
+        return (Number.isFinite(n) && n >= 1 && n <= 7) ? n : 7;
+    }
+
+    /*
+     * Calcul de la date de fin.
+     *
+     * JOURNALIER : jour par jour, en ne comptant que N jours actifs par semaine
+     * (les 7-N derniers jours du bloc de 7 sont chômés). date_debut = jour actif #1.
+     * Le P-ème (dernier) paiement tombe à :
+     *     offset = floor((P-1)/N) * 7 + ((P-1) mod N)   jours après date_debut.
+     * Ex : P=30, N=6, début lundi 20/07 -> offset=33 -> 22/08 (samedi).
+     *
+     * HEBDOMADAIRE / MENSUEL : une échéance par semaine / par mois (N ignoré).
+     *
+     * P (nombre de paiements) = ceil((montant_total - montant_payé) / montant_par_paiement).
+     */
+    function calculateContractEndDate(dateDebut, total, paid, installment, frequency, activeDaysPerWeek = 7) {
         if (!dateDebut) return '';
 
         const amountTotal = Number(total || 0);
-        const amountPaid = Number(paid || 0);
-        const perPayment = Number(installment || 0);
-        const remaining = Math.max(0, amountTotal - amountPaid);
+        const amountPaid  = Number(paid || 0);
+        const perPayment  = Number(installment || 0);
+        const remaining   = Math.max(0, amountTotal - amountPaid);
         const start = new Date(`${dateDebut}T00:00:00`);
-        activeDays = normalizeActiveDays(activeDays);
-
         if (Number.isNaN(start.getTime())) return '';
-        if (remaining <= 0 || perPayment <= 0) return toDateInputValue(moveToNextActiveDay(start, activeDays));
+
+        let N = parseInt(activeDaysPerWeek, 10);
+        if (!Number.isFinite(N) || N < 1) N = 7;
+        if (N > 7) N = 7;
+
+        if (remaining <= 0 || perPayment <= 0) return toDateInputValue(start);
 
         const payments = Math.ceil(remaining / perPayment);
-        const periodsToAdd = Math.max(0, payments - 1);
+        const periods  = Math.max(0, payments - 1);
         let result = new Date(start.getTime());
 
         switch ((frequency || 'JOURNALIER').toUpperCase()) {
             case 'HEBDOMADAIRE':
-                result.setDate(result.getDate() + periodsToAdd * 7);
-                result = moveToNextActiveDay(result, activeDays);
+                result.setDate(result.getDate() + periods * 7);
                 break;
             case 'MENSUEL':
-                result = addMonthsNoOverflow(result, periodsToAdd);
-                result = moveToNextActiveDay(result, activeDays);
+                result = addMonthsNoOverflow(result, periods);
                 break;
             case 'JOURNALIER':
-            default:
-                result = addActivePaymentDays(result, periodsToAdd, activeDays);
+            default: {
+                const offset = Math.floor(periods / N) * 7 + (periods % N);
+                result.setDate(result.getDate() + offset);
                 break;
+            }
         }
 
         return toDateInputValue(result);
@@ -3648,6 +3687,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!start || !end || !total || !installment || !frequency) return;
 
+        const perWeek = root.querySelector('[name="jours_actifs_semaine"], [data-sub-active-per-week]');
+
         const refresh = () => {
             end.value = calculateContractEndDate(
                 start.value,
@@ -3655,11 +3696,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 paid?.value || 0,
                 installment.value,
                 frequency.value,
-                activeDaysForForm(root)
+                activePerWeekForForm(root)
             );
         };
 
-        [start, total, paid, installment, frequency, type, ...root.querySelectorAll('[data-custom-rule-active-day], [data-sub-custom-rule-active-day], [data-cutoff-rule-mode], [data-sub-cutoff-rule-mode], input[name$="[custom_rule_active_days][]"], input[name="custom_rule_active_days[]"]')].filter(Boolean).forEach(input => {
+        [start, total, paid, installment, frequency, type, perWeek].filter(Boolean).forEach(input => {
             input.addEventListener('input', refresh);
             input.addEventListener('change', refresh);
         });
