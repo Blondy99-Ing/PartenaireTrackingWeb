@@ -112,6 +112,8 @@ class DashboardLeaseService
             vehicleUsage: $vehicleUsage
         );
 
+        $overdueLedger = $this->buildOverdueLedger($contracts, $chauffeurs, $cutoffData);
+
         return [
             'filters' => [
                 'search' => $search,
@@ -135,6 +137,7 @@ class DashboardLeaseService
             ],
             'contracts_summary' => $this->buildContractsSummary($contracts),
             'cutoff_summary' => $this->buildCutoffSummary($cutoffData),
+            'overdue_ledger' => $overdueLedger,
         ];
     }
 
@@ -623,6 +626,97 @@ class DashboardLeaseService
             ->sortByDesc('amount_due')
             ->values()
             ->all();
+    }
+
+    /**
+     * Ardoise globale par chauffeur : impayés RÉELS, toutes échéances
+     * confondues, indépendamment de la période affichée en haut du dashboard.
+     *
+     * Pourquoi un bloc séparé :
+     * Le tableau « Chauffeurs à suivre » ne regarde que les échéances de la
+     * période sélectionnée. Sur « Aujourd'hui », une dette accumulée depuis
+     * 3 semaines devient invisible tant qu'on ne change pas la période. Un
+     * gestionnaire doit voir cette dette en permanence, sans manipulation.
+     */
+    private function buildOverdueLedger(array $contracts, array $chauffeurs, array $cutoffData): array
+    {
+        try {
+            $unpaidRows = $this->leaseApiService->fetchLeases('NON_PAYE', $contracts)['data'] ?? [];
+        } catch (Throwable $e) {
+            report($e);
+            Log::warning('[LEASE_DASHBOARD_OVERDUE_LEDGER_FAILED]', ['error' => $e->getMessage()]);
+
+            return $this->emptyOverdueLedger();
+        }
+
+        $today = Carbon::today();
+
+        $mainLinksBySourceContractId = collect($cutoffData['links'] ?? [])
+            ->filter(fn (LeaseContractLink $link) => $link->contract_kind !== LeaseContractLink::KIND_SUB)
+            ->filter(fn (LeaseContractLink $link) => $link->source_contract_id)
+            ->keyBy(fn (LeaseContractLink $link) => (int) $link->source_contract_id);
+
+        $drivers = collect($unpaidRows)
+            ->filter(fn ($row) => is_array($row) && ($row['statut'] ?? null) === 'unpaid')
+            ->groupBy(fn ($row) => (string) ($row['chauffeur'] ?? 'Chauffeur'))
+            ->map(function (Collection $rows, string $driver) use ($today, $mainLinksBySourceContractId) {
+                $amountDue = $rows->sum(fn ($row) => $this->leaseRemaining($row));
+                $oldestDue = $rows->pluck('date_echeance')->filter()->map(fn ($d) => $this->safeCarbon($d))->filter()->sort()->first();
+                $daysLate = $oldestDue ? max(0, $oldestDue->diffInDays($today)) : 0;
+                $types = $rows->map(fn ($row) => $this->displayTypeLabel($row))->filter()->unique()->implode(', ');
+                $vehicle = $this->resolveMainContractVehicleForDriverRows($rows, $mainLinksBySourceContractId);
+
+                return [
+                    'driver' => $driver ?: '—',
+                    'vehicle' => $vehicle,
+                    'unpaid_count' => $rows->count(),
+                    'amount_due' => $amountDue,
+                    'types' => $types ?: '—',
+                    'oldest_due_date' => $oldestDue?->format('d/m/Y'),
+                    'days_late' => $daysLate,
+                    'urgency' => match (true) {
+                        $daysLate >= 7 => ['label' => $daysLate . ' j. de retard', 'badge' => 'danger'],
+                        $daysLate >= 1 => ['label' => $daysLate . ' j. de retard', 'badge' => 'warning'],
+                        default => ['label' => 'Échéance du jour', 'badge' => 'info'],
+                    },
+                    'search' => mb_strtolower($driver . ' ' . $vehicle . ' ' . $types, 'UTF-8'),
+                ];
+            })
+            ->filter(fn ($row) => $row['amount_due'] > 0)
+            ->sortByDesc('days_late')
+            ->values()
+            ->all();
+
+        $overdueDriverNames = collect($drivers)->pluck('driver')->map(fn ($n) => mb_strtolower(trim($n), 'UTF-8'))->filter()->unique();
+
+        $allDriverNames = collect($chauffeurs)
+            ->pluck('nom_complet')
+            ->filter()
+            ->map(fn ($n) => mb_strtolower(trim($n), 'UTF-8'))
+            ->unique();
+
+        $upToDateCount = $allDriverNames->isNotEmpty()
+            ? $allDriverNames->diff($overdueDriverNames)->count()
+            : null;
+
+        return [
+            'drivers' => $drivers,
+            'overdue_count' => count($drivers),
+            'up_to_date_count' => $upToDateCount,
+            'total_due' => collect($drivers)->sum('amount_due'),
+            'oldest_overdue_days' => (int) (collect($drivers)->max('days_late') ?: 0),
+        ];
+    }
+
+    private function emptyOverdueLedger(): array
+    {
+        return [
+            'drivers' => [],
+            'overdue_count' => 0,
+            'up_to_date_count' => null,
+            'total_due' => 0,
+            'oldest_overdue_days' => 0,
+        ];
     }
 
     private function resolveMainContractVehicleForDriverRows(Collection $rows, Collection $mainLinksBySourceContractId): string

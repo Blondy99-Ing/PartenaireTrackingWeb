@@ -46,6 +46,14 @@
         'total_expected' => 0,
         'total_paid' => 0,
     ];
+
+    $overdueLedger = $dashboard['overdue_ledger'] ?? [
+        'drivers' => [],
+        'overdue_count' => 0,
+        'up_to_date_count' => null,
+        'total_due' => 0,
+        'oldest_overdue_days' => 0,
+    ];
 @endphp
 
 @push('styles')
@@ -582,6 +590,66 @@
     text-align: center;
 }
 
+.recouvrement-dashboard .ledger-card {
+    border-left: 3px solid var(--color-primary, #f58220);
+    margin-bottom: .75rem;
+}
+.recouvrement-dashboard .ledger-head-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: .65rem;
+    flex-wrap: wrap;
+    margin-bottom: .7rem;
+}
+.recouvrement-dashboard .ledger-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    white-space: nowrap;
+    border-radius: 999px;
+    background: rgba(245,130,32,.12);
+    color: var(--color-primary, #f58220);
+    font-size: .62rem;
+    font-weight: 900;
+    padding: .32rem .62rem;
+}
+.recouvrement-dashboard .ledger-summary {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: .5rem;
+    margin-bottom: .7rem;
+}
+.recouvrement-dashboard .ledger-tile {
+    border: 1px solid var(--color-border-subtle, #e5e7eb);
+    background: var(--color-bg, #f8fafc);
+    border-radius: .85rem;
+    padding: .62rem .7rem;
+}
+.recouvrement-dashboard .ledger-tile span {
+    display: block;
+    color: var(--color-secondary-text, #6b7280);
+    font-size: .58rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+}
+.recouvrement-dashboard .ledger-tile strong {
+    display: block;
+    margin-top: .18rem;
+    font-family: var(--font-display, system-ui);
+    font-size: 1.08rem;
+    font-weight: 900;
+    color: var(--color-text, #111827);
+}
+.recouvrement-dashboard .ledger-tile.success strong { color: var(--color-success, #16a34a); }
+.recouvrement-dashboard .ledger-tile.danger strong { color: var(--color-error, #dc2626); }
+.recouvrement-dashboard .ledger-tile.warning strong { color: var(--color-warning, #d97706); }
+
+@media (max-width: 900px) {
+    .recouvrement-dashboard .ledger-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 @media (max-width: 1600px) {
     .recouvrement-dashboard .lease-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .recouvrement-dashboard .analysis-grid { grid-template-columns: 1fr; }
@@ -686,6 +754,63 @@
         <div class="ui-card lkpi">
             <div><p class="lkpi-label">Motos jamais utilisées</p><p class="lkpi-value">{{ $kpis['vehicles_never_used'] ?? 0 }}</p><div class="kpi-note">Sur {{ $kpis['vehicles_count'] ?? 0 }} motos</div></div>
             <div class="lkpi-icon blue"><i class="fas fa-warehouse"></i></div>
+        </div>
+    </div>
+
+    <div class="ui-card card-pad ledger-card">
+        <div class="ledger-head-top">
+            <div>
+                <h2 class="card-title"><i class="fas fa-scale-balanced"></i> Ardoise globale par chauffeur</h2>
+                <p class="card-subtitle">Impayés réels, toutes échéances confondues — indépendant de la période sélectionnée en haut de page.</p>
+            </div>
+            <span class="ledger-pill"><i class="fas fa-thumbtack"></i> Toujours à jour</span>
+        </div>
+
+        <div class="ledger-summary">
+            <div class="ledger-tile success">
+                <span>Chauffeurs à jour</span>
+                <strong>{{ $overdueLedger['up_to_date_count'] ?? '—' }}</strong>
+            </div>
+            <div class="ledger-tile danger">
+                <span>Chauffeurs en retard</span>
+                <strong>{{ $overdueLedger['overdue_count'] ?? 0 }}</strong>
+            </div>
+            <div class="ledger-tile danger">
+                <span>Dette totale cumulée</span>
+                <strong>{{ $money($overdueLedger['total_due'] ?? 0) }}</strong>
+            </div>
+            <div class="ledger-tile warning">
+                <span>Retard le plus ancien</span>
+                <strong>{{ $overdueLedger['oldest_overdue_days'] ?? 0 }} j.</strong>
+            </div>
+        </div>
+
+        <div class="card-actions" style="margin-bottom:.5rem;">
+            <label class="block-search-field" aria-label="Rechercher dans l’ardoise globale">
+                <i class="fas fa-search"></i>
+                <input class="block-search-input" type="search" placeholder="Rechercher un chauffeur, une moto..." data-table-filter="#ledgerTable">
+            </label>
+        </div>
+
+        <div class="table-scroll" style="max-height:340px;">
+            <table class="dashboard-table" id="ledgerTable">
+                <thead><tr><th>Chauffeur</th><th>Véhicule</th><th>Impayés</th><th>Montant dû</th><th>Type</th><th>Échéance la plus ancienne</th><th>Retard</th></tr></thead>
+                <tbody>
+                @forelse(($overdueLedger['drivers'] ?? []) as $row)
+                    <tr data-search="{{ $row['search'] ?? '' }}">
+                        <td><span class="driver-name">{{ $row['driver'] ?? '—' }}</span></td>
+                        <td>{{ $row['vehicle'] ?? '—' }}</td>
+                        <td class="amount-danger">{{ $row['unpaid_count'] ?? 0 }}</td>
+                        <td class="amount-danger">{{ $money($row['amount_due'] ?? 0) }}</td>
+                        <td>{{ $row['types'] ?? '—' }}</td>
+                        <td>{{ $row['oldest_due_date'] ?? '—' }}</td>
+                        <td><span class="dash-badge {{ $badgeClass($row['urgency']['badge'] ?? null) }}">{{ $row['urgency']['label'] ?? '—' }}</span></td>
+                    </tr>
+                @empty
+                    <tr><td colspan="7"><div class="empty-state">Aucun impayé en cours — tous les chauffeurs sont à jour.</div></td></tr>
+                @endforelse
+                </tbody>
+            </table>
         </div>
     </div>
 

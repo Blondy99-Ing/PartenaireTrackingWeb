@@ -111,6 +111,13 @@ class DashbaordLeaseController extends Controller
                 'confirmed' => 0,
                 'gps_failed' => 0,
             ],
+            'overdue_ledger' => [
+                'drivers' => [],
+                'overdue_count' => 0,
+                'up_to_date_count' => null,
+                'total_due' => 0,
+                'oldest_overdue_days' => 0,
+            ],
         ];
     }
 }
