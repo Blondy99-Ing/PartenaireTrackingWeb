@@ -505,21 +505,11 @@ class LeaseForgivenessService
 
     private function findLeaseFromApi(int $leaseId): ?array
     {
-        // fetchLeases() renvoie une structure paginée ['data' => [...], ...] :
-        // on n'itère que sur les lignes de lease.
-        $leases = $this->leaseApi->fetchLeases()['data'] ?? [];
-
-        foreach ($leases as $lease) {
-            if (! is_array($lease)) {
-                continue;
-            }
-
-            if ((int) ($lease['id'] ?? 0) === $leaseId) {
-                return $lease;
-            }
-        }
-
-        return null;
+        // fetchLeases() renvoie désormais une liste plate déjà paginée
+        // (voir LeaseApiClientService::getRows()/unwrapRows()), donc on
+        // s'appuie directement sur la recherche par id déjà éprouvée par
+        // le processeur de coupure automatique.
+        return $this->leaseApi->fetchLeaseById($leaseId);
     }
 
 
