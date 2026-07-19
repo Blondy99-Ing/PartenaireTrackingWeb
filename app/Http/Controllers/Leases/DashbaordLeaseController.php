@@ -118,6 +118,12 @@ class DashbaordLeaseController extends Controller
                 'total_due' => 0,
                 'oldest_overdue_days' => 0,
             ],
+            'payments_summary' => [
+                'total_amount' => 0,
+                'payments_count' => 0,
+                'drivers_count' => 0,
+                'by_driver' => [],
+            ],
         ];
     }
 }

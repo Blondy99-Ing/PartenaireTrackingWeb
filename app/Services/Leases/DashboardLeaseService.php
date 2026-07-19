@@ -113,6 +113,7 @@ class DashboardLeaseService
         );
 
         $overdueLedger = $this->buildOverdueLedger($contracts, $chauffeurs, $cutoffData);
+        $paymentsSummary = $this->buildPaymentsSummary($payments);
 
         return [
             'filters' => [
@@ -138,6 +139,7 @@ class DashboardLeaseService
             'contracts_summary' => $this->buildContractsSummary($contracts),
             'cutoff_summary' => $this->buildCutoffSummary($cutoffData),
             'overdue_ledger' => $overdueLedger,
+            'payments_summary' => $paymentsSummary,
         ];
     }
 
@@ -237,7 +239,7 @@ class DashboardLeaseService
 
         $driversPaid = $hasLeaseRows
             ? $paidLeases->pluck('chauffeur')->filter()->unique()->count()
-            : ($dailyStats['ayant_verse'] ?? collect($payments)->pluck('chauffeur')->filter()->unique()->count());
+            : ($dailyStats['ayant_verse'] ?? collect($payments)->pluck('chauffeur_nom_complet')->filter()->unique()->count());
 
         $driversUnpaid = $hasLeaseRows
             ? $unpaidLeases->pluck('chauffeur')->filter()->unique()->count()
@@ -808,6 +810,49 @@ class DashboardLeaseService
             ->take(500) // même plafond que la page (500 max), au lieu de 12
             ->values()
             ->all();
+    }
+
+    /**
+     * Trésorerie réelle de la période : basée sur `date_paiement` (quand le
+     * cash est vraiment rentré), jamais sur `date_echeance` (quand il était
+     * dû). C'est délibérément une lecture différente des KPI « Montant
+     * attendu / Reste à payer » du haut de page, qui restent basés sur
+     * l'échéance — les deux répondent à des questions différentes et ne
+     * doivent jamais être fusionnés en un seul chiffre.
+     */
+    private function buildPaymentsSummary(array $payments): array
+    {
+        $rows = collect($payments)->filter(fn ($row) => is_array($row));
+
+        $byDriver = $rows
+            ->groupBy(fn ($row) => (string) ($row['chauffeur_nom_complet'] ?? 'Chauffeur'))
+            ->map(function (Collection $driverPayments, string $driver) {
+                $lastPaymentAt = $driverPayments
+                    ->pluck('date_paiement')
+                    ->filter()
+                    ->map(fn ($d) => $this->safeCarbon($d))
+                    ->filter()
+                    ->sort()
+                    ->last();
+
+                return [
+                    'driver' => $driver ?: '—',
+                    'amount_total' => $driverPayments->sum(fn ($row) => $this->toFloat($row['montant'] ?? 0)),
+                    'payments_count' => $driverPayments->count(),
+                    'last_payment_at' => $lastPaymentAt?->format('d/m/Y H:i'),
+                    'search' => mb_strtolower($driver, 'UTF-8'),
+                ];
+            })
+            ->sortByDesc('amount_total')
+            ->values()
+            ->all();
+
+        return [
+            'total_amount' => $rows->sum(fn ($row) => $this->toFloat($row['montant'] ?? 0)),
+            'payments_count' => $rows->count(),
+            'drivers_count' => count($byDriver),
+            'by_driver' => $byDriver,
+        ];
     }
 
     private function buildPaymentsTable(array $payments, array $selectedLeases = [], array $contracts = [], array $cutoffData = []): array

@@ -54,6 +54,13 @@
         'total_due' => 0,
         'oldest_overdue_days' => 0,
     ];
+
+    $paymentsSummary = $dashboard['payments_summary'] ?? [
+        'total_amount' => 0,
+        'payments_count' => 0,
+        'drivers_count' => 0,
+        'by_driver' => [],
+    ];
 @endphp
 
 @push('styles')
@@ -646,8 +653,16 @@
 .recouvrement-dashboard .ledger-tile.danger strong { color: var(--color-error, #dc2626); }
 .recouvrement-dashboard .ledger-tile.warning strong { color: var(--color-warning, #d97706); }
 
+.recouvrement-dashboard .payments-summary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .5rem;
+    margin-bottom: .65rem;
+}
+
 @media (max-width: 900px) {
     .recouvrement-dashboard .ledger-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .recouvrement-dashboard .payments-summary { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 1600px) {
@@ -736,11 +751,11 @@
             <div class="lkpi-icon green"><i class="fas fa-chart-pie"></i></div>
         </div>
         <div class="ui-card lkpi">
-            <div><p class="lkpi-label">Montant attendu</p><p class="lkpi-value">{{ $money($kpis['expected_amount'] ?? 0) }}</p><div class="kpi-note">Échéances période</div></div>
+            <div><p class="lkpi-label">Montant attendu</p><p class="lkpi-value">{{ $money($kpis['expected_amount'] ?? 0) }}</p><div class="kpi-note">Dû sur les échéances de la période</div></div>
             <div class="lkpi-icon grey"><i class="fas fa-file-invoice-dollar"></i></div>
         </div>
         <div class="ui-card lkpi">
-            <div><p class="lkpi-label">Montant collecté</p><p class="lkpi-value success">{{ $money($kpis['paid_amount'] ?? 0) }}</p><div class="kpi-note">Paiements validés</div></div>
+            <div><p class="lkpi-label">Montant collecté</p><p class="lkpi-value success">{{ $money($kpis['paid_amount'] ?? 0) }}</p><div class="kpi-note">Payé sur ces échéances (basé échéance)</div></div>
             <div class="lkpi-icon green"><i class="fas fa-coins"></i></div>
         </div>
         <div class="ui-card lkpi">
@@ -901,7 +916,7 @@
                 <div class="card-head">
                     <div>
                         <h2 class="card-title"><i class="fas fa-users"></i> Chauffeurs à suivre</h2>
-                        <p class="card-subtitle">Impayés du jour classés par montant dû.</p>
+                        <p class="card-subtitle">Basé sur la date d’échéance de la période sélectionnée — pas la date de paiement.</p>
                     </div>
                     <div class="card-actions">
                         <label class="block-search-field" aria-label="Rechercher dans les chauffeurs à suivre">
@@ -936,16 +951,47 @@
                 <div class="card-head">
                     <div>
                         <h2 class="card-title"><i class="fas fa-money-check-alt"></i> Paiements du jour</h2>
-                        <p class="card-subtitle">Liste des chauffeurs ayant payé aujourd’hui.</p>
+                        <p class="card-subtitle">Cash réellement encaissé (date de paiement) — indépendant des échéances dues sur la période.</p>
                     </div>
                     <div class="card-actions">
                         <label class="block-search-field" aria-label="Rechercher dans les paiements du jour">
                             <i class="fas fa-search"></i>
-                            <input class="block-search-input" type="search" placeholder="Rechercher..." data-table-filter="#paymentsTable">
+                            <input class="block-search-input" type="search" placeholder="Rechercher..." data-table-filter="#paymentsTable, #paymentsByDriverTable">
                         </label>
                     </div>
                 </div>
-                <div class="table-scroll payments">
+
+                <div class="payments-summary">
+                    <div class="ledger-tile success">
+                        <span>Total encaissé</span>
+                        <strong>{{ $money($paymentsSummary['total_amount'] ?? 0) }}</strong>
+                    </div>
+                    <div class="ledger-tile">
+                        <span>Paiements validés</span>
+                        <strong>{{ $paymentsSummary['payments_count'] ?? 0 }}</strong>
+                    </div>
+                    <div class="ledger-tile">
+                        <span>Chauffeurs distincts</span>
+                        <strong>{{ $paymentsSummary['drivers_count'] ?? 0 }}</strong>
+                    </div>
+                </div>
+
+                <div class="chart-switch-head" style="margin-bottom:.5rem;">
+                    <div class="small-chart-title">
+                        <strong>Détail des paiements</strong>
+                        <span>Basculer entre transactions et total par chauffeur</span>
+                    </div>
+                    <div class="chart-mode-toggle" aria-label="Changer la vue des paiements du jour">
+                        <button type="button" class="chart-mode-btn active" data-payments-view="list">
+                            <i class="fas fa-list"></i> Liste
+                        </button>
+                        <button type="button" class="chart-mode-btn" data-payments-view="driver">
+                            <i class="fas fa-user-check"></i> Par chauffeur
+                        </button>
+                    </div>
+                </div>
+
+                <div class="table-scroll payments" data-payments-panel="list">
                     <table class="dashboard-table" id="paymentsTable">
                         <thead><tr><th>Date de paiement</th><th>Chauffeur</th><th>Véhicule</th><th>Type contrat</th><th>Montant</th><th>Méthode</th><th>Statut</th></tr></thead>
                         <tbody>
@@ -961,6 +1007,24 @@
                             </tr>
                         @empty
                             <tr><td colspan="7"><div class="empty-state">Aucun paiement enregistré aujourd’hui.</div></td></tr>
+                        @endforelse
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="table-scroll payments" data-payments-panel="driver" style="display:none;">
+                    <table class="dashboard-table" id="paymentsByDriverTable">
+                        <thead><tr><th>Chauffeur</th><th>Montant total payé</th><th>Nb paiements</th><th>Dernier paiement</th></tr></thead>
+                        <tbody>
+                        @forelse(($paymentsSummary['by_driver'] ?? []) as $row)
+                            <tr data-search="{{ $row['search'] ?? '' }}">
+                                <td><span class="driver-name">{{ $row['driver'] ?? '—' }}</span></td>
+                                <td class="amount-success">{{ $money($row['amount_total'] ?? 0) }}</td>
+                                <td>{{ $row['payments_count'] ?? 0 }}</td>
+                                <td>{{ $row['last_payment_at'] ?? '—' }}</td>
+                            </tr>
+                        @empty
+                            <tr><td colspan="4"><div class="empty-state">Aucun paiement enregistré aujourd’hui.</div></td></tr>
                         @endforelse
                         </tbody>
                     </table>
@@ -1297,15 +1361,33 @@ document.addEventListener('DOMContentLoaded', function () {
         });
 
         root.querySelectorAll('[data-table-filter]').forEach(input => {
-            const table = root.querySelector(input.dataset.tableFilter || '');
-            if (!table) return;
+            const tables = root.querySelectorAll(input.dataset.tableFilter || '');
+            if (!tables.length) return;
 
             const localSearch = (input.value || '').toLowerCase().trim();
-            table.querySelectorAll('tbody tr').forEach(row => {
-                row.style.display = rowMatches(row, globalSearch) && rowMatches(row, localSearch) ? '' : 'none';
+            tables.forEach(table => {
+                table.querySelectorAll('tbody tr').forEach(row => {
+                    row.style.display = rowMatches(row, globalSearch) && rowMatches(row, localSearch) ? '' : 'none';
+                });
             });
         });
     }
+
+    root.querySelectorAll('[data-payments-view]').forEach(button => {
+        button.addEventListener('click', function () {
+            const mode = this.dataset.paymentsView || 'list';
+
+            root.querySelectorAll('[data-payments-view]').forEach(btn => {
+                const isActive = btn === this;
+                btn.classList.toggle('active', isActive);
+                btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+            });
+
+            root.querySelectorAll('[data-payments-panel]').forEach(panel => {
+                panel.style.display = panel.dataset.paymentsPanel === mode ? '' : 'none';
+            });
+        });
+    });
 
     root.querySelector('[data-filter="search"]')?.addEventListener('input', applySearch);
     root.querySelectorAll('[data-table-filter]').forEach(input => input.addEventListener('input', applySearch));
