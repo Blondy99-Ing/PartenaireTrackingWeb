@@ -103,17 +103,35 @@ class DashboardLeaseService
         $cutoffData = $this->getLocalCutoffData($partnerId, $selectedPeriod);
         $vehicleUsage = $this->buildVehicleUsage($partnerId, $vehicles);
 
+        /**
+         * "Encaissé aujourd'hui" est TOUJOURS le vrai jour calendaire courant,
+         * indépendant du sélecteur de période du reste du dashboard. C'est ce
+         * que demande un gestionnaire de flotte : savoir ce qui s'est passé
+         * aujourd'hui reste stable même quand il consulte "Cette semaine" ou
+         * "Ce mois" pour le reste de la page. Basé sur date_paiement (cash
+         * réellement encaissé), jamais sur date_echeance (ce qui était dû).
+         */
+        try {
+            $todayPayments = $this->fetchTodayPayments();
+        } catch (Throwable $e) {
+            report($e);
+            $warnings[] = 'Les paiements du jour sont momentanément indisponibles.';
+            Log::error('[LEASE_DASHBOARD_TODAY_PAYMENTS_FAILED]', ['error' => $e->getMessage()]);
+            $todayPayments = [];
+        }
+
         $kpis = $this->buildKpis(
             dailyStats: $dailyStats,
             selectedLeases: $selectedLeases,
             payments: $payments,
+            todayPayments: $todayPayments,
             contracts: $contracts,
             vehicles: $vehicles,
             vehicleUsage: $vehicleUsage
         );
 
         $overdueLedger = $this->buildOverdueLedger($contracts, $chauffeurs, $cutoffData);
-        $paymentsSummary = $this->buildPaymentsSummary($payments);
+        $paymentsSummary = $this->buildPaymentsSummary($todayPayments);
 
         return [
             'filters' => [
@@ -132,7 +150,7 @@ class DashboardLeaseService
             ],
             'tables' => [
                 'drivers_risk' => $this->buildDriversRiskTable($selectedLeases, $cutoffData),
-                'payments_today' => $this->buildPaymentsTable($payments, $selectedLeases, $contracts, $cutoffData),
+                'payments_today' => $this->buildPaymentsTable($todayPayments, $selectedLeases, $contracts, $cutoffData),
                 'cutoffs' => $this->buildCutoffTimeline($cutoffData),
                 'contract_rules' => $this->buildContractRulesTable($cutoffData),
             ],
@@ -161,6 +179,23 @@ class DashboardLeaseService
             'ayant_verse' => (int) ($json['ayant_verse'] ?? 0),
             'n_ayant_pas_verse' => (int) ($json['n_ayant_pas_verse'] ?? 0),
         ];
+    }
+
+    /**
+     * Paiements réellement encaissés aujourd'hui (date_paiement = maintenant),
+     * validés uniquement. Sert de source UNIQUE de vérité pour la carte
+     * "Paiements du jour", son résumé, et le KPI "Encaissé aujourd'hui" — les
+     * trois doivent toujours afficher exactement le même chiffre.
+     */
+    private function fetchTodayPayments(): array
+    {
+        $today = now(config('app.timezone', 'Africa/Douala'))->toDateString();
+
+        return $this->leaseApiService->fetchPayments([
+            'date_paiement' => $today,
+            'est_annule' => 'false',
+            'statut__in' => 'VALIDE,SUCCESS,PAID',
+        ]);
     }
 
     private function apiGet(string $endpoint, array $query = []): array
@@ -205,6 +240,7 @@ class DashboardLeaseService
         ?array $dailyStats,
         array $selectedLeases,
         array $payments,
+        array $todayPayments,
         array $contracts,
         Collection $vehicles,
         array $vehicleUsage
@@ -214,6 +250,16 @@ class DashboardLeaseService
         $remainingFromLeases = collect($selectedLeases)->sum(fn ($row) => $this->leaseRemaining($row));
 
         /**
+         * "Encaissé aujourd'hui" : cash réel (date_paiement), TOUJOURS le jour
+         * calendaire courant — jamais mélangé avec "paid_amount" ci-dessous, qui
+         * reste basé sur date_echeance (voir commentaire sur $paid).
+         */
+        $todayPaymentsRows = collect($todayPayments)->filter(fn ($row) => is_array($row));
+        $todayCashAmount = $todayPaymentsRows->sum(fn ($row) => $this->toFloat($row['montant'] ?? 0));
+        $todayCashPaymentsCount = $todayPaymentsRows->count();
+        $todayCashDriversCount = $todayPaymentsRows->pluck('chauffeur_nom_complet')->filter()->unique()->count();
+
+        /**
          * Les KPI financiers du dashboard doivent être cohérents avec le bloc
          * "Chauffeurs à suivre". On utilise donc les leases affichés comme
          * source de vérité principale. Les statistiques journalières de l'API
@@ -221,6 +267,14 @@ class DashboardLeaseService
          */
         $hasLeaseRows = count($selectedLeases) > 0;
 
+        /**
+         * $paid ici reste basé sur date_echeance (montant_paye des échéances de
+         * la période) : c'est "combien des échéances dues cette période sont
+         * déjà réglées", PAS "combien de cash est entré aujourd'hui". Ce
+         * dernier existe séparément via $todayCashAmount ci-dessus — ne jamais
+         * fusionner les deux dans le même chiffre, c'était la source de
+         * confusion précédente.
+         */
         $expected = $hasLeaseRows ? $expectedFromLeases : ($dailyStats['montant_attendu'] ?? 0);
         $paid = $hasLeaseRows ? $paidFromLeases : ($dailyStats['montant_collecte'] ?? 0);
         $remaining = $hasLeaseRows
@@ -259,6 +313,10 @@ class DashboardLeaseService
             'vehicles_count' => $vehicles->count(),
             'vehicles_used' => $vehicleUsage['used'],
             'vehicles_never_used' => $vehicleUsage['never_used'],
+
+            'today_cash_amount' => $todayCashAmount,
+            'today_cash_payments_count' => $todayCashPaymentsCount,
+            'today_cash_drivers_count' => $todayCashDriversCount,
         ];
     }
 
@@ -858,39 +916,15 @@ class DashboardLeaseService
     private function buildPaymentsTable(array $payments, array $selectedLeases = [], array $contracts = [], array $cutoffData = []): array
     {
         /**
-         * Source normale : /paiements/. Fallback : leases du jour déjà payés.
-         * Ce fallback est volontaire : certains retours API de paiement ne
-         * renvoient pas toujours date_paiement ou chauffeur_nom_complet, alors
-         * que /leases/ contient déjà le lease payé, son chauffeur et ses montants.
+         * Source UNIQUE : /paiements/ réels du jour (date_paiement = aujourd'hui,
+         * statut validé). Aucun repli synthétique depuis les échéances de la
+         * période n'est plus injecté ici : ce mécanisme mélangeait deux bases de
+         * date différentes (date_paiement vs date_echeance) et produisait des
+         * montants incohérents avec le résumé "Encaissé aujourd'hui" au-dessus.
          */
         $leasesById = collect($selectedLeases)
             ->filter(fn ($lease) => ! empty($lease['id']) || ! empty($lease['source_lease_id']))
             ->keyBy(fn ($lease) => (int) ($lease['id'] ?? $lease['source_lease_id']));
-
-        $paymentsByLeaseId = collect($payments)
-            ->filter(fn ($payment) => ! empty($payment['lease_id']))
-            ->keyBy(fn ($payment) => (int) $payment['lease_id']);
-
-        $fallbackPaidLeases = collect($selectedLeases)
-            ->filter(fn ($lease) => ($lease['statut'] ?? null) === 'paid')
-            ->reject(fn ($lease) => $paymentsByLeaseId->has((int) ($lease['id'] ?? $lease['source_lease_id'] ?? 0)))
-            ->map(function ($lease) {
-                return [
-                    'id' => (int) ($lease['paiement_id'] ?? 0),
-                    'lease_id' => (int) ($lease['id'] ?? $lease['source_lease_id'] ?? 0),
-                    'montant' => $this->leasePaid($lease),
-                    'methode' => $lease['methode'] ?? null,
-                    'methode_label' => $lease['methode_label'] ?? null,
-                    'statut' => $lease['paiement_statut'] ?? 'SUCCESS',
-                    'date_paiement' => $lease['date_paiement'] ?? $lease['date_echeance'] ?? $lease['date'] ?? null,
-                    'chauffeur_nom_complet' => $lease['chauffeur'] ?? '',
-                    'vehicule' => $lease['vehicule'] ?? null,
-                    'immatriculation' => $lease['vehicule'] ?? null,
-                    'type_contrat_label' => $lease['type_contrat_label'] ?? $lease['contrat_type'] ?? null,
-                    'contract_kind' => $lease['contract_kind'] ?? $lease['contrat_kind'] ?? null,
-                    'raw' => $lease,
-                ];
-            });
 
         /**
          * Véhicule par chauffeur — MÊME logique que le bloc « Chauffeurs à suivre » :
@@ -909,6 +943,20 @@ class DashboardLeaseService
             ->filter(fn ($l) => is_array($l))
             ->groupBy(fn ($l) => (string) ($l['chauffeur'] ?? 'Chauffeur'))
             ->map(fn (Collection $rows) => $this->resolveMainContractVehicleForDriverRows($rows, $mainLinksBySourceContractId));
+
+        /**
+         * Repli indépendant de la période : "Paiements du jour" affiche toujours
+         * aujourd'hui, mais $selectedLeases suit le sélecteur de période du reste
+         * du dashboard. Un chauffeur qui paie aujourd'hui une échéance hors de la
+         * période sélectionnée n'apparaît pas dans $vehicleByDriver ci-dessus —
+         * on retombe alors sur les contrats principaux (jamais filtrés par
+         * période) pour retrouver son véhicule.
+         */
+        $vehicleByDriverFromContracts = collect($contracts)
+            ->filter(fn ($c) => is_array($c) && empty($c['source_parent_contract_id']))
+            ->filter(fn ($c) => ! empty($c['chauffeur']) && ! empty($c['vehicule']) && $c['vehicule'] !== '—')
+            ->groupBy(fn ($c) => (string) $c['chauffeur'])
+            ->map(fn ($rows) => (string) ($rows->first()['vehicule'] ?? '—'));
 
         /**
          * Type de contrat réel (Moto, Casque, Phone, Caution, Royal care…) indexé
@@ -950,9 +998,8 @@ class DashboardLeaseService
         }
 
         return collect($payments)
-            ->concat($fallbackPaidLeases)
             ->sortByDesc(fn ($payment) => optional($this->safeCarbon($payment['date_paiement'] ?? null))->timestamp ?? 0)
-            ->map(function ($payment) use ($leasesById, $vehicleByDriver, $typeByContractId, $typeByLeaseId) {
+            ->map(function ($payment) use ($leasesById, $vehicleByDriver, $vehicleByDriverFromContracts, $typeByContractId, $typeByLeaseId) {
                 $leaseId = (int) ($payment['lease_id'] ?? data_get($payment, 'raw.id') ?? 0);
                 $lease = $leaseId > 0 ? $leasesById->get($leaseId) : null;
                 $raw = is_array($payment['raw'] ?? null) ? $payment['raw'] : [];
@@ -964,8 +1011,12 @@ class DashboardLeaseService
                     ?? '—';
 
                 // Véhicule : immatriculation du contrat principal du chauffeur
-                // (identique au bloc « Chauffeurs à suivre »).
+                // (identique au bloc « Chauffeurs à suivre »), avec repli sur les
+                // contrats (période-indépendant) puis sur le lease/paiement brut.
                 $vehicle = $vehicleByDriver->get((string) $driver);
+                if (! $vehicle || $vehicle === '—') {
+                    $vehicle = $vehicleByDriverFromContracts->get((string) $driver);
+                }
                 if (! $vehicle || $vehicle === '—') {
                     $vehicle = $this->rowVehicleLabel($lease ?: $raw);
                 }

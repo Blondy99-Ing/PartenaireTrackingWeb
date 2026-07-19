@@ -251,7 +251,7 @@
 
 .recouvrement-dashboard .lease-kpi-grid {
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: .5rem;
     margin-bottom: .65rem;
 }
@@ -263,6 +263,16 @@
     justify-content: space-between;
     gap: .45rem;
     overflow: hidden;
+}
+.recouvrement-dashboard .lkpi-highlight {
+    grid-column: span 2;
+    min-height: auto;
+    border-color: rgba(22,163,74,.35);
+    background: linear-gradient(135deg, rgba(22,163,74,.07), var(--color-card, #fff) 65%);
+}
+.recouvrement-dashboard .lkpi-highlight .kpi-note { white-space: normal; }
+@media (max-width: 640px) {
+    .recouvrement-dashboard .lkpi-highlight { grid-column: span 1; }
 }
 .recouvrement-dashboard .lkpi-label {
     margin: 0;
@@ -666,7 +676,6 @@
 }
 
 @media (max-width: 1600px) {
-    .recouvrement-dashboard .lease-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .recouvrement-dashboard .analysis-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 1100px) {
@@ -746,16 +755,24 @@
     </form>
 
     <div class="lease-kpi-grid">
+        <div class="ui-card lkpi lkpi-highlight">
+            <div>
+                <p class="lkpi-label">Encaissé aujourd’hui</p>
+                <p class="lkpi-value success">{{ $money($kpis['today_cash_amount'] ?? 0) }}</p>
+                <div class="kpi-note">Cash réel · {{ $kpis['today_cash_payments_count'] ?? 0 }} paiements · {{ $kpis['today_cash_drivers_count'] ?? 0 }} chauffeurs · fixe, indépendant du filtre ci-dessus</div>
+            </div>
+            <div class="lkpi-icon green"><i class="fas fa-sack-dollar"></i></div>
+        </div>
         <div class="ui-card lkpi">
             <div><p class="lkpi-label">Taux recouvrement</p><p class="lkpi-value success">{{ $kpis['recovery_rate'] ?? 0 }} %</p><div class="kpi-note">{{ $kpis['drivers_paid'] ?? 0 }} payés / {{ $kpis['total_expected_drivers'] ?? 0 }} attendus</div></div>
             <div class="lkpi-icon green"><i class="fas fa-chart-pie"></i></div>
         </div>
         <div class="ui-card lkpi">
-            <div><p class="lkpi-label">Montant attendu</p><p class="lkpi-value">{{ $money($kpis['expected_amount'] ?? 0) }}</p><div class="kpi-note">Dû sur les échéances de la période</div></div>
+            <div><p class="lkpi-label">Montant attendu</p><p class="lkpi-value">{{ $money($kpis['expected_amount'] ?? 0) }}</p><div class="kpi-note">Dû sur les échéances de la période (date d’échéance)</div></div>
             <div class="lkpi-icon grey"><i class="fas fa-file-invoice-dollar"></i></div>
         </div>
         <div class="ui-card lkpi">
-            <div><p class="lkpi-label">Montant collecté</p><p class="lkpi-value success">{{ $money($kpis['paid_amount'] ?? 0) }}</p><div class="kpi-note">Payé sur ces échéances (basé échéance)</div></div>
+            <div><p class="lkpi-label">Payé (échéances période)</p><p class="lkpi-value success">{{ $money($kpis['paid_amount'] ?? 0) }}</p><div class="kpi-note">Sur ces échéances précises, pas le cash du jour</div></div>
             <div class="lkpi-icon green"><i class="fas fa-coins"></i></div>
         </div>
         <div class="ui-card lkpi">
@@ -951,7 +968,7 @@
                 <div class="card-head">
                     <div>
                         <h2 class="card-title"><i class="fas fa-money-check-alt"></i> Paiements du jour</h2>
-                        <p class="card-subtitle">Cash réellement encaissé (date de paiement) — indépendant des échéances dues sur la période.</p>
+                        <p class="card-subtitle">Toujours aujourd’hui (date de paiement réelle) — fixe, ne bouge pas avec le filtre de période ci-dessus.</p>
                     </div>
                     <div class="card-actions">
                         <label class="block-search-field" aria-label="Rechercher dans les paiements du jour">
