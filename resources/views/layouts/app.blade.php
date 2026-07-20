@@ -1677,6 +1677,8 @@
     }
     </style>
 
+    @include('partials.ui-kit')
+
     @stack('styles')
 </head>
 
