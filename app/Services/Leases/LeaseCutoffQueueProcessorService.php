@@ -300,9 +300,26 @@ class LeaseCutoffQueueProcessorService
                     }
 
                     if ($item->retry_count >= $maxChecks) {
-                        $this->markFailed($item, sprintf('Commande ENVOYÉE mais NON CONFIRMÉE après %d vérifications : le boîtier rapporte toujours le moteur « %s » (relais non coupé). Le boîtier n’a pas exécuté la coupure — causes probables : mot de passe commande du boîtier incorrect, mot-clé de commande inadapté au modèle, ou boîtier injoignable. Aucune preuve que le véhicule soit réellement coupé.', $maxChecks, $engineState));
+                        $deviceDiagnostic = $this->describeDeviceDiagnostic($item, $macId);
+
+                        $reason = $deviceDiagnostic
+                            ? sprintf(
+                                'Commande ENVOYÉE mais NON CONFIRMÉE après %d vérifications : le boîtier rapporte toujours le moteur « %s » (relais non coupé). Diagnostic renvoyé par le boîtier lui-même : « %s ». Aucune preuve que le véhicule soit réellement coupé.',
+                                $maxChecks,
+                                $engineState,
+                                $deviceDiagnostic
+                            )
+                            : sprintf(
+                                'Commande ENVOYÉE mais NON CONFIRMÉE après %d vérifications : le boîtier rapporte toujours le moteur « %s » (relais non coupé). Le boîtier n’a pas exécuté la coupure — causes probables : mot de passe commande du boîtier incorrect, mot-clé de commande inadapté au modèle, ou boîtier injoignable. Aucune preuve que le véhicule soit réellement coupé.',
+                                $maxChecks,
+                                $engineState
+                            );
+
+                        $this->markFailed($item, $reason);
                         $failed++;
-                        Log::warning('[LEASE_CUTOFF_PROCESS] Échec : commande non confirmée après plusieurs vérifications', $ctx);
+                        Log::warning('[LEASE_CUTOFF_PROCESS] Échec : commande non confirmée après plusieurs vérifications', array_merge($ctx, [
+                            'device_diagnostic' => $deviceDiagnostic,
+                        ]));
                         continue;
                     }
 
@@ -606,6 +623,40 @@ class LeaseCutoffQueueProcessorService
                 ]);
             }
         });
+    }
+
+    /**
+     * Interroge le boîtier lui-même (GetCommandResults, via le cmd_no de la
+     * commande envoyée) pour obtenir le VRAI diagnostic du provider — plus
+     * fiable qu'une liste de causes probables. Ex. observé en prod : le
+     * provider accepte la commande (SEND_OK) mais le boîtier répond ensuite
+     * "Not responding!" à GetCommandResults, preuve qu'il n'a jamais exécuté
+     * la commande malgré l'accusé de réception initial.
+     */
+    private function describeDeviceDiagnostic(LeaseCutoffQueue $item, string $macId): ?string
+    {
+        $cmdNo = $item->history?->command_response['cmd_no'] ?? null;
+
+        if (! is_string($cmdNo) || trim($cmdNo) === '' || str_starts_with($cmdNo, '00000000-0000')) {
+            return null;
+        }
+
+        try {
+            $result = $this->gps->getCommandResults($macId, trim($cmdNo));
+        } catch (\Throwable $e) {
+            Log::warning('[LEASE_CUTOFF_PROCESS] Lecture diagnostic boîtier impossible', [
+                'mac_id_gps' => $macId,
+                'cmd_no' => $cmdNo,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+
+        $row = $result['data'][0] ?? null;
+        $msg = trim((string) ($row['ResponseMsg'] ?? $row['Msg'] ?? ''));
+
+        return $msg !== '' ? $msg : null;
     }
 
     private function markFailed(LeaseCutoffQueue $item, string $reason): void
