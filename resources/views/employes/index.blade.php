@@ -6,8 +6,12 @@
 
 <div class="space-y-8 p-4 md:p-8">
 
-    {{-- Titre Principal --}}
- 
+    <div class="dash-top">
+        <div class="dash-title">
+            <h1><i class="fas fa-user-tie"></i> Gestion des employés</h1>
+            <p>Personnel interne rattaché à votre organisation.</p>
+        </div>
+    </div>
 
     {{-- Bande de navigation secondaire (Dark Mode Ready) --}}
     <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b pb-4"
@@ -24,23 +28,22 @@
         </div>
     </div>
 
-    {{-- Messages de succès et erreurs (Dark Mode Ready) --}}
+    {{-- Messages de succès et erreurs --}}
     @if(session('success'))
-    <div
-        class="bg-green-100 dark:bg-green-900 border border-green-400 dark:border-green-600 text-green-700 dark:text-green-300 px-4 py-3 rounded mb-4 ui-card">
-        {{ session('success') }}
-    </div>
+    <div class="dash-alert"><i class="fas fa-check-circle"></i><div>{{ session('success') }}</div></div>
     @endif
 
     @if($errors->any())
-    <div
-        class="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-300 px-4 py-3 rounded mb-4 ui-card">
-        <strong>Erreurs de validation :</strong>
-        <ul class="list-disc list-inside mt-1">
-            @foreach($errors->all() as $error)
-            <li>{{ $error }}</li>
-            @endforeach
-        </ul>
+    <div class="dash-alert error">
+        <i class="fas fa-exclamation-circle"></i>
+        <div>
+            <strong>Erreurs de validation :</strong>
+            <ul class="list-disc list-inside mt-1">
+                @foreach($errors->all() as $error)
+                <li>{{ $error }}</li>
+                @endforeach
+            </ul>
+        </div>
     </div>
     @endif
 

@@ -6,27 +6,33 @@
 
     <div class="space-y-8 p-4 md:p-8">
 
+        <div class="dash-top">
+            <div class="dash-title">
+                <h1><i class="fas fa-user-shield"></i> Gestion du staff</h1>
+                <p>Membres internes avec accès à votre espace partenaire.</p>
+            </div>
+        </div>
+
         {{-- Flash messages --}}
         @if(session('status'))
-            <div class="bg-green-100 dark:bg-green-900 border border-green-400 dark:border-green-600 text-green-700 dark:text-green-300 px-4 py-3 rounded mb-4 ui-card">
-                {{ session('status') }}
-            </div>
+            <div class="dash-alert"><i class="fas fa-check-circle"></i><div>{{ session('status') }}</div></div>
         @endif
 
         @if($errors->has('general'))
-            <div class="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-300 px-4 py-3 rounded mb-4 ui-card">
-                {{ $errors->first('general') }}
-            </div>
+            <div class="dash-alert error"><i class="fas fa-exclamation-circle"></i><div>{{ $errors->first('general') }}</div></div>
         @endif
 
         @if($errors->any() && !$errors->has('general'))
-            <div class="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-300 px-4 py-3 rounded mb-4 ui-card">
-                <strong>Erreurs de validation :</strong>
-                <ul class="list-disc list-inside mt-1">
-                    @foreach($errors->all() as $error)
-                        <li>{{ $error }}</li>
-                    @endforeach
-                </ul>
+            <div class="dash-alert error">
+                <i class="fas fa-exclamation-circle"></i>
+                <div>
+                    <strong>Erreurs de validation :</strong>
+                    <ul class="list-disc list-inside mt-1">
+                        @foreach($errors->all() as $error)
+                            <li>{{ $error }}</li>
+                        @endforeach
+                    </ul>
+                </div>
             </div>
         @endif
 
