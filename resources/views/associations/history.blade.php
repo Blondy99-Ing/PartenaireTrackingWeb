@@ -140,21 +140,6 @@ table.dataTable {
 }
 .table-toolbar-left { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 
-/* Compteur */
-.count-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    padding: 0.25rem 0.65rem;
-    border-radius: 9999px;
-    background: var(--color-sidebar-active-bg);
-    border: 1px solid rgba(245, 130, 32, 0.25);
-    color: var(--color-primary);
-    font-family: var(--font-display, 'Orbitron', sans-serif);
-    font-size: 0.65rem;
-    font-weight: 700;
-}
-
 /* Immatriculation badge */
 .immat-badge {
     font-family: var(--font-display, 'Orbitron', sans-serif);
@@ -282,6 +267,13 @@ table.dataTable {
 
 <div class="space-y-5">
 
+    <div class="dash-top">
+        <div class="dash-title">
+            <h1><i class="fas fa-clock-rotate-left"></i> Historique des associations</h1>
+            <p>Journal des affectations chauffeur-véhicule.</p>
+        </div>
+    </div>
+
     {{-- ============================================================
          NAVIGATION ONGLETS
          ============================================================ --}}
@@ -303,13 +295,12 @@ table.dataTable {
 
     {{-- Flash --}}
     @if(session('status'))
-    <div style="padding:0.75rem 1rem;border-radius:0.5rem;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);color:#16a34a;font-size:0.82rem;display:flex;align-items:center;gap:0.5rem;">
-        <i class="fas fa-check-circle"></i> {{ session('status') }}
-    </div>
+    <div class="dash-alert"><i class="fas fa-check-circle"></i><div>{{ session('status') }}</div></div>
     @endif
 
     @if($errors->any())
-    <div style="padding:0.75rem 1rem;border-radius:0.5rem;background:rgba(239,68,68,0.10);border:1px solid rgba(239,68,68,0.3);color:#ef4444;font-size:0.82rem;">
+    <div class="dash-alert error">
+        <i class="fas fa-exclamation-circle"></i>
         <ul style="margin:0;padding-left:1.25rem;">
             @foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach
         </ul>
@@ -327,8 +318,8 @@ table.dataTable {
                 <h2 class="font-orbitron" style="font-size:0.9rem;font-weight:700;color:var(--color-text);margin:0;">
                     Historique des associations
                 </h2>
-                <span class="count-badge">
-                    <i class="fas fa-clock-rotate-left" style="font-size:0.6rem;"></i>
+                <span class="dash-badge primary">
+                    <i class="fas fa-clock-rotate-left" style="font-size:0.6rem;margin-right:.3rem;"></i>
                     {{ $items->total() ?? 0 }} entrée(s)
                 </span>
             </div>

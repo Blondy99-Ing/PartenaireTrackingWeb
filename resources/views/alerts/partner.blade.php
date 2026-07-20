@@ -21,18 +21,6 @@
         .alert-badge.speed     { background: #3b82f6; }
         .alert-badge.time_zone { background: #eab308; color: #1a1a1a; }
 
-        .status-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.3rem;
-            padding: 0.2rem 0.65rem;
-            border-radius: 9999px;
-            font-size: 0.72rem;
-            font-weight: 600;
-        }
-        .status-badge.open      { background: rgba(239,68,68,0.12); color: #ef4444; }
-        .status-badge.processed { background: rgba(34,197,94,0.12);  color: #22c55e; }
-
         .stat-card {
             position: relative;
             overflow: hidden;
@@ -84,34 +72,6 @@
         .table-row-unread { border-left: 3px solid #f97316; }
         .table-row-processed { border-left: 3px solid transparent; opacity: 0.72; }
 
-        .flash-success {
-            background: rgba(34,197,94,0.1);
-            border: 1px solid rgba(34,197,94,0.3);
-            color: #16a34a;
-            border-radius: 8px;
-            padding: 0.75rem 1rem;
-            font-size: 0.875rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        .flash-info {
-            background: rgba(59,130,246,0.1);
-            border: 1px solid rgba(59,130,246,0.3);
-            color: #2563eb;
-            border-radius: 8px;
-            padding: 0.75rem 1rem;
-            font-size: 0.875rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        @keyframes fadeInDown {
-            from { opacity: 0; transform: translateY(-8px); }
-            to   { opacity: 1; transform: translateY(0); }
-        }
-        .animate-fade-in { animation: fadeInDown 0.3s ease both; }
     </style>
 @endpush
 
@@ -119,33 +79,20 @@
     <div class="space-y-6">
 
         {{-- HEADER --}}
-        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div>
-                <h1 class="text-2xl font-bold" style="color:var(--color-text)">
-                    <i class="fas fa-bell text-orange-500 mr-2"></i>Alertes de la Flotte
-                </h1>
-                <p class="text-sm mt-0.5" style="color:var(--color-text-secondary)">
-                    Geofence · Safe Zone · Vitesse · Zone Horaire
-                </p>
+        <div class="dash-top">
+            <div class="dash-title">
+                <h1><i class="fas fa-bell"></i> Alertes de la flotte</h1>
+                <p>Geofence · Safe Zone · Vitesse · Zone Horaire</p>
             </div>
-            <div class="text-sm" style="color:var(--color-text-secondary)">
-                <i class="fas fa-sync-alt mr-1"></i>
-                Actualisé le {{ now()->format('d/m/Y à H:i') }}
-            </div>
+            <span class="dash-period-chip"><i class="fas fa-sync-alt"></i> Actualisé le {{ now()->format('d/m/Y à H:i') }}</span>
         </div>
 
         {{-- FLASH --}}
         @if(session('success'))
-            <div class="flash-success animate-fade-in">
-                <i class="fas fa-check-circle"></i>
-                {{ session('success') }}
-            </div>
+            <div class="dash-alert"><i class="fas fa-check-circle"></i><div>{{ session('success') }}</div></div>
         @endif
         @if(session('info'))
-            <div class="flash-info animate-fade-in">
-                <i class="fas fa-info-circle"></i>
-                {{ session('info') }}
-            </div>
+            <div class="dash-alert"><i class="fas fa-info-circle"></i><div>{{ session('info') }}</div></div>
         @endif
 
         {{-- STATS --}}
@@ -386,12 +333,12 @@
 
                             <td class="px-4 py-3 whitespace-nowrap">
                                 @if($isProcessed)
-                                    <span class="status-badge processed">
+                                    <span class="dash-badge success">
                                         <i class="fas fa-check-circle text-xs"></i>
                                         Traitée
                                     </span>
                                 @else
-                                    <span class="status-badge open">
+                                    <span class="dash-badge danger">
                                         <i class="fas fa-dot-circle text-xs"></i>
                                         Ouverte
                                     </span>
