@@ -817,14 +817,24 @@
             </div>
         </div>
 
-        <div class="card-actions" style="margin-bottom:.5rem;">
-            <label class="block-search-field" aria-label="Rechercher dans l’ardoise globale">
-                <i class="fas fa-search"></i>
-                <input class="block-search-input" type="search" placeholder="Rechercher un chauffeur, une moto..." data-table-filter="#ledgerTable">
-            </label>
+        <div class="card-head" style="margin-bottom:.5rem;">
+            <div class="chart-mode-toggle" aria-label="Changer la vue de l’ardoise">
+                <button type="button" class="chart-mode-btn active" data-ledger-view="driver">
+                    <i class="fas fa-user"></i> Par chauffeur
+                </button>
+                <button type="button" class="chart-mode-btn" data-ledger-view="contract">
+                    <i class="fas fa-file-contract"></i> Par contrat
+                </button>
+            </div>
+            <div class="card-actions">
+                <label class="block-search-field" aria-label="Rechercher dans l’ardoise globale">
+                    <i class="fas fa-search"></i>
+                    <input class="block-search-input" type="search" placeholder="Rechercher un chauffeur, une moto..." data-table-filter="#ledgerTable, #ledgerByContractTable">
+                </label>
+            </div>
         </div>
 
-        <div class="table-scroll" style="max-height:340px;">
+        <div class="table-scroll" style="max-height:340px;" data-ledger-panel="driver">
             <table class="dashboard-table" id="ledgerTable">
                 <thead><tr><th>Chauffeur</th><th>Véhicule</th><th>Impayés</th><th>Montant dû</th><th>Type</th><th>Échéance la plus ancienne</th><th>Retard</th></tr></thead>
                 <tbody>
@@ -840,6 +850,26 @@
                     </tr>
                 @empty
                     <tr><td colspan="7"><div class="empty-state">Aucun impayé en cours — tous les chauffeurs sont à jour.</div></td></tr>
+                @endforelse
+                </tbody>
+            </table>
+        </div>
+
+        <div class="table-scroll" style="max-height:340px; display:none;" data-ledger-panel="contract">
+            <table class="dashboard-table" id="ledgerByContractTable">
+                <thead><tr><th>Chauffeur</th><th>Véhicule</th><th>Type de contrat</th><th>Montant dû</th><th>Échéance</th><th>Retard</th></tr></thead>
+                <tbody>
+                @forelse(($overdueLedger['contracts'] ?? []) as $row)
+                    <tr data-search="{{ $row['search'] ?? '' }}">
+                        <td><span class="driver-name">{{ $row['driver'] ?? '—' }}</span></td>
+                        <td>{{ $row['vehicle'] ?? '—' }}</td>
+                        <td>{{ $row['type'] ?? '—' }}</td>
+                        <td class="amount-danger">{{ $money($row['amount_due'] ?? 0) }}</td>
+                        <td>{{ $row['due_date'] ?? '—' }}</td>
+                        <td><span class="dash-badge {{ $badgeClass($row['urgency']['badge'] ?? null) }}">{{ $row['urgency']['label'] ?? '—' }}</span></td>
+                    </tr>
+                @empty
+                    <tr><td colspan="6"><div class="empty-state">Aucun contrat impayé en cours.</div></td></tr>
                 @endforelse
                 </tbody>
             </table>
@@ -1402,6 +1432,22 @@ document.addEventListener('DOMContentLoaded', function () {
 
             root.querySelectorAll('[data-payments-panel]').forEach(panel => {
                 panel.style.display = panel.dataset.paymentsPanel === mode ? '' : 'none';
+            });
+        });
+    });
+
+    root.querySelectorAll('[data-ledger-view]').forEach(button => {
+        button.addEventListener('click', function () {
+            const mode = this.dataset.ledgerView || 'driver';
+
+            root.querySelectorAll('[data-ledger-view]').forEach(btn => {
+                const isActive = btn === this;
+                btn.classList.toggle('active', isActive);
+                btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+            });
+
+            root.querySelectorAll('[data-ledger-panel]').forEach(panel => {
+                panel.style.display = panel.dataset.ledgerPanel === mode ? '' : 'none';
             });
         });
     });

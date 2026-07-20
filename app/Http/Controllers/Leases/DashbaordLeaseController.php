@@ -113,6 +113,7 @@ class DashbaordLeaseController extends Controller
             ],
             'overdue_ledger' => [
                 'drivers' => [],
+                'contracts' => [],
                 'overdue_count' => 0,
                 'up_to_date_count' => null,
                 'total_due' => 0,

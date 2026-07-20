@@ -747,6 +747,41 @@ class DashboardLeaseService
             ->values()
             ->all();
 
+        /**
+         * Vue "par contrat" : chaque échéance impayée garde son PROPRE retard,
+         * au lieu d'être noyée dans le pire retard du chauffeur (vue ci-dessus).
+         * Un chauffeur avec Moto 2j de retard + Caution 10j de retard affichera
+         * ici deux lignes distinctes : 2j et 10j, pas seulement 10j.
+         */
+        $contractsLate = collect($unpaidRows)
+            ->filter(fn ($row) => is_array($row) && ($row['statut'] ?? null) === 'unpaid')
+            ->map(function ($row) use ($today, $mainLinksBySourceContractId) {
+                $dueDate = $this->safeCarbon($row['date_echeance'] ?? null);
+                $daysLate = $dueDate ? max(0, $dueDate->diffInDays($today)) : 0;
+                $driver = (string) ($row['chauffeur'] ?? 'Chauffeur');
+                $type = $this->displayTypeLabel($row);
+                $vehicle = $this->resolveMainContractVehicleForDriverRows(collect([$row]), $mainLinksBySourceContractId);
+
+                return [
+                    'driver' => $driver ?: '—',
+                    'vehicle' => $vehicle,
+                    'type' => $type ?: '—',
+                    'amount_due' => $this->leaseRemaining($row),
+                    'due_date' => $dueDate?->format('d/m/Y'),
+                    'days_late' => $daysLate,
+                    'urgency' => match (true) {
+                        $daysLate >= 7 => ['label' => $daysLate . ' j. de retard', 'badge' => 'danger'],
+                        $daysLate >= 1 => ['label' => $daysLate . ' j. de retard', 'badge' => 'warning'],
+                        default => ['label' => 'Échéance du jour', 'badge' => 'info'],
+                    },
+                    'search' => mb_strtolower($driver . ' ' . $vehicle . ' ' . $type, 'UTF-8'),
+                ];
+            })
+            ->filter(fn ($row) => $row['amount_due'] > 0)
+            ->sortByDesc('days_late')
+            ->values()
+            ->all();
+
         $overdueDriverNames = collect($drivers)->pluck('driver')->map(fn ($n) => mb_strtolower(trim($n), 'UTF-8'))->filter()->unique();
 
         $allDriverNames = collect($chauffeurs)
@@ -761,6 +796,7 @@ class DashboardLeaseService
 
         return [
             'drivers' => $drivers,
+            'contracts' => $contractsLate,
             'overdue_count' => count($drivers),
             'up_to_date_count' => $upToDateCount,
             'total_due' => collect($drivers)->sum('amount_due'),
@@ -772,6 +808,7 @@ class DashboardLeaseService
     {
         return [
             'drivers' => [],
+            'contracts' => [],
             'overdue_count' => 0,
             'up_to_date_count' => null,
             'total_due' => 0,
