@@ -9,6 +9,13 @@
   $authUser = auth('web')->user();
 @endphp
 
+<div class="dash-top">
+  <div class="dash-title">
+    <h1><i class="fas fa-history"></i> Historique coupure / allumage</h1>
+    <p>Commandes moteur envoyées, véhicule par véhicule.</p>
+  </div>
+</div>
+
 <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b pb-4"
      style="border-color: var(--color-border-subtle);">
   <div class="flex mt-4 sm:mt-0 space-x-4">
@@ -100,13 +107,13 @@
             </td>
 
             <td>
-              <span class="font-semibold {{ $cmd->type_commande === 'COUPURE' ? 'text-red-600' : 'text-green-600' }}">
+              <span class="dash-badge {{ $cmd->type_commande === 'COUPURE' ? 'danger' : 'success' }}">
                 {{ $cmd->type_commande ?? '—' }}
               </span>
             </td>
 
             <td>
-              <span class="text-sm">{{ $cmd->status ?? '—' }}</span>
+              <span class="dash-badge muted">{{ $cmd->status ?? '—' }}</span>
             </td>
 
             <td class="font-mono text-xs">{{ $cmd->CmdNo }}</td>
