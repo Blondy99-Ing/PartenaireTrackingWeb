@@ -323,20 +323,6 @@ table.dataTable {
     flex-wrap: wrap;
 }
 
-.users-count-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    padding: 0.25rem 0.65rem;
-    border-radius: 9999px;
-    background: var(--color-sidebar-active-bg);
-    border: 1px solid rgba(245, 130, 32, 0.25);
-    color: var(--color-primary);
-    font-family: var(--font-display, 'Orbitron', sans-serif);
-    font-size: 0.65rem;
-    font-weight: 700;
-}
-
 .sync-badge {
     display: inline-flex;
     align-items: center;
@@ -491,32 +477,22 @@ table.dataTable {
 
 <div class="space-y-5">
 
+    <div class="dash-top">
+        <div class="dash-title">
+            <h1><i class="fas fa-users"></i> Chauffeurs</h1>
+            <p>Chauffeurs enregistrés et leurs associations véhicule.</p>
+        </div>
+    </div>
+
     <div style="display:flex;flex-direction:column;gap:1rem;">
 
-        {{--
-<div style="border-bottom:1px solid var(--color-border-subtle);padding-bottom:0.75rem;">
-    <nav class="nav-tabs">
-        <a href="{{ route('partner.drivers.index') }}" class="nav-tab active">
-            <i class="fas fa-users"></i> Chauffeurs
-        </a>
-        <a href="{{ route('partner.affectations.index') }}" class="nav-tab">
-            <i class="fas fa-link"></i> Associations
-        </a>
-        <a href="{{ route('partner.affectations.history') }}" class="nav-tab">
-            <i class="fas fa-clock-rotate-left"></i> Historique
-        </a>
-    </nav>
-</div>
---}}
-
         @if(session('status'))
-            <div style="padding:0.75rem 1rem;border-radius:0.5rem;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);color:#16a34a;font-size:0.82rem;display:flex;align-items:center;gap:0.5rem;">
-                <i class="fas fa-check-circle"></i> {{ session('status') }}
-            </div>
+            <div class="dash-alert"><i class="fas fa-check-circle"></i><div>{{ session('status') }}</div></div>
         @endif
 
         @if($errors->any())
-            <div style="padding:0.75rem 1rem;border-radius:0.5rem;background:rgba(239,68,68,0.10);border:1px solid rgba(239,68,68,0.3);color:#ef4444;font-size:0.82rem;">
+            <div class="dash-alert error">
+                <i class="fas fa-exclamation-circle"></i>
                 <ul style="margin:0;padding-left:1.25rem;">
                     @foreach($errors->all() as $error)
                         <li>{{ $error }}</li>
@@ -531,8 +507,8 @@ table.dataTable {
 
         <div class="table-toolbar">
             <div class="table-toolbar-left">
-                <span class="users-count-badge">
-                    <i class="fas fa-users" style="font-size:0.6rem;"></i>
+                <span class="dash-badge primary">
+                    <i class="fas fa-users" style="font-size:0.6rem;margin-right:.3rem;"></i>
                     {{ count($users ?? []) }} enregistré(s)
                 </span>
             </div>
