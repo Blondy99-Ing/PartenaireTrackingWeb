@@ -209,21 +209,6 @@ table.dataTable {
     flex-wrap: wrap;
 }
 
-/* Compteur */
-.vehicles-count-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    padding: 0.25rem 0.65rem;
-    border-radius: 9999px;
-    background: var(--color-sidebar-active-bg);
-    border: 1px solid rgba(245, 130, 32, 0.25);
-    color: var(--color-primary);
-    font-family: var(--font-display, 'Orbitron', sans-serif);
-    font-size: 0.65rem;
-    font-weight: 700;
-}
-
 /* Boutons actions tableau */
 .tbl-action {
     display: inline-flex;
@@ -380,21 +365,25 @@ table.dataTable {
 
 <div class="space-y-4">
 
+    <div class="dash-top">
+        <div class="dash-title">
+            <h1><i class="fas fa-car"></i> Véhicules</h1>
+            <p>Flotte de véhicules et association des chauffeurs.</p>
+        </div>
+    </div>
+
     {{-- Flash messages --}}
     @if(session('success'))
-    <div style="padding:0.75rem 1rem;border-radius:0.5rem;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);color:#16a34a;font-size:0.82rem;display:flex;align-items:center;gap:0.5rem;">
-        <i class="fas fa-check-circle"></i> {{ session('success') }}
-    </div>
+    <div class="dash-alert"><i class="fas fa-check-circle"></i><div>{{ session('success') }}</div></div>
     @endif
 
     @if(session('error'))
-    <div style="padding:0.75rem 1rem;border-radius:0.5rem;background:rgba(239,68,68,0.10);border:1px solid rgba(239,68,68,0.3);color:#ef4444;font-size:0.82rem;display:flex;align-items:center;gap:0.5rem;">
-        <i class="fas fa-exclamation-circle"></i> {{ session('error') }}
-    </div>
+    <div class="dash-alert error"><i class="fas fa-exclamation-circle"></i><div>{{ session('error') }}</div></div>
     @endif
 
     @if($errors->any())
-    <div style="padding:0.75rem 1rem;border-radius:0.5rem;background:rgba(239,68,68,0.10);border:1px solid rgba(239,68,68,0.3);color:#ef4444;font-size:0.82rem;">
+    <div class="dash-alert error">
+        <i class="fas fa-exclamation-circle"></i>
         <ul style="margin:0;padding-left:1.25rem;">
             @foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach
         </ul>
@@ -412,8 +401,8 @@ table.dataTable {
                 <h2 class="font-orbitron" style="font-size:0.9rem;font-weight:700;color:var(--color-text);margin:0;">
                     Flotte de véhicules
                 </h2>
-                <span class="vehicles-count-badge">
-                    <i class="fas fa-car" style="font-size:0.6rem;"></i>
+                <span class="dash-badge primary">
+                    <i class="fas fa-car" style="font-size:0.6rem;margin-right:.3rem;"></i>
                     {{ count($voitures ?? []) }} véhicule(s)
                 </span>
             </div>
