@@ -1403,6 +1403,19 @@ class DashboardLeaseService
 
     private function shortCutoffReason(LeaseCutoffHistory $history): string
     {
+        /**
+         * La timeline affichait jusqu'ici un libellé générique par statut
+         * ("Échec de coupure.") qui écrasait la vraie raison enregistrée par
+         * le traitement de queue — l'utilisateur ne voyait jamais POURQUOI.
+         * On privilégie désormais le texte réel de $history->reason (déjà
+         * rédigé pour être lisible), tronqué pour rester compact ici.
+         */
+        $reason = trim((string) ($history->reason ?? ''));
+
+        if ($reason !== '') {
+            return mb_strlen($reason) > 170 ? mb_substr($reason, 0, 167) . '…' : $reason;
+        }
+
         $status = (string) $history->status;
 
         return match ($status) {
