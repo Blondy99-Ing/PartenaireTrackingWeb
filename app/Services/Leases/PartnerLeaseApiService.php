@@ -2142,10 +2142,20 @@ protected function cutoffStatusUiType(?string $status): string
         $paid = max(0, $total - $remaining);
 
         $typeId = (int) ($row['type_contrat'] ?? data_get($row, 'type_contrat.id') ?? 1);
+        /**
+         * /contrats/ renvoie le libellé sous 'type_contrat_libelle' (français,
+         * champ plat) — jamais sous 'type_contrat_label' ni sous un objet
+         * imbriqué 'type_contrat.libelle' (type_contrat est un entier ici, pas
+         * un objet). L'ancien ordre de repli ne testait jamais le vrai champ
+         * et retombait donc systématiquement sur "Véhicule" pour tous les
+         * contrats. Même champ que /leases/ (voir normalizeLease()), qui lui
+         * fonctionnait déjà correctement.
+         */
         $typeLabel = (string) (
-            data_get($row, 'type_contrat.libelle')
-            ?? data_get($row, 'type_contrat.label')
+            $row['type_contrat_libelle']
             ?? $row['type_contrat_label']
+            ?? data_get($row, 'type_contrat.libelle')
+            ?? data_get($row, 'type_contrat.label')
             ?? 'Véhicule'
         );
 
@@ -2247,9 +2257,10 @@ protected function cutoffStatusUiType(?string $status): string
 
         $typeId = (int) ($row['type_contrat'] ?? data_get($row, 'type_contrat.id') ?? 0);
         $typeLabel = (string) (
-            data_get($row, 'type_contrat.libelle')
-            ?? data_get($row, 'type_contrat.label')
+            $row['type_contrat_libelle']
             ?? $row['type_contrat_label']
+            ?? data_get($row, 'type_contrat.libelle')
+            ?? data_get($row, 'type_contrat.label')
             ?? 'Sous-contrat'
         );
 
