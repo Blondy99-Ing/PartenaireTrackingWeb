@@ -938,7 +938,7 @@
                 <div class="card-head">
                     <div>
                         <h2 class="card-title"><i class="fas fa-shield-alt"></i> Sécurité coupure</h2>
-                        <p class="card-subtitle">Résumé des actions du jour.</p>
+                        <p class="card-subtitle">Actions sur la période sélectionnée · {{ $period['label'] ?? 'Aujourd’hui' }}.</p>
                     </div>
                 </div>
                 <div class="metric-grid">
@@ -948,12 +948,14 @@
                     <div class="metric-tile"><span>Coupures confirmées</span><strong>{{ $cutoffSummary['confirmed'] ?? 0 }}</strong></div>
                     <div class="metric-tile"><span>Pardons avant coupure</span><strong>{{ $cutoffSummary['forgiven_before_cut'] ?? 0 }}</strong></div>
                     <div class="metric-tile"><span>Relances après pardon</span><strong>{{ $cutoffSummary['reactivated'] ?? 0 }}</strong></div>
+                    <div class="metric-tile"><span>Échecs</span><strong>{{ $cutoffSummary['failed'] ?? 0 }}</strong></div>
                 </div>
-                <div class="metric-grid" style="margin-top:.5rem;">
+
+                <p class="card-subtitle" style="margin-top:.75rem;">État actuel des règles configurées — indépendant de la période sélectionnée ci-dessus.</p>
+                <div class="metric-grid" style="margin-top:.35rem;">
                     <div class="metric-tile"><span>Règles actives</span><strong>{{ $cutoffSummary['active_rules'] ?? 0 }}</strong></div>
                     <div class="metric-tile"><span>Règles inactives</span><strong>{{ $cutoffSummary['disabled_rules'] ?? 0 }}</strong></div>
                     <div class="metric-tile"><span>Sans règle</span><strong>{{ $cutoffSummary['contracts_without_rule'] ?? 0 }}</strong></div>
-                    <div class="metric-tile"><span>Échecs</span><strong>{{ $cutoffSummary['failed'] ?? 0 }}</strong></div>
                 </div>
             </div>
         </div>
@@ -987,7 +989,7 @@
                                 <td><span class="dash-badge {{ $badgeClass($row['status']['badge'] ?? null) }}">{{ $row['status']['label'] ?? '—' }}</span></td>
                             </tr>
                         @empty
-                            <tr><td colspan="7"><div class="empty-state">Aucun chauffeur à suivre aujourd’hui.</div></td></tr>
+                            <tr><td colspan="7"><div class="empty-state">Aucun chauffeur à suivre sur cette période.</div></td></tr>
                         @endforelse
                         </tbody>
                     </table>
@@ -1084,7 +1086,7 @@
                 <div class="card-head">
                     <div>
                         <h2 class="card-title"><i class="fas fa-file-contract"></i> Règles par contrat</h2>
-                        <p class="card-subtitle">Contrat principal et sous-contrats indépendants.</p>
+                        <p class="card-subtitle">Contrat principal et sous-contrats indépendants — état actuel, indépendant de la période sélectionnée.</p>
                     </div>
                 </div>
                 <div class="metric-grid" style="margin-bottom:.55rem;">
@@ -1117,7 +1119,7 @@
                 <div class="card-head">
                     <div>
                         <h2 class="card-title"><i class="fas fa-power-off"></i> Dernières décisions coupure</h2>
-                        <p class="card-subtitle">Queues, annulations, pardons et confirmations du jour.</p>
+                        <p class="card-subtitle">Queues, annulations, pardons et confirmations sur la période sélectionnée · {{ $period['label'] ?? 'Aujourd’hui' }}.</p>
                     </div>
                 </div>
                 <div class="timeline-scroll">
