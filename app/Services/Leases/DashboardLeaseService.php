@@ -693,6 +693,22 @@ class DashboardLeaseService
             ->filter(fn (LeaseContractLink $link) => $link->source_contract_id)
             ->keyBy(fn (LeaseContractLink $link) => (int) $link->source_contract_id);
 
+        /**
+         * État financier du CONTRAT lui-même (Moto, Caution, Phone...), pas de
+         * la seule échéance impayée : /contrats/ porte le cumul montant_total /
+         * total_paye / montant_restant sur toute la durée du contrat, alors
+         * qu'une ligne de /leases/ ne représente qu'une échéance ponctuelle.
+         */
+        $financialsByContractId = collect($contracts)
+            ->filter(fn ($c) => is_array($c))
+            ->mapWithKeys(fn ($c) => [
+                (int) ($c['source_contrat_id'] ?? $c['id'] ?? 0) => [
+                    'total' => (float) ($c['montant_total'] ?? 0),
+                    'paid' => (float) ($c['total_paye'] ?? 0),
+                    'remaining' => (float) ($c['montant_restant'] ?? 0),
+                ],
+            ]);
+
         $drivers = collect($unpaidRows)
             ->filter(fn ($row) => is_array($row) && ($row['statut'] ?? null) === 'unpaid')
             ->groupBy(fn ($row) => (string) ($row['chauffeur'] ?? 'Chauffeur'))
@@ -739,12 +755,14 @@ class DashboardLeaseService
          */
         $contractsLate = collect($unpaidRows)
             ->filter(fn ($row) => is_array($row) && ($row['statut'] ?? null) === 'unpaid')
-            ->map(function ($row) use ($today, $mainLinksBySourceContractId, $totalDueByDriver) {
+            ->map(function ($row) use ($today, $mainLinksBySourceContractId, $totalDueByDriver, $financialsByContractId) {
                 $dueDate = $this->safeCarbon($row['date_echeance'] ?? null);
                 $daysLate = $dueDate ? max(0, $dueDate->diffInDays($today)) : 0;
                 $driver = (string) ($row['chauffeur'] ?? 'Chauffeur');
                 $type = $this->displayTypeLabel($row);
                 $vehicle = $this->resolveMainContractVehicleForDriverRows(collect([$row]), $mainLinksBySourceContractId);
+                $contractId = (int) ($row['source_contrat_id'] ?? 0);
+                $financials = $financialsByContractId->get($contractId);
 
                 return [
                     'driver' => $driver ?: '—',
@@ -752,6 +770,9 @@ class DashboardLeaseService
                     'type' => $type ?: '—',
                     'amount_due' => $this->leaseRemaining($row),
                     'driver_total_due' => $totalDueByDriver->get($driver ?: '—', 0),
+                    'contract_paid' => $financials['paid'] ?? null,
+                    'contract_remaining' => $financials['remaining'] ?? null,
+                    'contract_total' => $financials['total'] ?? null,
                     'due_date' => $dueDate?->format('d/m/Y'),
                     'days_late' => $daysLate,
                     'urgency' => match (true) {
