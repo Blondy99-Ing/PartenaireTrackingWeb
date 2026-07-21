@@ -698,8 +698,8 @@ class DashboardLeaseService
          * (lease_cutoff_contract_rules.active_days), pas devinés. C'est le
          * même champ déjà utilisé pour décider quand couper le moteur — donc
          * déjà fiable et déjà maintenu par le partenaire. Sans règle
-         * configurée pour ce contrat, on ne peut pas connaître son rythme :
-         * on suppose alors 7j/7 par prudence (aucun jour "gratuit" inconnu).
+         * configurée pour ce contrat, on suppose 6j/7 (dimanche off) — le
+         * même défaut déjà utilisé à la création d'un contrat.
          */
         $rulesByLinkId = collect($cutoffData['rules'] ?? [])->keyBy('contract_link_id');
         $activeDaysByContractId = collect($cutoffData['links'] ?? [])
@@ -741,7 +741,10 @@ class DashboardLeaseService
             $activeDays = $activeDaysByContractId->get($contractId);
             $activeDays = ! empty($activeDays)
                 ? $activeDays
-                : ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+                // Repli 6j/7 (dimanche off) : même défaut déjà utilisé à la
+                // création d'un contrat (resources/views/leases/contrat.blade.php,
+                // cases à cocher jours actifs — toutes cochées sauf dimanche).
+                : ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
             $activeDaysElapsed = $this->countActiveDaysBetween($dateDebut, $endBoundary, $activeDays);
             $expectedPaid = $activeDaysElapsed * $montantParPaiement;
