@@ -694,100 +694,100 @@ class DashboardLeaseService
             ->keyBy(fn (LeaseContractLink $link) => (int) $link->source_contract_id);
 
         /**
-         * État financier du CONTRAT lui-même (Moto, Caution, Phone...), pas de
-         * la seule échéance impayée : /contrats/ porte le cumul montant_total /
-         * total_paye / montant_restant sur toute la durée du contrat, alors
-         * qu'une ligne de /leases/ ne représente qu'une échéance ponctuelle.
+         * Jours actifs RÉELS du contrat : lus sur sa règle de coupure
+         * (lease_cutoff_contract_rules.active_days), pas devinés. C'est le
+         * même champ déjà utilisé pour décider quand couper le moteur — donc
+         * déjà fiable et déjà maintenu par le partenaire. Sans règle
+         * configurée pour ce contrat, on ne peut pas connaître son rythme :
+         * on suppose alors 7j/7 par prudence (aucun jour "gratuit" inconnu).
          */
-        $financialsByContractId = collect($contracts)
+        $rulesByLinkId = collect($cutoffData['rules'] ?? [])->keyBy('contract_link_id');
+        $activeDaysByContractId = collect($cutoffData['links'] ?? [])
+            ->filter(fn (LeaseContractLink $link) => $link->source_contract_id)
+            ->mapWithKeys(function (LeaseContractLink $link) use ($rulesByLinkId) {
+                $rule = $rulesByLinkId->get($link->id);
+                $days = $rule ? $this->normalizeWeekDays($rule->active_days ?? []) : [];
+
+                return [(int) $link->source_contract_id => $days];
+            });
+
+        $contractsById = collect($contracts)
             ->filter(fn ($c) => is_array($c))
-            ->mapWithKeys(fn ($c) => [
-                (int) ($c['source_contrat_id'] ?? $c['id'] ?? 0) => [
-                    'total' => (float) ($c['montant_total'] ?? 0),
-                    'paid' => (float) ($c['total_paye'] ?? 0),
-                ],
-            ]);
+            ->keyBy(fn ($c) => (int) ($c['source_contrat_id'] ?? $c['id'] ?? 0));
 
         /**
-         * "Dette du contrat" ne doit PAS être montant_restant (solde total
-         * restant sur toute la durée du bail, échéances futures comprises —
-         * ça peut dépasser le million FCFA sur un bail Moto sain, sans rapport
-         * avec un retard). Sur une page d'ARDOISE, la dette doit rester de la
-         * même nature que "Total dû (chauffeur)" : un cumul d'échéances déjà
-         * en retard, juste regroupé par contrat au lieu de par chauffeur.
-         * Sinon on affiche un solde de contrat > dette du chauffeur, ce qui
-         * est logiquement impossible et illisible.
+         * Retard RÉEL d'un contrat = écart entre ce qu'il aurait dû être versé
+         * depuis sa date de début, au rythme de ses jours actifs, et ce qui a
+         * réellement été versé. PAS la date d'une échéance isolée : un contrat
+         * journalier génère une échéance chaque jour actif, la date d'une
+         * seule échéance ne dit rien du rythme réel de paiement du chauffeur.
          */
-        $arrearsByContractId = collect($unpaidRows)
-            ->filter(fn ($row) => is_array($row) && ($row['statut'] ?? null) === 'unpaid')
-            ->groupBy(fn ($row) => (int) ($row['source_contrat_id'] ?? 0))
-            ->map(fn ($rows) => $rows->sum(fn ($row) => $this->leaseRemaining($row)));
+        $paymentDelayByContractId = $contractsById->map(function ($contract) use ($activeDaysByContractId, $today) {
+            $contractId = (int) ($contract['source_contrat_id'] ?? $contract['id'] ?? 0);
+            $dateDebut = $this->safeCarbon($contract['date_debut'] ?? null);
+            $montantParPaiement = (float) ($contract['versement'] ?? 0);
 
-        $drivers = collect($unpaidRows)
-            ->filter(fn ($row) => is_array($row) && ($row['statut'] ?? null) === 'unpaid')
-            ->groupBy(fn ($row) => (string) ($row['chauffeur'] ?? 'Chauffeur'))
-            ->map(function (Collection $rows, string $driver) use ($today, $mainLinksBySourceContractId) {
-                $amountDue = $rows->sum(fn ($row) => $this->leaseRemaining($row));
-                $oldestDue = $rows->pluck('date_echeance')->filter()->map(fn ($d) => $this->safeCarbon($d))->filter()->sort()->first();
-                $daysLate = $oldestDue ? max(0, $oldestDue->diffInDays($today)) : 0;
-                $types = $rows->map(fn ($row) => $this->displayTypeLabel($row))->filter()->unique()->implode(', ');
-                $vehicle = $this->resolveMainContractVehicleForDriverRows($rows, $mainLinksBySourceContractId);
+            if (! $dateDebut || $montantParPaiement <= 0) {
+                return null;
+            }
 
-                return [
-                    'driver' => $driver ?: '—',
-                    'vehicle' => $vehicle,
-                    'unpaid_count' => $rows->count(),
-                    'amount_due' => $amountDue,
-                    'types' => $types ?: '—',
-                    'oldest_due_date' => $oldestDue?->format('d/m/Y'),
-                    'days_late' => $daysLate,
-                    'urgency' => match (true) {
-                        $daysLate >= 7 => ['label' => $daysLate . ' j. de retard', 'badge' => 'danger'],
-                        $daysLate >= 1 => ['label' => $daysLate . ' j. de retard', 'badge' => 'warning'],
-                        default => ['label' => 'Échéance du jour', 'badge' => 'info'],
-                    },
-                    'search' => mb_strtolower($driver . ' ' . $vehicle . ' ' . $types, 'UTF-8'),
-                ];
-            })
-            ->filter(fn ($row) => $row['amount_due'] > 0)
-            ->sortByDesc('days_late')
-            ->values()
-            ->all();
+            $dateFin = $this->safeCarbon($contract['date_fin'] ?? null);
+            $endBoundary = ($dateFin && $dateFin->lt($today)) ? $dateFin : $today;
+
+            if ($endBoundary->lt($dateDebut)) {
+                return null;
+            }
+
+            $activeDays = $activeDaysByContractId->get($contractId);
+            $activeDays = ! empty($activeDays)
+                ? $activeDays
+                : ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+            $activeDaysElapsed = $this->countActiveDaysBetween($dateDebut, $endBoundary, $activeDays);
+            $expectedPaid = $activeDaysElapsed * $montantParPaiement;
+            $paid = (float) ($contract['total_paye'] ?? 0);
+            $debt = max(0, $expectedPaid - $paid);
+
+            return [
+                'expected_paid' => $expectedPaid,
+                'paid' => $paid,
+                'debt' => $debt,
+                'days_late' => (int) round($debt / $montantParPaiement),
+            ];
+        })->filter();
 
         /**
-         * Total dû par chauffeur (déjà calculé ci-dessus pour la vue "par
-         * chauffeur") : réutilisé pour que la vue "par contrat" affiche AUSSI
-         * ce total sur chaque ligne, sans forcer à changer de vue pour le voir.
-         */
-        $totalDueByDriver = collect($drivers)->keyBy('driver')->map(fn ($row) => $row['amount_due']);
-
-        /**
-         * Vue "par contrat" : chaque échéance impayée garde son PROPRE retard,
-         * au lieu d'être noyée dans le pire retard du chauffeur (vue ci-dessus).
-         * Un chauffeur avec Moto 2j de retard + Caution 10j de retard affichera
-         * ici deux lignes distinctes : 2j et 10j, pas seulement 10j.
+         * Vue "par contrat" : une ligne PAR CONTRAT (pas par échéance) — le
+         * retard est désormais une propriété du rythme du contrat, pas d'une
+         * échéance isolée. Un contrat avec 69 échéances impayées n'affiche
+         * plus 69 lignes identiques : une seule, avec son retard réel.
          */
         $contractsLate = collect($unpaidRows)
             ->filter(fn ($row) => is_array($row) && ($row['statut'] ?? null) === 'unpaid')
-            ->map(function ($row) use ($today, $mainLinksBySourceContractId, $totalDueByDriver, $financialsByContractId, $arrearsByContractId) {
-                $dueDate = $this->safeCarbon($row['date_echeance'] ?? null);
-                $daysLate = $dueDate ? max(0, $dueDate->diffInDays($today)) : 0;
-                $driver = (string) ($row['chauffeur'] ?? 'Chauffeur');
-                $type = $this->displayTypeLabel($row);
-                $vehicle = $this->resolveMainContractVehicleForDriverRows(collect([$row]), $mainLinksBySourceContractId);
-                $contractId = (int) ($row['source_contrat_id'] ?? 0);
-                $financials = $financialsByContractId->get($contractId);
+            ->groupBy(fn ($row) => (int) ($row['source_contrat_id'] ?? 0))
+            ->map(function (Collection $rows, string $contractIdKey) use ($mainLinksBySourceContractId, $paymentDelayByContractId) {
+                $contractId = (int) $contractIdKey;
+                $firstRow = $rows->first();
+                $driver = (string) ($firstRow['chauffeur'] ?? 'Chauffeur');
+                $type = $this->displayTypeLabel($firstRow);
+                $vehicle = $this->resolveMainContractVehicleForDriverRows($rows, $mainLinksBySourceContractId);
+                $oldestDue = $rows->pluck('date_echeance')->filter()->map(fn ($d) => $this->safeCarbon($d))->filter()->sort()->first();
+                $delay = $paymentDelayByContractId->get($contractId);
+
+                // Repli si le contrat n'a pas pu être résolu (date_debut/montant manquants) :
+                // somme des échéances déjà en retard, comme avant ce calcul par rythme.
+                $debt = $delay['debt'] ?? $rows->sum(fn ($row) => $this->leaseRemaining($row));
+                $daysLate = $delay['days_late'] ?? ($oldestDue ? max(0, $oldestDue->diffInDays(Carbon::today())) : 0);
 
                 return [
                     'driver' => $driver ?: '—',
                     'vehicle' => $vehicle,
                     'type' => $type ?: '—',
-                    'amount_due' => $this->leaseRemaining($row),
-                    'driver_total_due' => $totalDueByDriver->get($driver ?: '—', 0),
-                    'contract_paid' => $financials['paid'] ?? null,
-                    'contract_arrears' => $arrearsByContractId->get($contractId, 0),
-                    'contract_total' => $financials['total'] ?? null,
-                    'due_date' => $dueDate?->format('d/m/Y'),
+                    'unpaid_echeances_count' => $rows->count(),
+                    'contract_paid' => $delay['paid'] ?? null,
+                    'contract_expected' => $delay['expected_paid'] ?? null,
+                    'amount_due' => $debt,
+                    'oldest_due_date' => $oldestDue?->format('d/m/Y'),
                     'days_late' => $daysLate,
                     'urgency' => match (true) {
                         $daysLate >= 7 => ['label' => $daysLate . ' j. de retard', 'badge' => 'danger'],
@@ -800,6 +800,48 @@ class DashboardLeaseService
             ->filter(fn ($row) => $row['amount_due'] > 0)
             ->sortByDesc('days_late')
             ->values()
+            ->all();
+
+        /**
+         * Vue "par chauffeur" : somme des dettes réelles (rythme) de tous ses
+         * contrats, et son pire retard parmi eux.
+         */
+        $drivers = collect($contractsLate)
+            ->groupBy('driver')
+            ->map(function (Collection $rows, string $driver) {
+                $types = $rows->pluck('type')->filter()->unique()->implode(', ');
+                $vehicle = (string) ($rows->first()['vehicle'] ?? '—');
+                $oldest = $rows->sortBy('days_late')->last();
+
+                return [
+                    'driver' => $driver ?: '—',
+                    'vehicle' => $vehicle,
+                    'unpaid_count' => $rows->sum('unpaid_echeances_count'),
+                    'amount_due' => $rows->sum('amount_due'),
+                    'types' => $types ?: '—',
+                    'oldest_due_date' => $oldest['oldest_due_date'] ?? null,
+                    'days_late' => (int) $rows->max('days_late'),
+                    'urgency' => $oldest['urgency'] ?? ['label' => '—', 'badge' => 'info'],
+                    'search' => mb_strtolower($driver . ' ' . $vehicle . ' ' . $types, 'UTF-8'),
+                ];
+            })
+            ->filter(fn ($row) => $row['amount_due'] > 0)
+            ->sortByDesc('days_late')
+            ->values()
+            ->all();
+
+        /**
+         * Total dû par chauffeur (déjà calculé ci-dessus) : réutilisé pour que
+         * la vue "par contrat" affiche AUSSI ce total sur chaque ligne, sans
+         * forcer à changer de vue pour le voir.
+         */
+        $totalDueByDriver = collect($drivers)->keyBy('driver')->map(fn ($row) => $row['amount_due']);
+        $contractsLate = collect($contractsLate)
+            ->map(function ($row) use ($totalDueByDriver) {
+                $row['driver_total_due'] = $totalDueByDriver->get($row['driver'], 0);
+
+                return $row;
+            })
             ->all();
 
         $overdueDriverNames = collect($drivers)->pluck('driver')->map(fn ($n) => mb_strtolower(trim($n), 'UTF-8'))->filter()->unique();
@@ -1363,6 +1405,53 @@ class DashboardLeaseService
     private function typeGroupKey(array $row): string
     {
         return ($this->isMainContract($row) ? 'main:' : 'sub:') . mb_strtolower($this->displayTypeLabel($row), 'UTF-8');
+    }
+
+    /**
+     * Normalise active_days (lease_cutoff_contract_rules) en noms de jours
+     * anglais en minuscules — même format que celui déjà utilisé par
+     * LeaseCutoffPlannerService pour décider quand déclencher une coupure.
+     */
+    private function normalizeWeekDays(mixed $days): array
+    {
+        $allowed = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+        return collect(is_array($days) ? $days : [])
+            ->map(fn ($day) => strtolower((string) $day))
+            ->filter(fn ($day) => in_array($day, $allowed, true))
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Compte, entre $start et $end (bornes incluses), combien de jours
+     * tombent sur un des jours actifs donnés — sans boucler jour par jour sur
+     * toute la durée du contrat (coûteux pour un vieux contrat) : on calcule
+     * le nombre de semaines complètes analytiquement, puis on ne boucle que
+     * sur le reste (< 7 jours).
+     */
+    private function countActiveDaysBetween(Carbon $start, Carbon $end, array $activeDays): int
+    {
+        if ($end->lt($start) || empty($activeDays)) {
+            return 0;
+        }
+
+        $totalDays = $start->diffInDays($end) + 1;
+        $fullWeeks = intdiv($totalDays, 7);
+        $remainder = $totalDays % 7;
+
+        $count = $fullWeeks * count($activeDays);
+
+        $cursor = $start->copy()->addDays($fullWeeks * 7);
+        for ($i = 0; $i < $remainder; $i++) {
+            if (in_array(strtolower($cursor->englishDayOfWeek), $activeDays, true)) {
+                $count++;
+            }
+            $cursor->addDay();
+        }
+
+        return $count;
     }
 
     private function displayTypeLabel(array|object $row): string
