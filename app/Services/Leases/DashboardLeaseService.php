@@ -725,6 +725,13 @@ class DashboardLeaseService
             ->all();
 
         /**
+         * Total dû par chauffeur (déjà calculé ci-dessus pour la vue "par
+         * chauffeur") : réutilisé pour que la vue "par contrat" affiche AUSSI
+         * ce total sur chaque ligne, sans forcer à changer de vue pour le voir.
+         */
+        $totalDueByDriver = collect($drivers)->keyBy('driver')->map(fn ($row) => $row['amount_due']);
+
+        /**
          * Vue "par contrat" : chaque échéance impayée garde son PROPRE retard,
          * au lieu d'être noyée dans le pire retard du chauffeur (vue ci-dessus).
          * Un chauffeur avec Moto 2j de retard + Caution 10j de retard affichera
@@ -732,7 +739,7 @@ class DashboardLeaseService
          */
         $contractsLate = collect($unpaidRows)
             ->filter(fn ($row) => is_array($row) && ($row['statut'] ?? null) === 'unpaid')
-            ->map(function ($row) use ($today, $mainLinksBySourceContractId) {
+            ->map(function ($row) use ($today, $mainLinksBySourceContractId, $totalDueByDriver) {
                 $dueDate = $this->safeCarbon($row['date_echeance'] ?? null);
                 $daysLate = $dueDate ? max(0, $dueDate->diffInDays($today)) : 0;
                 $driver = (string) ($row['chauffeur'] ?? 'Chauffeur');
@@ -744,6 +751,7 @@ class DashboardLeaseService
                     'vehicle' => $vehicle,
                     'type' => $type ?: '—',
                     'amount_due' => $this->leaseRemaining($row),
+                    'driver_total_due' => $totalDueByDriver->get($driver ?: '—', 0),
                     'due_date' => $dueDate?->format('d/m/Y'),
                     'days_late' => $daysLate,
                     'urgency' => match (true) {

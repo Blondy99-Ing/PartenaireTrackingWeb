@@ -857,7 +857,7 @@
 
         <div class="table-scroll" style="max-height:340px; display:none;" data-ledger-panel="contract">
             <table class="dashboard-table" id="ledgerByContractTable">
-                <thead><tr><th>Chauffeur</th><th>Véhicule</th><th>Type de contrat</th><th>Montant dû</th><th>Échéance</th><th>Retard</th></tr></thead>
+                <thead><tr><th>Chauffeur</th><th>Véhicule</th><th>Type de contrat</th><th>Montant dû (ce contrat)</th><th>Total dû (chauffeur)</th><th>Échéance</th><th>Retard</th></tr></thead>
                 <tbody>
                 @forelse(($overdueLedger['contracts'] ?? []) as $row)
                     <tr data-search="{{ $row['search'] ?? '' }}">
@@ -865,11 +865,12 @@
                         <td>{{ $row['vehicle'] ?? '—' }}</td>
                         <td>{{ $row['type'] ?? '—' }}</td>
                         <td class="amount-danger">{{ $money($row['amount_due'] ?? 0) }}</td>
+                        <td class="amount-danger"><strong>{{ $money($row['driver_total_due'] ?? 0) }}</strong></td>
                         <td>{{ $row['due_date'] ?? '—' }}</td>
                         <td><span class="dash-badge {{ $badgeClass($row['urgency']['badge'] ?? null) }}">{{ $row['urgency']['label'] ?? '—' }}</span></td>
                     </tr>
                 @empty
-                    <tr><td colspan="6"><div class="empty-state">Aucun contrat impayé en cours.</div></td></tr>
+                    <tr><td colspan="7"><div class="empty-state">Aucun contrat impayé en cours.</div></td></tr>
                 @endforelse
                 </tbody>
             </table>
