@@ -143,7 +143,7 @@ class DashboardLeaseService
                 'drivers_risk' => $this->buildDriversRiskTable($selectedLeases, $cutoffData),
                 'payments_today' => $this->buildPaymentsTable($payments, $selectedLeases, $contracts, $cutoffData),
                 'cutoffs' => $this->buildCutoffTimeline($cutoffData),
-                'contract_rules' => $this->buildContractRulesTable($cutoffData),
+                'contract_rules' => $this->buildContractRulesTable($cutoffData, $contracts),
             ],
             'contracts_summary' => $this->buildContractsSummary($contracts),
             'cutoff_summary' => $this->buildCutoffSummary($cutoffData),
@@ -848,13 +848,27 @@ class DashboardLeaseService
     }
 
 
-    private function buildContractRulesTable(array $cutoffData): array
+    private function buildContractRulesTable(array $cutoffData, array $contracts = []): array
     {
         $links = collect($cutoffData['links'] ?? []);
         $rulesByLinkId = collect($cutoffData['rules'] ?? [])->keyBy('contract_link_id');
 
+        /**
+         * lease_contract_links.type_contrat_label est parfois vide (lien créé
+         * avant que ce champ ne soit systématiquement renseigné). Le libellé
+         * réel du type de contrat (Moto, Caution, Phone, Royal care...) est
+         * toujours fiable côté /contrats/ : on l'utilise en priorité, pour ne
+         * plus jamais retomber sur le mot générique "Sous-contrat" qui
+         * dupliquait déjà la colonne Nature.
+         */
+        $typeByContractId = collect($contracts)
+            ->filter(fn ($c) => is_array($c))
+            ->mapWithKeys(fn ($c) => [
+                (int) ($c['source_contrat_id'] ?? $c['id'] ?? 0) => $this->displayTypeLabel($c),
+            ]);
+
         return $links
-            ->map(function (LeaseContractLink $link) use ($rulesByLinkId) {
+            ->map(function (LeaseContractLink $link) use ($rulesByLinkId, $typeByContractId) {
                 /** @var LeaseCutoffContractRule|null $rule */
                 $rule = $rulesByLinkId->get($link->id);
                 $vehicle = optional($link->vehicle)->immatriculation
@@ -866,16 +880,18 @@ class DashboardLeaseService
                     ? ((bool) $rule->is_enabled ? ['label' => 'Active', 'badge' => 'success'] : ['label' => 'Inactive', 'badge' => 'muted'])
                     : ['label' => 'Aucune règle', 'badge' => 'warning'];
 
+                $type = $typeByContractId->get((int) $link->source_contract_id)
+                    ?: $this->cleanLabel((string) $link->type_contrat_label, $kind);
+
                 return [
-                    'contract' => '#' . $link->source_contract_id,
                     'vehicle' => $vehicle,
-                    'type' => $this->cleanLabel((string) $link->type_contrat_label, $kind),
+                    'type' => $type,
                     'kind' => $kind,
                     'rule_status' => $status,
                     'cutoff_time' => $rule?->effectiveCutoffTime() ?: '—',
                     'grace_days' => $rule?->grace_days ?? 0,
                     'only_when_stopped' => $rule ? (bool) $rule->only_when_stopped : true,
-                    'search' => mb_strtolower($vehicle . ' ' . $link->source_contract_id . ' ' . $link->type_contrat_label . ' ' . $kind . ' ' . $status['label'], 'UTF-8'),
+                    'search' => mb_strtolower($vehicle . ' ' . $type . ' ' . $kind . ' ' . $status['label'], 'UTF-8'),
                 ];
             })
             ->sortBy(fn ($row) => ($row['rule_status']['label'] === 'Aucune règle' ? '0' : '1') . $row['vehicle'] . $row['type'])

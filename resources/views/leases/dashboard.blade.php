@@ -1095,11 +1095,10 @@
                 </div>
                 <div class="table-scroll" style="max-height:360px;">
                     <table class="dashboard-table" id="rulesTable">
-                        <thead><tr><th>Contrat</th><th>Véhicule</th><th>Type</th><th>Nature</th><th>Règle</th><th>Heure</th><th>Sécurité</th></tr></thead>
+                        <thead><tr><th>Véhicule</th><th>Type</th><th>Nature</th><th>Règle</th><th>Heure</th><th>Sécurité</th></tr></thead>
                         <tbody>
                         @forelse(($tables['contract_rules'] ?? []) as $ruleRow)
                             <tr data-search="{{ $ruleRow['search'] ?? '' }}">
-                                <td>{{ $ruleRow['contract'] ?? '—' }}</td>
                                 <td>{{ $ruleRow['vehicle'] ?? '—' }}</td>
                                 <td>{{ $ruleRow['type'] ?? '—' }}</td>
                                 <td>{{ $ruleRow['kind'] ?? '—' }}</td>
@@ -1108,7 +1107,7 @@
                                 <td>{{ ($ruleRow['only_when_stopped'] ?? true) ? 'Arrêt obligatoire' : 'À revoir' }}</td>
                             </tr>
                         @empty
-                            <tr><td colspan="7"><div class="empty-state">Aucun contrat local synchronisé avec une règle de coupure.</div></td></tr>
+                            <tr><td colspan="6"><div class="empty-state">Aucun contrat local synchronisé avec une règle de coupure.</div></td></tr>
                         @endforelse
                         </tbody>
                     </table>
