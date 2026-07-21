@@ -104,34 +104,25 @@ class DashboardLeaseService
         $vehicleUsage = $this->buildVehicleUsage($partnerId, $vehicles);
 
         /**
-         * "Encaissé aujourd'hui" est TOUJOURS le vrai jour calendaire courant,
-         * indépendant du sélecteur de période du reste du dashboard. C'est ce
-         * que demande un gestionnaire de flotte : savoir ce qui s'est passé
-         * aujourd'hui reste stable même quand il consulte "Cette semaine" ou
-         * "Ce mois" pour le reste de la page. Basé sur date_paiement (cash
-         * réellement encaissé), jamais sur date_echeance (ce qui était dû).
+         * "Aujourd'hui" est seulement la période PAR DÉFAUT à l'ouverture de la
+         * page. Dès que l'utilisateur choisit une autre période, il veut voir
+         * ce qui s'est réellement passé (cash encaissé) sur CETTE période, pas
+         * rester bloqué sur le jour courant. $payments est donc la même
+         * source, filtrée par date_paiement selon $selectedPeriod, pour le
+         * KPI, le résumé et le tableau — les trois doivent toujours afficher
+         * exactement le même chiffre, pour la période affichée.
          */
-        try {
-            $todayPayments = $this->fetchTodayPayments();
-        } catch (Throwable $e) {
-            report($e);
-            $warnings[] = 'Les paiements du jour sont momentanément indisponibles.';
-            Log::error('[LEASE_DASHBOARD_TODAY_PAYMENTS_FAILED]', ['error' => $e->getMessage()]);
-            $todayPayments = [];
-        }
-
         $kpis = $this->buildKpis(
             dailyStats: $dailyStats,
             selectedLeases: $selectedLeases,
             payments: $payments,
-            todayPayments: $todayPayments,
             contracts: $contracts,
             vehicles: $vehicles,
             vehicleUsage: $vehicleUsage
         );
 
         $overdueLedger = $this->buildOverdueLedger($contracts, $chauffeurs, $cutoffData);
-        $paymentsSummary = $this->buildPaymentsSummary($todayPayments);
+        $paymentsSummary = $this->buildPaymentsSummary($payments);
 
         return [
             'filters' => [
@@ -150,7 +141,7 @@ class DashboardLeaseService
             ],
             'tables' => [
                 'drivers_risk' => $this->buildDriversRiskTable($selectedLeases, $cutoffData),
-                'payments_today' => $this->buildPaymentsTable($todayPayments, $selectedLeases, $contracts, $cutoffData),
+                'payments_today' => $this->buildPaymentsTable($payments, $selectedLeases, $contracts, $cutoffData),
                 'cutoffs' => $this->buildCutoffTimeline($cutoffData),
                 'contract_rules' => $this->buildContractRulesTable($cutoffData),
             ],
@@ -179,23 +170,6 @@ class DashboardLeaseService
             'ayant_verse' => (int) ($json['ayant_verse'] ?? 0),
             'n_ayant_pas_verse' => (int) ($json['n_ayant_pas_verse'] ?? 0),
         ];
-    }
-
-    /**
-     * Paiements réellement encaissés aujourd'hui (date_paiement = maintenant),
-     * validés uniquement. Sert de source UNIQUE de vérité pour la carte
-     * "Paiements du jour", son résumé, et le KPI "Encaissé aujourd'hui" — les
-     * trois doivent toujours afficher exactement le même chiffre.
-     */
-    private function fetchTodayPayments(): array
-    {
-        $today = now(config('app.timezone', 'Africa/Douala'))->toDateString();
-
-        return $this->leaseApiService->fetchPayments([
-            'date_paiement' => $today,
-            'est_annule' => 'false',
-            'statut__in' => 'VALIDE,SUCCESS,PAID',
-        ]);
     }
 
     private function apiGet(string $endpoint, array $query = []): array
@@ -240,7 +214,6 @@ class DashboardLeaseService
         ?array $dailyStats,
         array $selectedLeases,
         array $payments,
-        array $todayPayments,
         array $contracts,
         Collection $vehicles,
         array $vehicleUsage
@@ -250,14 +223,18 @@ class DashboardLeaseService
         $remainingFromLeases = collect($selectedLeases)->sum(fn ($row) => $this->leaseRemaining($row));
 
         /**
-         * "Encaissé aujourd'hui" : cash réel (date_paiement), TOUJOURS le jour
-         * calendaire courant — jamais mélangé avec "paid_amount" ci-dessous, qui
-         * reste basé sur date_echeance (voir commentaire sur $paid).
+         * Cash réel encaissé sur la période sélectionnée (date_paiement) —
+         * "Aujourd'hui" n'est que la valeur par défaut du filtre en haut de
+         * page ; dès que l'utilisateur change de période, ce chiffre doit
+         * suivre. Jamais mélangé avec "paid_amount" ci-dessous, qui reste basé
+         * sur date_echeance (voir commentaire sur $paid) — les deux répondent
+         * à des questions différentes même quand ils portent sur la même
+         * période.
          */
-        $todayPaymentsRows = collect($todayPayments)->filter(fn ($row) => is_array($row));
-        $todayCashAmount = $todayPaymentsRows->sum(fn ($row) => $this->toFloat($row['montant'] ?? 0));
-        $todayCashPaymentsCount = $todayPaymentsRows->count();
-        $todayCashDriversCount = $todayPaymentsRows->pluck('chauffeur_nom_complet')->filter()->unique()->count();
+        $periodPaymentsRows = collect($payments)->filter(fn ($row) => is_array($row));
+        $periodCashAmount = $periodPaymentsRows->sum(fn ($row) => $this->toFloat($row['montant'] ?? 0));
+        $periodCashPaymentsCount = $periodPaymentsRows->count();
+        $periodCashDriversCount = $periodPaymentsRows->pluck('chauffeur_nom_complet')->filter()->unique()->count();
 
         /**
          * Les KPI financiers du dashboard doivent être cohérents avec le bloc
@@ -270,8 +247,8 @@ class DashboardLeaseService
         /**
          * $paid ici reste basé sur date_echeance (montant_paye des échéances de
          * la période) : c'est "combien des échéances dues cette période sont
-         * déjà réglées", PAS "combien de cash est entré aujourd'hui". Ce
-         * dernier existe séparément via $todayCashAmount ci-dessus — ne jamais
+         * déjà réglées", PAS "combien de cash est entré sur la période". Ce
+         * dernier existe séparément via $periodCashAmount ci-dessus — ne jamais
          * fusionner les deux dans le même chiffre, c'était la source de
          * confusion précédente.
          */
@@ -314,9 +291,9 @@ class DashboardLeaseService
             'vehicles_used' => $vehicleUsage['used'],
             'vehicles_never_used' => $vehicleUsage['never_used'],
 
-            'today_cash_amount' => $todayCashAmount,
-            'today_cash_payments_count' => $todayCashPaymentsCount,
-            'today_cash_drivers_count' => $todayCashDriversCount,
+            'period_cash_amount' => $periodCashAmount,
+            'period_cash_payments_count' => $periodCashPaymentsCount,
+            'period_cash_drivers_count' => $periodCashDriversCount,
         ];
     }
 

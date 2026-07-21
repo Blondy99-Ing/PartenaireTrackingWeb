@@ -757,9 +757,9 @@
     <div class="lease-kpi-grid">
         <div class="ui-card lkpi lkpi-highlight">
             <div>
-                <p class="lkpi-label">Encaissé aujourd’hui</p>
-                <p class="lkpi-value success">{{ $money($kpis['today_cash_amount'] ?? 0) }}</p>
-                <div class="kpi-note">Cash réel · {{ $kpis['today_cash_payments_count'] ?? 0 }} paiements · {{ $kpis['today_cash_drivers_count'] ?? 0 }} chauffeurs · fixe, indépendant du filtre ci-dessus</div>
+                <p class="lkpi-label">Encaissé · {{ $period['label'] ?? 'Aujourd’hui' }}</p>
+                <p class="lkpi-value success">{{ $money($kpis['period_cash_amount'] ?? 0) }}</p>
+                <div class="kpi-note">Cash réel (date de paiement) · {{ $kpis['period_cash_payments_count'] ?? 0 }} paiements · {{ $kpis['period_cash_drivers_count'] ?? 0 }} chauffeurs</div>
             </div>
             <div class="lkpi-icon green"><i class="fas fa-sack-dollar"></i></div>
         </div>
@@ -772,7 +772,7 @@
             <div class="lkpi-icon grey"><i class="fas fa-file-invoice-dollar"></i></div>
         </div>
         <div class="ui-card lkpi">
-            <div><p class="lkpi-label">Payé (échéances période)</p><p class="lkpi-value success">{{ $money($kpis['paid_amount'] ?? 0) }}</p><div class="kpi-note">Sur ces échéances précises, pas le cash du jour</div></div>
+            <div><p class="lkpi-label">Payé (échéances période)</p><p class="lkpi-value success">{{ $money($kpis['paid_amount'] ?? 0) }}</p><div class="kpi-note">Sur ces échéances précises, pas le cash encaissé (voir « Encaissé » ci-dessus)</div></div>
             <div class="lkpi-icon green"><i class="fas fa-coins"></i></div>
         </div>
         <div class="ui-card lkpi">
@@ -999,11 +999,11 @@
             <div class="ui-card card-pad">
                 <div class="card-head">
                     <div>
-                        <h2 class="card-title"><i class="fas fa-money-check-alt"></i> Paiements du jour</h2>
-                        <p class="card-subtitle">Toujours aujourd’hui (date de paiement réelle) — fixe, ne bouge pas avec le filtre de période ci-dessus.</p>
+                        <h2 class="card-title"><i class="fas fa-money-check-alt"></i> Paiements</h2>
+                        <p class="card-subtitle">Cash réellement encaissé sur la période sélectionnée · {{ $period['label'] ?? 'Aujourd’hui' }} (date de paiement réelle).</p>
                     </div>
                     <div class="card-actions">
-                        <label class="block-search-field" aria-label="Rechercher dans les paiements du jour">
+                        <label class="block-search-field" aria-label="Rechercher dans les paiements">
                             <i class="fas fa-search"></i>
                             <input class="block-search-input" type="search" placeholder="Rechercher..." data-table-filter="#paymentsTable, #paymentsByDriverTable">
                         </label>
@@ -1030,7 +1030,7 @@
                         <strong>Détail des paiements</strong>
                         <span>Basculer entre transactions et total par chauffeur</span>
                     </div>
-                    <div class="chart-mode-toggle" aria-label="Changer la vue des paiements du jour">
+                    <div class="chart-mode-toggle" aria-label="Changer la vue des paiements">
                         <button type="button" class="chart-mode-btn active" data-payments-view="list">
                             <i class="fas fa-list"></i> Liste
                         </button>
@@ -1055,7 +1055,7 @@
                                 <td><span class="dash-badge {{ $badgeClass($payment['status']['badge'] ?? null) }}">{{ $payment['status']['label'] ?? '—' }}</span></td>
                             </tr>
                         @empty
-                            <tr><td colspan="7"><div class="empty-state">Aucun paiement enregistré aujourd’hui.</div></td></tr>
+                            <tr><td colspan="7"><div class="empty-state">Aucun paiement enregistré sur cette période.</div></td></tr>
                         @endforelse
                         </tbody>
                     </table>
@@ -1073,7 +1073,7 @@
                                 <td>{{ $row['last_payment_at'] ?? '—' }}</td>
                             </tr>
                         @empty
-                            <tr><td colspan="4"><div class="empty-state">Aucun paiement enregistré aujourd’hui.</div></td></tr>
+                            <tr><td colspan="4"><div class="empty-state">Aucun paiement enregistré sur cette période.</div></td></tr>
                         @endforelse
                         </tbody>
                     </table>
