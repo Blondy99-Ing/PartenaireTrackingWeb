@@ -857,7 +857,7 @@
 
         <div class="table-scroll" style="max-height:340px; display:none;" data-ledger-panel="contract">
             <table class="dashboard-table" id="ledgerByContractTable">
-                <thead><tr><th>Chauffeur</th><th>Véhicule</th><th>Type de contrat</th><th>Échéance impayée</th><th>Versé (contrat)</th><th>Dette (contrat)</th><th>Total dû (chauffeur)</th><th>Échéance</th><th>Retard</th></tr></thead>
+                <thead><tr><th>Chauffeur</th><th>Véhicule</th><th>Type de contrat</th><th>Échéance impayée</th><th>Versé (contrat, total)</th><th>Impayé (ce contrat)</th><th>Total impayé (chauffeur)</th><th>Échéance</th><th>Retard</th></tr></thead>
                 <tbody>
                 @forelse(($overdueLedger['contracts'] ?? []) as $row)
                     <tr data-search="{{ $row['search'] ?? '' }}">
@@ -866,7 +866,7 @@
                         <td>{{ $row['type'] ?? '—' }}</td>
                         <td class="amount-danger">{{ $money($row['amount_due'] ?? 0) }}</td>
                         <td class="amount-success">{{ $row['contract_paid'] !== null ? $money($row['contract_paid']) : '—' }}</td>
-                        <td class="amount-danger">{{ $row['contract_remaining'] !== null ? $money($row['contract_remaining']) : '—' }}</td>
+                        <td class="amount-danger">{{ $money($row['contract_arrears'] ?? 0) }}</td>
                         <td class="amount-danger"><strong>{{ $money($row['driver_total_due'] ?? 0) }}</strong></td>
                         <td>{{ $row['due_date'] ?? '—' }}</td>
                         <td><span class="dash-badge {{ $badgeClass($row['urgency']['badge'] ?? null) }}">{{ $row['urgency']['label'] ?? '—' }}</span></td>

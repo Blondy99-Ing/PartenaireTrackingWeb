@@ -705,9 +705,23 @@ class DashboardLeaseService
                 (int) ($c['source_contrat_id'] ?? $c['id'] ?? 0) => [
                     'total' => (float) ($c['montant_total'] ?? 0),
                     'paid' => (float) ($c['total_paye'] ?? 0),
-                    'remaining' => (float) ($c['montant_restant'] ?? 0),
                 ],
             ]);
+
+        /**
+         * "Dette du contrat" ne doit PAS être montant_restant (solde total
+         * restant sur toute la durée du bail, échéances futures comprises —
+         * ça peut dépasser le million FCFA sur un bail Moto sain, sans rapport
+         * avec un retard). Sur une page d'ARDOISE, la dette doit rester de la
+         * même nature que "Total dû (chauffeur)" : un cumul d'échéances déjà
+         * en retard, juste regroupé par contrat au lieu de par chauffeur.
+         * Sinon on affiche un solde de contrat > dette du chauffeur, ce qui
+         * est logiquement impossible et illisible.
+         */
+        $arrearsByContractId = collect($unpaidRows)
+            ->filter(fn ($row) => is_array($row) && ($row['statut'] ?? null) === 'unpaid')
+            ->groupBy(fn ($row) => (int) ($row['source_contrat_id'] ?? 0))
+            ->map(fn ($rows) => $rows->sum(fn ($row) => $this->leaseRemaining($row)));
 
         $drivers = collect($unpaidRows)
             ->filter(fn ($row) => is_array($row) && ($row['statut'] ?? null) === 'unpaid')
@@ -755,7 +769,7 @@ class DashboardLeaseService
          */
         $contractsLate = collect($unpaidRows)
             ->filter(fn ($row) => is_array($row) && ($row['statut'] ?? null) === 'unpaid')
-            ->map(function ($row) use ($today, $mainLinksBySourceContractId, $totalDueByDriver, $financialsByContractId) {
+            ->map(function ($row) use ($today, $mainLinksBySourceContractId, $totalDueByDriver, $financialsByContractId, $arrearsByContractId) {
                 $dueDate = $this->safeCarbon($row['date_echeance'] ?? null);
                 $daysLate = $dueDate ? max(0, $dueDate->diffInDays($today)) : 0;
                 $driver = (string) ($row['chauffeur'] ?? 'Chauffeur');
@@ -771,7 +785,7 @@ class DashboardLeaseService
                     'amount_due' => $this->leaseRemaining($row),
                     'driver_total_due' => $totalDueByDriver->get($driver ?: '—', 0),
                     'contract_paid' => $financials['paid'] ?? null,
-                    'contract_remaining' => $financials['remaining'] ?? null,
+                    'contract_arrears' => $arrearsByContractId->get($contractId, 0),
                     'contract_total' => $financials['total'] ?? null,
                     'due_date' => $dueDate?->format('d/m/Y'),
                     'days_late' => $daysLate,
