@@ -321,12 +321,27 @@
     display: grid;
     gap: .75rem;
 }
+/*
+ * Sans min-width:0, une carte contenant un tableau large (min-width:660px
+ * plus bas) force sa cellule de grille — et donc toute la page — à
+ * déborder horizontalement au lieu de laisser le tableau défiler dans son
+ * propre conteneur .table-scroll. Bug CSS grid classique : les enfants de
+ * grille ont min-width:auto par défaut, qui respecte le contenu au lieu de
+ * la taille de la colonne.
+ */
+.recouvrement-dashboard .page-grid > *,
+.recouvrement-dashboard .analysis-grid > *,
+.recouvrement-dashboard .table-grid > *,
+.recouvrement-dashboard .ops-grid > * {
+    min-width: 0;
+}
 .recouvrement-dashboard .analysis-grid { grid-template-columns: 1.45fr 1.05fr .8fr; }
 .recouvrement-dashboard .chart-switch-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: .75rem;
+    flex-wrap: wrap;
     margin-bottom: .45rem;
 }
 .recouvrement-dashboard .small-chart-title {
@@ -377,6 +392,7 @@
     align-items: flex-start;
     justify-content: space-between;
     gap: .65rem;
+    flex-wrap: wrap;
     margin-bottom: .65rem;
 }
 .recouvrement-dashboard .card-title {
@@ -673,6 +689,10 @@
 @media (max-width: 900px) {
     .recouvrement-dashboard .ledger-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .recouvrement-dashboard .payments-summary { grid-template-columns: 1fr; }
+}
+@media (max-width: 480px) {
+    .recouvrement-dashboard .ledger-summary { grid-template-columns: 1fr; }
+    .recouvrement-dashboard .ledger-head-top { flex-direction: column; align-items: flex-start; }
 }
 
 @media (max-width: 1600px) {
