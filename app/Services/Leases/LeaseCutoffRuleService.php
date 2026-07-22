@@ -179,6 +179,18 @@ class LeaseCutoffRuleService
                  */
                 $safeTypeLabel = $this->safeContractTypeLabel($link);
 
+                /**
+                 * active_days pilote aussi le calcul des jours de retard côté dashboard.
+                 * Si cette page ne l'envoie pas (ou envoie une sélection vide), on
+                 * préserve la valeur déjà enregistrée au lieu de l'écraser à Lun-Sam :
+                 * un contrat paramétré avec un rythme personnalisé sur la page contrat
+                 * ne doit pas perdre ce rythme simplement parce qu'on a coché "Activer" ici.
+                 */
+                $submittedActiveDays = $this->normalizeActiveDays($payload['active_days'] ?? []);
+                $activeDays = ! empty($submittedActiveDays)
+                    ? $submittedActiveDays
+                    : (! empty($rule->active_days) ? $rule->active_days : ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']);
+
                 $rule->fill([
                     'vehicle_id' => $link->vehicle_id,
                     'driver_id' => $link->driver_id,
@@ -191,7 +203,7 @@ class LeaseCutoffRuleService
                     'cutoff_time' => ! empty($payload['cutoff_time']) ? $payload['cutoff_time'] : null,
                     'timezone' => $payload['timezone'] ?? 'Africa/Douala',
                     'grace_days' => (int) ($payload['grace_days'] ?? 0),
-                    'active_days' => $this->normalizeActiveDays($payload['active_days'] ?? ['monday','tuesday','wednesday','thursday','friday','saturday']),
+                    'active_days' => $activeDays,
                     'only_when_stopped' => $this->toBool($payload['only_when_stopped'] ?? true),
                     'notify_before_cutoff' => $this->toBool($payload['notify_before_cutoff'] ?? false),
                     'updated_by' => $actorId,
@@ -328,6 +340,7 @@ class LeaseCutoffRuleService
             'cutoff_time' => $rule?->effectiveCutoffTime(),
             'timezone' => $rule?->timezone ?: 'Africa/Douala',
             'grace_days' => (int) ($rule?->grace_days ?? 0),
+            'active_days' => ! empty($rule?->active_days) ? $rule->active_days : ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'],
             'only_when_stopped' => (bool) ($rule?->only_when_stopped ?? true),
             'notify_before_cutoff' => (bool) ($rule?->notify_before_cutoff ?? false),
             'status' => $link->status,

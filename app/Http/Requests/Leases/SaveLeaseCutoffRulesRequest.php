@@ -30,6 +30,8 @@ class SaveLeaseCutoffRulesRequest extends FormRequest
             'rules.*.contract_rules.*.cutoff_time' => ['nullable', 'date_format:H:i'],
             'rules.*.contract_rules.*.timezone' => ['nullable', 'string', 'max:64'],
             'rules.*.contract_rules.*.grace_days' => ['nullable', 'integer', 'min:0', 'max:365'],
+            'rules.*.contract_rules.*.active_days' => ['nullable', 'array'],
+            'rules.*.contract_rules.*.active_days.*' => ['string', 'in:monday,tuesday,wednesday,thursday,friday,saturday,sunday'],
             'rules.*.contract_rules.*.only_when_stopped' => ['nullable', 'boolean'],
             'rules.*.contract_rules.*.notify_before_cutoff' => ['nullable', 'boolean'],
         ];

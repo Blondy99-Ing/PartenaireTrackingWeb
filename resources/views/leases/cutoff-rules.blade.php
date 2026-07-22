@@ -642,14 +642,16 @@
     white-space: nowrap;
 }
 
-/* Fields grid: 4 cols */
+/* Fields grid: 3 cols (heure, grâce, sécurité) + ligne jours actifs pleine largeur */
 .lco-rule-fields {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: .45rem;
     padding-top: .6rem;
     border-top: 1px solid var(--color-border-subtle);
 }
+
+@media (max-width: 560px) { .lco-rule-fields { grid-template-columns: 1fr 1fr; } }
 
 .lco-field label {
     display: block;
@@ -691,6 +693,66 @@
 
 .lco-check-wrap input { accent-color: var(--lco-primary); }
 
+.lco-field-hint {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 13px; height: 13px;
+    border-radius: 50%;
+    background: var(--color-border-subtle);
+    color: var(--color-text-muted);
+    font-size: .55rem;
+    font-weight: 800;
+    font-style: normal;
+    cursor: help;
+    margin-left: .25rem;
+}
+
+/* ── Jours actifs ── */
+.lco-rule-days {
+    grid-column: 1 / -1;
+    margin-top: .55rem;
+    padding-top: .55rem;
+    border-top: 1px dashed var(--color-border-subtle);
+}
+
+.lco-days-row { display: flex; gap: .3rem; flex-wrap: wrap; }
+
+.lco-day-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: .28rem;
+    border-radius: 999px;
+    background: var(--color-card);
+    border: 1px solid var(--color-border-subtle);
+    padding: .3rem .55rem;
+    font-size: .66rem;
+    font-weight: 800;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    transition: background var(--lco-t), border-color var(--lco-t), color var(--lco-t);
+}
+
+.lco-day-pill input { accent-color: var(--lco-primary); width: 12px; height: 12px; cursor: pointer; }
+
+.lco-day-pill.checked {
+    background: var(--lco-primary-light);
+    border-color: var(--lco-primary-border);
+    color: var(--lco-primary);
+}
+
+.lco-rule-card.days-empty .lco-rule-days { border-color: rgba(220,38,38,.35); }
+.lco-rule-days-warning {
+    display: none;
+    align-items: center;
+    gap: .3rem;
+    margin-top: .35rem;
+    font-size: .65rem;
+    font-weight: 700;
+    color: #b91c1c;
+}
+.lco-rule-card.days-empty .lco-rule-days-warning { display: flex; }
+
 /* ══════════════════════════════════════════════════════════
    FORM FOOTER
 ══════════════════════════════════════════════════════════ */
@@ -703,7 +765,27 @@
     padding: .9rem 1.1rem;
     border-top: 1px solid var(--color-border-subtle);
     background: var(--color-bg-subtle, #f9fafb);
+    position: sticky;
+    bottom: 0;
+    z-index: 3;
+    box-shadow: 0 -4px 10px rgba(15,23,42,.05);
 }
+
+.lco-pending-badge {
+    display: none;
+    align-items: center;
+    gap: .3rem;
+    padding: .2rem .55rem;
+    border-radius: 999px;
+    background: var(--lco-primary-light);
+    color: var(--lco-primary);
+    font-size: .68rem;
+    font-weight: 800;
+    margin-left: .5rem;
+    white-space: nowrap;
+}
+
+.lco-pending-badge.show { display: inline-flex; }
 
 .dark-mode .lco-form-footer { background: rgba(255,255,255,.02); }
 
@@ -1062,10 +1144,10 @@
                                             <input type="hidden" name="rules[{{ $rowIndex }}][contract_rules][{{ $ruleIndex }}][contract_link_id]" value="{{ $rule['contract_link_id'] }}">
                                             <input type="hidden" name="rules[{{ $rowIndex }}][contract_rules][{{ $ruleIndex }}][timezone]" value="{{ $rule['timezone'] ?? 'Africa/Douala' }}">
 
-                                            {{-- Champs : heure, grâce, sécurité, notif --}}
+                                            {{-- Champs : heure, grâce, sécurité, jours actifs --}}
                                             <div class="lco-rule-fields">
                                                 <div class="lco-field">
-                                                    <label>Heure</label>
+                                                    <label>Heure <i class="lco-field-hint" title="Heure locale à laquelle la coupure est envoyée si le contrat est en impayé et la règle active.">?</i></label>
                                                     <input
                                                         type="time"
                                                         class="lco-field-input rule-time"
@@ -1075,7 +1157,7 @@
                                                 </div>
 
                                                 <div class="lco-field">
-                                                    <label>Grâce (j)</label>
+                                                    <label>Grâce (j) <i class="lco-field-hint" title="Nombre de jours de retard tolérés après l'échéance avant la première tentative de coupure.">?</i></label>
                                                     <input
                                                         type="number"
                                                         class="lco-field-input"
@@ -1088,13 +1170,36 @@
                                                 <div class="lco-field">
                                                     <label>Sécurité</label>
                                                     <input type="hidden" name="rules[{{ $rowIndex }}][contract_rules][{{ $ruleIndex }}][only_when_stopped]" value="1">
-                                                    <label class="lco-check-wrap" title="Sécurité obligatoire côté Tracking">
+                                                    <label class="lco-check-wrap" title="Sécurité obligatoire côté Tracking : une coupure n'est jamais envoyée à un véhicule en mouvement.">
                                                         <input type="checkbox" checked disabled>
                                                         Arrêt obligatoire
                                                     </label>
                                                 </div>
 
-                                                
+                                                <div class="lco-rule-days">
+                                                    <label style="display:block;font-size:.57rem;text-transform:uppercase;letter-spacing:.07em;font-weight:700;color:var(--color-text-muted);margin-bottom:.32rem;">
+                                                        Jours actifs
+                                                        <i class="lco-field-hint" title="Jours pris en compte pour planifier la coupure ET pour calculer le retard réel du contrat sur le dashboard. Doit correspondre au rythme de paiement réel du chauffeur.">?</i>
+                                                    </label>
+                                                    <div class="lco-days-row">
+                                                        @foreach(['monday' => 'Lun', 'tuesday' => 'Mar', 'wednesday' => 'Mer', 'thursday' => 'Jeu', 'friday' => 'Ven', 'saturday' => 'Sam', 'sunday' => 'Dim'] as $dayValue => $dayLabel)
+                                                            <label class="lco-day-pill">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    class="rule-active-day"
+                                                                    name="rules[{{ $rowIndex }}][contract_rules][{{ $ruleIndex }}][active_days][]"
+                                                                    value="{{ $dayValue }}"
+                                                                    @checked(in_array($dayValue, $rule['active_days'] ?? [], true))
+                                                                >
+                                                                {{ $dayLabel }}
+                                                            </label>
+                                                        @endforeach
+                                                    </div>
+                                                    <div class="lco-rule-days-warning">
+                                                        <i class="fas fa-triangle-exclamation" style="font-size:.6rem;"></i>
+                                                        Sélectionnez au moins un jour actif.
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     @endforeach
@@ -1122,9 +1227,10 @@
                 <div class="lco-form-footer-hint">
                     <i class="fas fa-info-circle" style="margin-top:.1rem;color:var(--lco-primary);flex-shrink:0;"></i>
                     Pas de règle active sur le contrat ou sous-contrat réel = aucune planification de coupure. La dette reste gérée uniquement dans Recouvrement.
+                    <span class="lco-pending-badge" id="pendingBadge"><i class="fas fa-circle-exclamation"></i> <span id="pendingCount">0</span> modification(s) non enregistrée(s)</span>
                 </div>
                 <div class="lco-form-actions">
-                    <button type="reset" class="lco-btn">
+                    <button type="reset" class="lco-btn" id="resetFormBtn">
                         <i class="fas fa-rotate-left"></i>
                         Réinitialiser
                     </button>
@@ -1144,20 +1250,54 @@
 <script>
 document.addEventListener('DOMContentLoaded', () => {
     const rows         = Array.from(document.querySelectorAll('.lco-row'));
+    const cardsAll      = Array.from(document.querySelectorAll('.lco-rule-card'));
     const search       = document.getElementById('contractSearch');
     const typeFilter   = document.getElementById('typeFilter');
     const statusFilter = document.getElementById('statusFilter');
     const checkAll     = document.getElementById('checkAll');
     const selectionBar = document.getElementById('selectionBar');
     const selectedCountEl = document.getElementById('selectedCount');
+    const form          = document.getElementById('cutoffRulesForm');
+    const pendingBadge  = document.getElementById('pendingBadge');
+    const pendingCountEl = document.getElementById('pendingCount');
 
     /* ── helpers ───────────────────────────────────────────── */
     const visibleRows  = () => rows.filter(r => !r.classList.contains('hidden'));
     const selectedRows = () => rows.filter(r => r.querySelector('.lco-row-check')?.checked);
 
+    /* ── carte : jours actifs + suivi des modifications ──────── */
+    function cardSnapshot(card) {
+        const enabled = !!card.querySelector('.rule-enabled')?.checked;
+        const time    = card.querySelector('.rule-time')?.value || '';
+        const grace   = card.querySelector('input[name*="[grace_days]"]')?.value || '0';
+        const days    = Array.from(card.querySelectorAll('.rule-active-day:checked')).map(i => i.value).sort().join(',');
+        return { enabled, time, grace, days };
+    }
+
+    function refreshCard(card) {
+        const dayInputs = Array.from(card.querySelectorAll('.rule-active-day'));
+        dayInputs.forEach(input => input.closest('.lco-day-pill')?.classList.toggle('checked', input.checked));
+        card.classList.toggle('days-empty', dayInputs.length > 0 && dayInputs.every(i => !i.checked));
+
+        const initial = card.dataset.initial ? JSON.parse(card.dataset.initial) : null;
+        const current = cardSnapshot(card);
+        const isDirty = initial ? JSON.stringify(initial) !== JSON.stringify(current) : false;
+        card.classList.toggle('dirty', isDirty);
+    }
+
+    function refreshPendingBadge() {
+        const dirtyCount = cardsAll.filter(c => c.classList.contains('dirty')).length;
+        if (pendingBadge && pendingCountEl) {
+            pendingCountEl.textContent = dirtyCount;
+            pendingBadge.classList.toggle('show', dirtyCount > 0);
+        }
+    }
+
     /* Refresh a single row's status badge and KPI data attributes */
     function refreshRow(row) {
         const cards   = Array.from(row.querySelectorAll('.lco-rule-card'));
+        cards.forEach(refreshCard);
+
         const enabled = cards.filter(c => c.querySelector('.rule-enabled')?.checked).length;
         const missing = cards.filter(c => c.querySelector('.rule-enabled')?.checked && !c.querySelector('.rule-time')?.value).length;
 
@@ -1166,6 +1306,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         /* card visual state */
         cards.forEach(c => c.classList.toggle('enabled', !!c.querySelector('.rule-enabled')?.checked));
+        row.classList.toggle('dirty', cards.some(c => c.classList.contains('dirty')));
 
         /* row status badge */
         const statusEl = row.querySelector('.row-status');
@@ -1178,8 +1319,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 statusEl.innerHTML = '<span class="lco-tag off"><i class="fas fa-minus" style="font-size:.55rem;"></i> Aucune règle</span>';
         }
 
-        row.classList.add('dirty');
         refreshKpis();
+        refreshPendingBadge();
     }
 
     function refreshKpis() {
@@ -1252,7 +1393,9 @@ document.addEventListener('DOMContentLoaded', () => {
     rows.forEach(row => {
         row.querySelector('.lco-row-check')?.addEventListener('change', refreshSelectionBar);
         row.querySelectorAll('input').forEach(input => {
-            if (input.classList.contains('lco-row-check')) return;
+            /* .lco-row-check est réutilisée pour le style des cases "Activer" (rule-enabled) :
+               on ne doit exclure ici que la vraie case de sélection de ligne, pas ces cases-là. */
+            if (input.classList.contains('lco-row-check') && !input.classList.contains('rule-enabled')) return;
             input.addEventListener('change', () => { refreshRow(row); applyFilters(); });
             input.addEventListener('input',  () => { refreshRow(row); applyFilters(); });
         });
@@ -1293,9 +1436,53 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
     /* ── init ───────────────────────────────────────────────── */
-    rows.forEach(refreshRow);
-    rows.forEach(r => r.classList.remove('dirty'));
-    applyFilters();
+    function resnapshotAll() {
+        cardsAll.forEach(card => { card.dataset.initial = JSON.stringify(cardSnapshot(card)); });
+        rows.forEach(refreshRow);
+        applyFilters();
+    }
+
+    resnapshotAll();
+
+    /* Le reset natif restaure les valeurs HTML par défaut ; on resynchronise
+       ensuite l'état visuel (badges, jours cochés, compteur) juste après. */
+    document.getElementById('resetFormBtn')?.addEventListener('click', () => setTimeout(resnapshotAll, 0));
+
+    /* ── validation + récapitulatif avant enregistrement ─────── */
+    form?.addEventListener('submit', (event) => {
+        const emptyDaysCards = cardsAll.filter(c => c.classList.contains('days-empty'));
+        if (emptyDaysCards.length > 0) {
+            event.preventDefault();
+            emptyDaysCards[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+            alert('Au moins une règle n\'a aucun jour actif sélectionné. Choisissez au moins un jour avant d\'enregistrer.');
+            return;
+        }
+
+        const dirtyCards = cardsAll.filter(c => c.classList.contains('dirty'));
+        if (dirtyCards.length === 0) return;
+
+        let enabledCount = 0, disabledCount = 0, timeChanged = 0, graceChanged = 0, daysChanged = 0;
+        dirtyCards.forEach(card => {
+            const initial = card.dataset.initial ? JSON.parse(card.dataset.initial) : {};
+            const current = cardSnapshot(card);
+            if (!initial.enabled && current.enabled) enabledCount++;
+            if (initial.enabled && !current.enabled) disabledCount++;
+            if (initial.time !== current.time) timeChanged++;
+            if (initial.grace !== current.grace) graceChanged++;
+            if (initial.days !== current.days) daysChanged++;
+        });
+
+        const parts = [];
+        if (enabledCount)  parts.push(`${enabledCount} règle(s) activée(s)`);
+        if (disabledCount) parts.push(`${disabledCount} règle(s) désactivée(s)`);
+        if (timeChanged)   parts.push(`${timeChanged} heure(s) modifiée(s)`);
+        if (graceChanged)  parts.push(`${graceChanged} délai(s) de grâce modifié(s)`);
+        if (daysChanged)   parts.push(`${daysChanged} jour(s) actifs modifié(s)`);
+
+        const summary = parts.length ? parts.join(', ') : `${dirtyCards.length} règle(s) modifiée(s)`;
+        const confirmed = confirm(`Vous allez enregistrer : ${summary}.\n\nCette action peut activer ou empêcher des coupures moteur réelles. Confirmer ?`);
+        if (!confirmed) event.preventDefault();
+    });
 });
 </script>
 @endpush
