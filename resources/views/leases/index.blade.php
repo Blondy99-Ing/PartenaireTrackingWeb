@@ -356,6 +356,35 @@ input:checked + .fl-slider:before {
     color: var(--color-secondary-text);
     opacity: .7;
 }
+.fdate-basis-toggle {
+    display: flex;
+    gap: .3rem;
+    padding: .35rem .85rem .55rem;
+}
+.fdate-basis-btn {
+    flex: 1;
+    border: 1px solid var(--color-border-subtle);
+    background: transparent;
+    color: var(--color-secondary-text);
+    border-radius: .5rem;
+    padding: .35rem .4rem;
+    font-size: .64rem;
+    font-weight: 800;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.fdate-basis-btn.active {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: #fff;
+}
+.fdate-basis-hint {
+    padding: 0 .85rem .4rem;
+    font-size: .58rem;
+    color: var(--color-secondary-text);
+    opacity: .8;
+    line-height: 1.35;
+}
 .fdrop-sep {
     height: 1px;
     background: var(--color-border-subtle);
@@ -1435,6 +1464,14 @@ input:checked + .fl-slider:before {
                 <i class="fas fa-chevron-down fchev"></i>
             </button>
             <div class="filter-dropdown-menu" id="drop-date" style="min-width:240px;">
+                <div class="fdrop-label">Filtrer par</div>
+                <div class="fdate-basis-toggle" role="group" aria-label="Choisir la base de date">
+                    <button type="button" class="fdate-basis-btn active" data-date-basis="echeance" onclick="window.setDateBasis('echeance')">Échéance</button>
+                    <button type="button" class="fdate-basis-btn" data-date-basis="paiement" onclick="window.setDateBasis('paiement')">Paiement</button>
+                </div>
+                <div class="fdate-basis-hint" id="date-basis-hint">Date à laquelle l’échéance devait être payée.</div>
+                <div class="fdrop-sep"></div>
+
                 <div class="fdrop-label">Période rapide</div>
 
                 <div class="fdrop-item selected" data-filter="date" data-val="all" onclick="window.setFilter('date','all',this)">
@@ -1729,6 +1766,11 @@ input:checked + .fl-slider:before {
         statut: 'all',
         coupure: 'all',
         date: 'all',
+        // 'echeance' = date à laquelle l'échéance devait être payée.
+        // 'paiement' = date à laquelle l'échéance a réellement été payée
+        // (une échéance impayée n'a pas de date de paiement : elle sort
+        // naturellement des résultats filtrés dans cette base).
+        dateBasis: 'echeance',
         type_contrat: 'all',
         methode: 'all'
     };
@@ -2185,33 +2227,42 @@ input:checked + .fl-slider:before {
         }
 
         const df = activeFilters.date;
+        // date_paiement est un datetime complet (ex. "2026-07-22T10:15:00+01:00") :
+        // on ne garde que la partie date pour comparer avec les bornes yyyy-mm-dd.
+        const rowDate = r => {
+            if (activeFilters.dateBasis !== 'paiement') {
+                return r.date;
+            }
+
+            return r.date_paiement ? String(r.date_paiement).slice(0, 10) : null;
+        };
 
         if (df === 'today') {
-            data = data.filter(r => r.date === today());
+            data = data.filter(r => rowDate(r) === today());
         } else if (df === 'yesterday') {
-            data = data.filter(r => r.date === yesterday());
+            data = data.filter(r => rowDate(r) === yesterday());
         } else if (df === 'week') {
-            data = data.filter(r => r.date >= weekStart());
+            data = data.filter(r => rowDate(r) && rowDate(r) >= weekStart());
         } else if (df === 'month') {
-            data = data.filter(r => r.date >= monthStart());
+            data = data.filter(r => rowDate(r) && rowDate(r) >= monthStart());
         } else if (df === 'year') {
-            data = data.filter(r => r.date >= yearStart());
+            data = data.filter(r => rowDate(r) && rowDate(r) >= yearStart());
         } else if (df === 'specific') {
             const v = document.getElementById('filterDateSpecific')?.value;
 
             if (v) {
-                data = data.filter(r => r.date === v);
+                data = data.filter(r => rowDate(r) === v);
             }
         } else if (df === 'range') {
             const from = document.getElementById('filterDateFrom')?.value;
             const to = document.getElementById('filterDateTo')?.value;
 
             if (from) {
-                data = data.filter(r => r.date >= from);
+                data = data.filter(r => rowDate(r) && rowDate(r) >= from);
             }
 
             if (to) {
-                data = data.filter(r => r.date <= to);
+                data = data.filter(r => rowDate(r) && rowDate(r) <= to);
             }
         }
 
@@ -2665,6 +2716,24 @@ input:checked + .fl-slider:before {
         applyFilters();
     };
 
+    window.setDateBasis = function (basis) {
+        activeFilters.dateBasis = basis;
+
+        document.querySelectorAll('.fdate-basis-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.dateBasis === basis);
+        });
+
+        const hint = document.getElementById('date-basis-hint');
+        if (hint) {
+            hint.textContent = basis === 'paiement'
+                ? 'Date à laquelle l’échéance a réellement été payée. Une échéance impayée n’a pas de date de paiement — elle sort des résultats filtrés.'
+                : 'Date à laquelle l’échéance devait être payée.';
+        }
+
+        currentPage = 1;
+        applyFilters();
+    };
+
     function renderActiveFiltersStrip() {
         const strip = document.getElementById('activeFiltersStrip');
 
@@ -2731,9 +2800,11 @@ input:checked + .fl-slider:before {
                 range: 'Plage de dates',
             };
 
+            const basisLabel = activeFilters.dateBasis === 'paiement' ? 'paiement' : 'échéance';
+
             chips.push({
                 key: 'date',
-                label: `Date : ${labels[activeFilters.date] || activeFilters.date}`,
+                label: `Date (${basisLabel}) : ${labels[activeFilters.date] || activeFilters.date}`,
             });
         }
 
@@ -2781,6 +2852,13 @@ input:checked + .fl-slider:before {
         }
 
         if (key === 'date') {
+                activeFilters.dateBasis = 'echeance';
+                document.querySelectorAll('.fdate-basis-btn').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.dateBasis === 'echeance');
+                });
+                const basisHint = document.getElementById('date-basis-hint');
+                if (basisHint) basisHint.textContent = 'Date à laquelle l’échéance devait être payée.';
+
                 const label = document.getElementById('date-label');
                 if (label) label.textContent = 'Période';
 
@@ -2817,6 +2895,7 @@ input:checked + .fl-slider:before {
             statut: 'all',
             coupure: 'all',
             date: 'all',
+            dateBasis: 'echeance',
             type_contrat: 'all',
             methode: 'all',
         };
@@ -2831,6 +2910,12 @@ input:checked + .fl-slider:before {
                 item.classList.toggle('selected', item.dataset.val === 'all');
             });
         });
+
+        document.querySelectorAll('.fdate-basis-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.dateBasis === 'echeance');
+        });
+        const basisHint = document.getElementById('date-basis-hint');
+        if (basisHint) basisHint.textContent = 'Date à laquelle l’échéance devait être payée.';
 
         const label = document.getElementById('date-label');
         if (label) label.textContent = 'Période';
