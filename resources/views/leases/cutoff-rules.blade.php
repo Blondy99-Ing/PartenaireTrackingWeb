@@ -1541,7 +1541,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const summary = parts.length ? parts.join(', ') : `${dirtyCards.length} règle(s) modifiée(s)`;
         const confirmed = confirm(`Vous allez enregistrer : ${summary}.\n\nCette action peut activer ou empêcher des coupures moteur réelles. Confirmer ?`);
-        if (!confirmed) event.preventDefault();
+        if (!confirmed) {
+            event.preventDefault();
+            return;
+        }
+
+        /* N'envoyer que les règles réellement modifiées. Avec des centaines de lignes,
+           soumettre tout le tableau à chaque enregistrement dépasse la limite PHP
+           max_input_vars : le serveur tronque alors la requête sans erreur visible et
+           la modification n'est jamais réellement enregistrée. Un champ désactivé
+           n'est pas envoyé par le navigateur, donc on désactive tout ce qui n'a pas
+           changé juste avant la soumission. */
+        cardsAll.forEach(card => {
+            if (!card.classList.contains('dirty')) {
+                card.querySelectorAll('input, select, textarea').forEach(el => { el.disabled = true; });
+            }
+        });
+        rows.forEach(row => {
+            const rowCards = Array.from(row.querySelectorAll('.lco-rule-card'));
+            const rowHasDirtyCard = rowCards.some(c => c.classList.contains('dirty'));
+            if (!rowHasDirtyCard) {
+                row.querySelectorAll('input[name*="[main_contract_link_id]"], input[name*="[vehicle_id]"]')
+                    .forEach(el => { el.disabled = true; });
+            }
+        });
     });
 });
 </script>
