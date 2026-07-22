@@ -1397,6 +1397,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const status = (statusFilter?.value || '').trim().toLowerCase();
 
         rows.forEach(row => {
+            /* Une ligne en cours de modification (non enregistrée) reste visible même si
+               elle ne correspond plus au filtre actif : sinon cocher "Activer" avec le
+               filtre "Aucune règle" fait disparaître la ligne qu'on est en train d'éditer. */
+            if (row.classList.contains('dirty')) {
+                row.classList.remove('hidden');
+                return;
+            }
+
             const matchSearch = !q || (row.dataset.search || '').includes(q);
             const matchType = !type || (row.dataset.typeTokens || '').split(/\s+/).includes(type);
             const matchStatus = !status || rowStatus(row) === status;
