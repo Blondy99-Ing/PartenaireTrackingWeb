@@ -313,8 +313,13 @@
     flex-wrap: wrap;
 }
 
+/* Ligne 1 : recherche + filtres, contraints pour tenir sur la même ligne */
+.lco-toolbar-row-filters { flex-wrap: nowrap; }
+
+@media (max-width: 760px) { .lco-toolbar-row-filters { flex-wrap: wrap; } }
+
 /* Inputs */
-.lco-search-wrap { position: relative; flex: 1; min-width: 220px; }
+.lco-search-wrap { position: relative; flex: 2 1 200px; min-width: 180px; }
 
 .lco-search-icon {
     position: absolute;
@@ -349,7 +354,7 @@
 }
 
 .lco-time-input { padding: 0 .75rem; min-width: 130px; }
-.lco-select { padding: 0 .75rem; min-width: 160px; }
+.lco-select { padding: 0 .75rem; flex: 1 1 150px; min-width: 140px; }
 
 /* Buttons */
 .lco-btn {
@@ -969,8 +974,8 @@
         </div>
 
         <div class="lco-toolbar-body">
-            <div class="lco-toolbar-row">
-                {{-- Recherche --}}
+            {{-- Ligne 1 : recherche + filtres, toujours sur la même ligne --}}
+            <div class="lco-toolbar-row lco-toolbar-row-filters">
                 <div class="lco-search-wrap">
                     <i class="fas fa-search lco-search-icon"></i>
                     <input
@@ -998,10 +1003,10 @@
                     <option value="missing_time">Active sans heure</option>
                     <option value="inactive">Aucune règle</option>
                 </select>
+            </div>
 
-                <div class="lco-toolbar-divider"></div>
-
-                {{-- Groupe : heure + actions visibles --}}
+            {{-- Ligne 2 : actions groupées (heure, activer/désactiver) --}}
+            <div class="lco-toolbar-row">
                 <input type="time" class="lco-input lco-time-input" id="bulkTime" value="12:00">
 
                 <button type="button" class="lco-btn soft" id="applyTimeVisibleBtn">
