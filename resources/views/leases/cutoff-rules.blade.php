@@ -758,17 +758,13 @@
 ══════════════════════════════════════════════════════════ */
 .lco-form-footer {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-start;
     align-items: center;
     gap: 1rem;
     flex-wrap: wrap;
     padding: .9rem 1.1rem;
     border-top: 1px solid var(--color-border-subtle);
     background: var(--color-bg-subtle, #f9fafb);
-    position: sticky;
-    bottom: 0;
-    z-index: 3;
-    box-shadow: 0 -4px 10px rgba(15,23,42,.05);
 }
 
 .lco-pending-badge {
@@ -786,6 +782,46 @@
 }
 
 .lco-pending-badge.show { display: inline-flex; }
+
+/* ══════════════════════════════════════════════════════════
+   BARRE D'ACTION FIXE (toujours visible, sans scroller)
+══════════════════════════════════════════════════════════ */
+.lco-savebar-spacer { height: 68px; }
+
+.lco-savebar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 15;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: .65rem 1.4rem;
+    background: var(--color-card);
+    border-top: 1px solid var(--color-border-subtle);
+    box-shadow: 0 -6px 18px rgba(15,23,42,.09);
+}
+
+.lco-savebar-status {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    font-size: .74rem;
+    font-weight: 700;
+    color: var(--color-text-muted);
+}
+
+.lco-savebar-status .lco-pending-badge { margin-left: 0; }
+
+.lco-savebar-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+
+@media (max-width: 560px) {
+    .lco-savebar { padding: .55rem .8rem; }
+    .lco-savebar-status { font-size: .68rem; }
+}
 
 .dark-mode .lco-form-footer { background: rgba(255,255,255,.02); }
 
@@ -1227,22 +1263,33 @@
                 <div class="lco-form-footer-hint">
                     <i class="fas fa-info-circle" style="margin-top:.1rem;color:var(--lco-primary);flex-shrink:0;"></i>
                     Pas de règle active sur le contrat ou sous-contrat réel = aucune planification de coupure. La dette reste gérée uniquement dans Recouvrement.
-                    <span class="lco-pending-badge" id="pendingBadge"><i class="fas fa-circle-exclamation"></i> <span id="pendingCount">0</span> modification(s) non enregistrée(s)</span>
-                </div>
-                <div class="lco-form-actions">
-                    <button type="reset" class="lco-btn" id="resetFormBtn">
-                        <i class="fas fa-rotate-left"></i>
-                        Réinitialiser
-                    </button>
-                    <button type="submit" class="lco-btn primary">
-                        <i class="fas fa-save"></i>
-                        Enregistrer les règles
-                    </button>
                 </div>
             </div>
         </form>
     </div>
 
+    {{-- Espace réservé pour ne pas masquer la dernière ligne sous la barre fixe --}}
+    <div class="lco-savebar-spacer"></div>
+
+</div>
+
+{{-- ── BARRE D'ACTION FIXE : toujours visible, sans avoir à scroller ── --}}
+<div class="lco-savebar">
+    <div class="lco-savebar-status">
+        <i class="fas fa-shield-halved" style="color:var(--lco-primary);"></i>
+        Paramétrage coupure lease
+        <span class="lco-pending-badge" id="pendingBadge"><i class="fas fa-circle-exclamation"></i> <span id="pendingCount">0</span> modification(s) non enregistrée(s)</span>
+    </div>
+    <div class="lco-savebar-actions">
+        <button type="reset" class="lco-btn" id="resetFormBtn" form="cutoffRulesForm">
+            <i class="fas fa-rotate-left"></i>
+            Réinitialiser
+        </button>
+        <button type="submit" class="lco-btn primary" form="cutoffRulesForm">
+            <i class="fas fa-save"></i>
+            Enregistrer les règles
+        </button>
+    </div>
 </div>
 @endsection
 
