@@ -137,7 +137,7 @@ class DashboardLeaseService
             'kpis' => $kpis,
             'charts' => [
                 'recovery' => $this->buildRecoveryChart($selectedLeases, $selectedPeriod),
-                'type_recovery' => $this->buildTypeRecoveryBreakdown($selectedLeases),
+                'type_recovery' => $this->buildTypeRecoveryBreakdown($selectedLeases, $payments),
             ],
             'tables' => [
                 'drivers_risk' => $this->buildDriversRiskTable($selectedLeases, $cutoffData),
@@ -464,28 +464,96 @@ class DashboardLeaseService
         };
     }
 
-    private function buildTypeRecoveryBreakdown(array $leases): array
+    /**
+     * "Attendu" reste basé sur les échéances de la période (date_echeance) —
+     * c'est la bonne base pour "ce qui est dû". "Collecté" doit en revanche
+     * refléter le cash RÉELLEMENT encaissé (date_paiement, $payments), pas
+     * montant_paye des échéances sélectionnées : un chauffeur peut régler une
+     * vieille échéance aujourd'hui, ou payer en avance une échéance future —
+     * le lease affiché dans la période n'est pas forcément celui qui a
+     * réellement été payé pendant la période. Même logique que "Encaissé"
+     * vs "Montant attendu" au niveau des KPI globaux.
+     */
+    private function buildTypeRecoveryBreakdown(array $leases, array $payments): array
     {
-        $groups = collect($leases)
+        $typeInfoByLeaseId = collect($leases)
+            ->filter(fn ($row) => is_array($row) && (int) ($row['id'] ?? $row['source_lease_id'] ?? 0) > 0)
+            ->mapWithKeys(fn ($row) => [
+                (int) ($row['id'] ?? $row['source_lease_id']) => [
+                    'key' => $this->typeGroupKey($row),
+                    'label' => $this->displayTypeLabel($row),
+                    'is_main' => $this->isMainContract($row),
+                ],
+            ]);
+
+        $missingLeaseIds = collect($payments)
+            ->map(fn ($p) => (int) ($p['lease_id'] ?? 0))
+            ->filter(fn ($id) => $id > 0 && ! $typeInfoByLeaseId->has($id))
+            ->unique();
+
+        if ($missingLeaseIds->isNotEmpty()) {
+            try {
+                foreach ($this->leaseApiService->fetchLeaseTypeLabels() as $lid => $label) {
+                    $lid = (int) $lid;
+                    if (! $typeInfoByLeaseId->has($lid)) {
+                        $label = $this->cleanLabel((string) $label, 'Sous-contrat');
+                        $typeInfoByLeaseId->put($lid, [
+                            'key' => 'sub:' . mb_strtolower($label, 'UTF-8'),
+                            'label' => $label,
+                            // Type resolu hors période : on ne sait pas si c'est le
+                            // contrat principal, on suppose sous-contrat (le cas le
+                            // plus fréquent) plutôt que de fausser le tri "principal".
+                            'is_main' => false,
+                        ]);
+                    }
+                }
+            } catch (Throwable $e) {
+                Log::warning('[LEASE_DASHBOARD_TYPE_RECOVERY_TYPE_INDEX_FAILED]', ['error' => $e->getMessage()]);
+            }
+        }
+
+        $expectedByKey = collect($leases)
+            ->filter(fn ($row) => is_array($row))
             ->groupBy(fn ($row) => $this->typeGroupKey($row))
-            ->map(function (Collection $rows, string $key) {
-                $first = $rows->first() ?: [];
-                $expected = $rows->sum(fn ($row) => $this->leaseExpected($row));
-                $paid = $rows->sum(fn ($row) => $this->leasePaid($row));
+            ->map(fn (Collection $rows) => [
+                'label' => $this->displayTypeLabel($rows->first() ?: []),
+                'is_main' => $this->isMainContract($rows->first() ?: []),
+                'expected' => $rows->sum(fn ($row) => $this->leaseExpected($row)),
+                'count' => $rows->count(),
+            ]);
+
+        $paidByKey = collect($payments)
+            ->filter(fn ($row) => is_array($row))
+            ->groupBy(function ($row) use ($typeInfoByLeaseId) {
+                $leaseId = (int) ($row['lease_id'] ?? 0);
+                $info = $leaseId > 0 ? $typeInfoByLeaseId->get($leaseId) : null;
+
+                return $info['key'] ?? 'sub:véhicule';
+            })
+            ->map(fn (Collection $rows) => $rows->sum(fn ($row) => $this->toFloat($row['montant'] ?? 0)));
+
+        $allKeys = $expectedByKey->keys()->merge($paidByKey->keys())->unique();
+
+        $groups = $allKeys
+            ->map(function (string $key) use ($expectedByKey, $paidByKey, $typeInfoByLeaseId) {
+                $expectedInfo = $expectedByKey->get($key);
+                $paid = $paidByKey->get($key, 0.0);
+                $expected = $expectedInfo['expected'] ?? 0.0;
+                $label = $expectedInfo['label'] ?? ($typeInfoByLeaseId->firstWhere('key', $key)['label'] ?? 'Sous-contrat');
+                $isMain = $expectedInfo['is_main'] ?? false;
                 $remaining = max(0, $expected - $paid);
                 $rate = $expected > 0 ? (int) round(($paid / $expected) * 100) : 0;
-                $isMain = $this->isMainContract($first);
 
                 return [
                     'key' => $key,
-                    'label' => $this->displayTypeLabel($first),
+                    'label' => $label,
                     'kind' => $isMain ? 'principal' : 'sous-contrat',
                     'is_main' => $isMain,
                     'expected' => $expected,
                     'paid' => $paid,
                     'remaining' => $remaining,
                     'rate' => min(100, max(0, $rate)),
-                    'count' => $rows->count(),
+                    'count' => $expectedInfo['count'] ?? 0,
                 ];
             })
             ->sortByDesc(fn ($item) => ($item['is_main'] ? 1_000_000_000 : 0) + $item['paid'])

@@ -933,7 +933,7 @@
                 <div class="card-head">
                     <div>
                         <h2 class="card-title"><i class="fas fa-ranking-star"></i> Collecte par type</h2>
-                        <p class="card-subtitle">Contrat principal d’abord, puis sous-contrats.</p>
+                        <p class="card-subtitle">Attendu = échéances de la période · Collecté = cash réellement encaissé (date de paiement). Contrat principal d’abord, puis sous-contrats.</p>
                     </div>
                 </div>
                 <div class="type-progress-list">
