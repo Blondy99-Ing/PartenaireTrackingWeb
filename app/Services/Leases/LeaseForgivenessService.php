@@ -51,7 +51,7 @@ class LeaseForgivenessService
      * - le message reason nomme toujours le véhicule (immatriculation), le
      *   chauffeur assigné et l'employé qui a accordé le pardon.
      */
-    public function forgive(User $actor, int $leaseId, ?string $reason = null): array
+    public function forgive(User $actor, int $leaseId, ?string $reason = null, bool $cascade = false): array
     {
         $partnerId = $this->resolvePartnerId($actor);
         $forgivenByName = $this->actorLabel($actor);
@@ -219,7 +219,8 @@ class LeaseForgivenessService
                 dueDate: $dueDate,
                 lease: $lease,
                 engineState: $engineState,
-                reason: $reason
+                reason: $reason,
+                cascade: $cascade
             );
         }
 
@@ -387,7 +388,8 @@ class LeaseForgivenessService
         ?string $dueDate,
         array $lease,
         string $engineState,
-        ?string $reason
+        ?string $reason,
+        bool $cascade = false
     ): array {
         $macId = trim((string) $vehicle->mac_id_gps);
 
@@ -400,11 +402,14 @@ class LeaseForgivenessService
          * indépendants (Moto, Téléphone, Royal care...), chacun avec sa propre
          * règle de coupure. Pardonner UN lease ne doit jamais rallumer un
          * véhicule qui reste légitimement coupé à cause d'un AUTRE contrat
-         * encore impayé sur ce même véhicule.
+         * encore impayé sur ce même véhicule — SAUF si l'employé a
+         * explicitement choisi "Pardonner tout" ($cascade), auquel cas ces
+         * contrats frères sont pardonnés avec le même acteur/raison avant de
+         * poursuivre le rallumage.
          */
         $blockingSiblings = $this->findBlockingSiblingContracts($partnerId, $vehicle, $contractLink?->id ?? 0);
 
-        if ($blockingSiblings->isNotEmpty()) {
+        if ($blockingSiblings->isNotEmpty() && ! $cascade) {
             return $this->recordReactivationBlockedBySiblings(
                 actor: $actor,
                 forgivenByName: $forgivenByName,
@@ -420,6 +425,18 @@ class LeaseForgivenessService
                 engineState: $engineState,
                 reason: $reason,
                 blockingSiblings: $blockingSiblings
+            );
+        }
+
+        $cascadedHistoryIds = [];
+        if ($blockingSiblings->isNotEmpty() && $cascade) {
+            $cascadedHistoryIds = $this->cascadePardonSiblings(
+                actor: $actor,
+                forgivenByName: $forgivenByName,
+                partnerId: $partnerId,
+                vehicle: $vehicle,
+                blockingSiblings: $blockingSiblings,
+                reason: $reason
             );
         }
 
@@ -464,7 +481,8 @@ class LeaseForgivenessService
                 commandResponse: $command,
                 uiStatus: 'forgiven_reactivation_failed',
                 message: 'Pardon enregistré, mais le GPS a refusé la commande de rallumage.',
-                createQueueIfMissing: false
+                createQueueIfMissing: false,
+                cascadedHistoryIds: $cascadedHistoryIds
             );
         }
 
@@ -502,7 +520,8 @@ class LeaseForgivenessService
             commandResponse: $command,
             uiStatus: 'forgiven_reactivation_pending',
             message: 'Pardon enregistré. Commande de rallumage envoyée, en attente de confirmation du moteur.',
-            createQueueIfMissing: true
+            createQueueIfMissing: true,
+            cascadedHistoryIds: $cascadedHistoryIds
         );
     }
 
@@ -533,7 +552,9 @@ class LeaseForgivenessService
         array $commandResponse,
         string $uiStatus,
         string $message,
-        bool $createQueueIfMissing
+        bool $createQueueIfMissing,
+        array $cascadedHistoryIds = [],
+        array $extraReturn = []
     ): array {
         DB::transaction(function () use (
             $actor,
@@ -554,7 +575,8 @@ class LeaseForgivenessService
             $businessReason,
             $notes,
             $commandResponse,
-            $createQueueIfMissing
+            $createQueueIfMissing,
+            $cascadedHistoryIds
         ) {
             [$queue, $history] = $this->lockCurrentQueueAndHistory($partnerId, $vehicle, $leaseId, $contractLink, $dueDate, $queue, $history);
 
@@ -613,13 +635,22 @@ class LeaseForgivenessService
             );
 
             if ($queue) {
-                $queue->update([
+                $queueUpdate = [
                     'status' => $queueStatus,
                     'last_checked_at' => now(),
                     'retry_count' => $queueStatus === 'COMMAND_SENT' ? $queue->retry_count + 1 : $queue->retry_count,
                     'next_check_at' => $queueNextCheckAt,
                     'history_id' => $history->id,
-                ]);
+                ];
+
+                if ($queueStatus === 'COMMAND_SENT' && ! empty($cascadedHistoryIds)) {
+                    $queueUpdate['trigger_payload'] = array_merge(
+                        (array) ($queue->trigger_payload ?? []),
+                        ['cascaded_history_ids' => $cascadedHistoryIds]
+                    );
+                }
+
+                $queue->update($queueUpdate);
             } elseif ($createQueueIfMissing) {
                 /**
                  * Ce lease a été coupé en dehors du pipeline automatique (ou sa
@@ -639,12 +670,13 @@ class LeaseForgivenessService
                     'type_contrat_label' => $contractLink?->type_contrat_label,
                     'contract_kind' => $contractLink?->contract_kind,
                     'trigger_label' => $contractLink?->displayTypeLabel(),
-                    'trigger_payload' => [
+                    'trigger_payload' => array_filter([
                         'source_contract_id' => $contractId,
                         'lease_id' => $leaseId,
                         'date_echeance' => $dueDate,
                         'origin' => 'manual_forgiveness_after_cut_reactivation_tracking',
-                    ],
+                        'cascaded_history_ids' => $cascadedHistoryIds ?: null,
+                    ], fn ($v) => $v !== null),
                     'contract_rule_id' => $contractLink?->cutoffRule?->id,
                     'history_id' => $history->id,
                     'scheduled_for' => now(),
@@ -653,6 +685,21 @@ class LeaseForgivenessService
                     'last_checked_at' => now(),
                     'next_check_at' => $queueNextCheckAt,
                 ]);
+            }
+
+            /**
+             * Si l'issue est déjà définitive (GPS refusé, blocage frère) et que
+             * des contrats frères ont été pardonnés en cascade, on ne peut pas
+             * compter sur une future confirmation de queue pour les clôturer :
+             * on les finalise ici avec le même statut/raison.
+             */
+            if ($queueStatus !== 'COMMAND_SENT' && ! empty($cascadedHistoryIds)) {
+                LeaseCutoffHistory::query()
+                    ->whereIn('id', $cascadedHistoryIds)
+                    ->update([
+                        'status' => $historyStatus,
+                        'notes' => DB::raw("CONCAT(COALESCE(notes, ''), '\nRallumage clôturé conjointement avec le contrat principal du pardon (échec).')"),
+                    ]);
             }
 
             Log::info('[LEASE_FORGIVENESS] Pardon après coupure historisé', [
@@ -667,7 +714,7 @@ class LeaseForgivenessService
             ]);
         });
 
-        return [
+        return array_merge([
             'status' => $uiStatus,
             'history_status' => $historyStatus,
             'message' => $message,
@@ -677,7 +724,7 @@ class LeaseForgivenessService
             'forgiven_by_name' => $forgivenByName,
             'forgiven_at' => now()->toDateTimeString(),
             'command' => $commandResponse,
-        ];
+        ], $extraReturn);
     }
 
     private function recordReactivationBlockedBySiblings(
@@ -741,9 +788,15 @@ class LeaseForgivenessService
                 'source' => 'blocked_by_sibling_contracts',
                 'blocking_contract_link_ids' => $blockingSiblings->map(fn (array $b) => $b['contract_link']->id)->all(),
             ],
-            uiStatus: 'forgiven_reactivation_failed',
+            uiStatus: 'forgiven_reactivation_blocked_by_siblings',
             message: 'Pardon enregistré, mais le rallumage a été refusé : un autre contrat sur ce véhicule est toujours impayé.',
-            createQueueIfMissing: false
+            createQueueIfMissing: false,
+            extraReturn: [
+                'blocking_siblings' => $blockingSiblings->map(fn (array $b) => [
+                    'contract_link_id' => $b['contract_link']->id,
+                    'label' => $b['label'],
+                ])->values()->all(),
+            ]
         );
     }
 
@@ -785,6 +838,95 @@ class LeaseForgivenessService
         }
 
         return $blocking;
+    }
+
+    /**
+     * Pardonne en cascade chaque contrat frère bloquant, à la demande explicite
+     * de l'employé (option "Pardonner tout" dans la modale de confirmation).
+     *
+     * Un seul rallumage GPS sera envoyé pour le véhicule (dans forgiveAfterCut,
+     * juste après cet appel) : on ne fait donc ici que clôturer la dette et
+     * l'historique de chaque contrat frère, sans envoyer de commande GPS
+     * individuelle. Le statut final (rallumé confirmé ou échec) sera reporté
+     * sur ces lignes en même temps que celui du contrat d'origine.
+     *
+     * Retourne les ids des lignes d'historique pardonnées, pour que
+     * l'appelant puisse les finaliser plus tard (confirmation ou échec).
+     */
+    private function cascadePardonSiblings(
+        User $actor,
+        string $forgivenByName,
+        int $partnerId,
+        Voiture $vehicle,
+        Collection $blockingSiblings,
+        ?string $reason
+    ): array {
+        $historyIds = [];
+
+        foreach ($blockingSiblings as $blocker) {
+            /** @var LeaseContractLink $siblingLink */
+            $siblingLink = $blocker['contract_link'];
+
+            $siblingHistory = LeaseCutoffHistory::query()
+                ->where('partner_id', $partnerId)
+                ->where('contract_link_id', $siblingLink->id)
+                ->orderByDesc('id')
+                ->lockForUpdate()
+                ->first();
+
+            if (! $siblingHistory) {
+                continue;
+            }
+
+            $narrative = $this->appendEmployeeReason(
+                sprintf(
+                    'Le sous-contrat %s du véhicule %s a été pardonné en cascade avec un autre contrat sur ce même véhicule, à la demande de %s.',
+                    $siblingLink->displayTypeLabel(),
+                    $this->vehicleLabel($vehicle),
+                    $forgivenByName
+                ),
+                $reason,
+                $forgivenByName
+            );
+
+            $siblingHistory->update([
+                'status' => 'REACTIVATION_REQUESTED_AFTER_FORGIVENESS',
+                'reason' => $narrative,
+                'forgiven_by_user_id' => $actor->id,
+                'forgiven_by_name' => $forgivenByName,
+                'forgiven_at' => now(),
+                'notes' => $this->prependPreviousContext(
+                    $siblingHistory,
+                    'Pardonné en cascade : le rallumage réel du véhicule est suivi et confirmé via le contrat d’origine du pardon.'
+                ),
+            ]);
+
+            $siblingQueue = LeaseCutoffQueue::query()
+                ->where('partner_id', $partnerId)
+                ->where('history_id', $siblingHistory->id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($siblingQueue) {
+                $siblingQueue->update([
+                    'status' => 'PROCESSED',
+                    'last_checked_at' => now(),
+                    'next_check_at' => null,
+                ]);
+            }
+
+            Log::info('[LEASE_FORGIVENESS] Contrat frère pardonné en cascade', [
+                'sibling_contract_link_id' => $siblingLink->id,
+                'sibling_history_id' => $siblingHistory->id,
+                'vehicle_id' => $vehicle->id,
+                'forgiven_by_user_id' => $actor->id,
+                'forgiven_by_name' => $forgivenByName,
+            ]);
+
+            $historyIds[] = $siblingHistory->id;
+        }
+
+        return $historyIds;
     }
 
     /**

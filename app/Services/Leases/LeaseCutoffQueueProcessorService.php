@@ -3,6 +3,7 @@
 namespace App\Services\Leases;
 
 use App\Models\LeaseCutoffContractRule;
+use App\Models\LeaseCutoffHistory;
 use App\Models\LeaseCutoffQueue;
 use App\Services\Gps\GpsCommandDispatcherService;
 use App\Services\GpsControlService;
@@ -699,6 +700,8 @@ class LeaseCutoffQueueProcessorService
                     'notes' => 'Rallumage confirmé par l’état moteur live après pardon ; événement clôturé avec succès.',
                 ]);
             }
+
+            $this->finalizeCascadedSiblings($item, 'REACTIVATED_AFTER_FORGIVENESS', 'Rallumage confirmé conjointement avec le contrat principal du pardon.');
         });
     }
 
@@ -752,7 +755,40 @@ class LeaseCutoffQueueProcessorService
                     'notes' => 'Échec final de la confirmation de rallumage après pardon ; aucune nouvelle tentative automatique ne sera lancée par cette queue.',
                 ]);
             }
+
+            $this->finalizeCascadedSiblings($item, 'REACTIVATION_FAILED_AFTER_FORGIVENESS', 'Échec du rallumage clôturé conjointement avec le contrat principal du pardon.');
         });
+    }
+
+    /**
+     * Un pardon "cascade" (option "Pardonner tout" sur un rallumage bloqué par
+     * des contrats frères) ne déclenche qu'une seule commande GPS pour le
+     * véhicule ; les contrats frères pardonnés en cascade restent en attente
+     * (REACTIVATION_REQUESTED_AFTER_FORGIVENESS) jusqu'à ce que CETTE queue —
+     * celle du contrat d'origine — soit confirmée ou échoue. On reporte alors
+     * le même dénouement sur chacun d'eux.
+     */
+    private function finalizeCascadedSiblings(LeaseCutoffQueue $item, string $finalStatus, string $noteSuffix): void
+    {
+        $payload = $item->trigger_payload;
+
+        if (is_string($payload)) {
+            $decoded = json_decode($payload, true);
+            $payload = is_array($decoded) ? $decoded : [];
+        }
+
+        $cascadedHistoryIds = is_array($payload) ? ($payload['cascaded_history_ids'] ?? []) : [];
+
+        if (empty($cascadedHistoryIds)) {
+            return;
+        }
+
+        LeaseCutoffHistory::query()
+            ->whereIn('id', $cascadedHistoryIds)
+            ->update([
+                'status' => $finalStatus,
+                'notes' => DB::raw("CONCAT(COALESCE(notes, ''), '\n" . addslashes($noteSuffix) . "')"),
+            ]);
     }
 
     /**

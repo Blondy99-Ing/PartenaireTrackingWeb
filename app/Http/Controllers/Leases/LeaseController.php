@@ -327,13 +327,15 @@ public function forgive(
 ): JsonResponse {
     $data = $request->validate([
         'reason' => ['nullable', 'string', 'max:255'],
+        'cascade' => ['nullable', 'boolean'],
     ]);
 
     try {
         $result = $forgivenessService->forgive(
             $request->user(),
             (int) $leaseId,
-            trim((string) ($data['reason'] ?? '')) ?: null
+            trim((string) ($data['reason'] ?? '')) ?: null,
+            filter_var($data['cascade'] ?? false, FILTER_VALIDATE_BOOLEAN)
         );
 
         return response()->json([

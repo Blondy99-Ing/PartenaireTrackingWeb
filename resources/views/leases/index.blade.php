@@ -1686,6 +1686,16 @@ input:checked + .fl-slider:before {
             </p>
             <div class="fl-confirm-detail" id="forgiveDetail">—</div>
 
+            <div id="forgiveBlockedBox" style="display:none;margin-top:.75rem;padding:.75rem;border-radius:10px;background:var(--color-warning-bg,#fff7ed);border:1px solid var(--color-warning,#f59e0b);text-align:left;">
+                <div style="font-weight:700;color:var(--color-warning,#b45309);margin-bottom:.35rem;">
+                    <i class="fas fa-triangle-exclamation"></i> Rallumage refusé
+                </div>
+                <div id="forgiveBlockedMessage" style="font-size:.8rem;line-height:1.5;margin-bottom:.65rem;color:var(--color-text);"></div>
+                <button type="button" class="btn-primary" id="forgiveCascadeBtn" style="background:var(--color-error,#dc2626);width:100%;justify-content:center;" onclick="window.confirmForgive(true)">
+                    <i class="fas fa-layer-group"></i> Pardonner tout (véhicule + sous-contrats)
+                </button>
+            </div>
+
             <div style="margin-top:.75rem;">
                 <label class="fl-form-label" style="text-align:left;display:block;">Pardonné par</label>
                 <input type="text"
@@ -3085,10 +3095,15 @@ input:checked + .fl-slider:before {
                 : 'Pardon préventif accordé avant coupure automatique.';
         }
 
+        const blockedBox = document.getElementById('forgiveBlockedBox');
+        if (blockedBox) {
+            blockedBox.style.display = 'none';
+        }
+
         window.openModal('modalForgive');
     };
 
-    window.confirmForgive = async function () {
+    window.confirmForgive = async function (cascade) {
         const row = RAW_DATA.find(r => Number(r.id) === Number(pendingRowId));
 
         if (!row) {
@@ -3099,6 +3114,13 @@ input:checked + .fl-slider:before {
         const leaseId = row.source_lease_id || row.id;
         const url = FORGIVE_URL_TEMPLATE.replace('__LEASE_ID__', String(leaseId));
         const reason = document.getElementById('forgiveReason')?.value || '';
+        const blockedBox = document.getElementById('forgiveBlockedBox');
+        const cascadeBtn = document.getElementById('forgiveCascadeBtn');
+
+        if (cascadeBtn && cascade) {
+            cascadeBtn.disabled = true;
+            cascadeBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Pardon en cours…';
+        }
 
         try {
             const response = await fetch(url, {
@@ -3110,6 +3132,7 @@ input:checked + .fl-slider:before {
                 },
                 body: JSON.stringify({
                     reason: reason,
+                    cascade: !!cascade,
                 }),
             });
 
@@ -3117,6 +3140,28 @@ input:checked + .fl-slider:before {
 
             if (!response.ok || !payload.ok) {
                 throw new Error(payload.message || "Impossible d'enregistrer le pardon.");
+            }
+
+            /**
+             * Rallumage refusé car un ou plusieurs contrats frères sur le même
+             * véhicule sont toujours impayés : on laisse la modale ouverte et on
+             * propose "Pardonner tout" au lieu de fermer/recharger comme pour un
+             * pardon terminé normalement.
+             */
+            const blockingSiblings = payload.data?.blocking_siblings || [];
+            if (payload.data?.status === 'forgiven_reactivation_blocked_by_siblings' && blockingSiblings.length > 0) {
+                if (blockedBox) {
+                    const labels = blockingSiblings.map(s => s.label).join(', ');
+                    const msgEl = document.getElementById('forgiveBlockedMessage');
+                    if (msgEl) {
+                        msgEl.textContent = `Ce véhicule reste coupé à cause de : ${labels}. Cliquez ci-dessous pour pardonner ces contrats en même temps et rallumer le véhicule.`;
+                    }
+                    blockedBox.style.display = 'block';
+                }
+                if (window.showToast) {
+                    window.showToast('Rallumage refusé', payload.message || 'Un autre contrat sur ce véhicule est toujours impayé.', 'warning');
+                }
+                return;
             }
 
             window.closeModal('modalForgive');
@@ -3132,6 +3177,11 @@ input:checked + .fl-slider:before {
             window.location.reload();
         } catch (e) {
             alert(e.message || 'Erreur pendant le pardon.');
+        } finally {
+            if (cascadeBtn) {
+                cascadeBtn.disabled = false;
+                cascadeBtn.innerHTML = '<i class="fas fa-layer-group"></i> Pardonner tout (véhicule + sous-contrats)';
+            }
         }
     };
 
