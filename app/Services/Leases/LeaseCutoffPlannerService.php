@@ -332,49 +332,67 @@ class LeaseCutoffPlannerService
                     return;
                 }
 
-                $history = LeaseCutoffHistory::create([
-                    'partner_id' => $contractRule->partner_id,
-                    'vehicle_id' => $vehicle->id,
-                    'contract_id' => $contractId,
-                    'lease_id' => $leaseId,
-                    'lease_date_echeance' => $dueDate,
-                    'contract_link_id' => $contractLink->id,
-                    'parent_contract_id' => $contractLink->source_parent_contract_id,
-                    'type_contrat_id' => $contractLink->type_contrat_id,
-                    'type_contrat_label' => $contractLink->type_contrat_label,
-                    'contract_kind' => $contractLink->contract_kind,
-                    'trigger_label' => $trigger['trigger_label'],
-                    'trigger_payload' => $trigger['trigger_payload'],
-                    'contract_rule_id' => $contractRule->id,
-                    'scheduled_for' => $scheduledFor,
-                    'detected_at' => now(),
-                    'status' => 'PENDING',
-                    'reason' => $trigger['reason'],
-                    'payment_status_snapshot' => $trigger['payment_status_snapshot'],
-                    'notes' => 'Événement créé automatiquement depuis les leases NON_PAYE du jour. Aucune commande GPS n’a encore été envoyée.',
-                ]);
+                /**
+                 * Le pardon manuel peut créer la même ligne d'historique juste avant
+                 * ce cron (même vehicle_id + contract_link_id + lease_id + échéance).
+                 * La contrainte unique en base rejette alors cette création : on le
+                 * traite comme "déjà pris en charge ailleurs", pas comme une erreur.
+                 */
+                try {
+                    $history = LeaseCutoffHistory::create([
+                        'partner_id' => $contractRule->partner_id,
+                        'vehicle_id' => $vehicle->id,
+                        'contract_id' => $contractId,
+                        'lease_id' => $leaseId,
+                        'lease_date_echeance' => $dueDate,
+                        'contract_link_id' => $contractLink->id,
+                        'parent_contract_id' => $contractLink->source_parent_contract_id,
+                        'type_contrat_id' => $contractLink->type_contrat_id,
+                        'type_contrat_label' => $contractLink->type_contrat_label,
+                        'contract_kind' => $contractLink->contract_kind,
+                        'trigger_label' => $trigger['trigger_label'],
+                        'trigger_payload' => $trigger['trigger_payload'],
+                        'contract_rule_id' => $contractRule->id,
+                        'scheduled_for' => $scheduledFor,
+                        'detected_at' => now(),
+                        'status' => 'PENDING',
+                        'reason' => $trigger['reason'],
+                        'payment_status_snapshot' => $trigger['payment_status_snapshot'],
+                        'notes' => 'Événement créé automatiquement depuis les leases NON_PAYE du jour. Aucune commande GPS n’a encore été envoyée.',
+                    ]);
 
-                LeaseCutoffQueue::create([
-                    'partner_id' => $contractRule->partner_id,
-                    'vehicle_id' => $vehicle->id,
-                    'contract_id' => $contractId,
-                    'lease_id' => $leaseId,
-                    'lease_date_echeance' => $dueDate,
-                    'contract_link_id' => $contractLink->id,
-                    'parent_contract_id' => $contractLink->source_parent_contract_id,
-                    'type_contrat_id' => $contractLink->type_contrat_id,
-                    'type_contrat_label' => $contractLink->type_contrat_label,
-                    'contract_kind' => $contractLink->contract_kind,
-                    'trigger_label' => $trigger['trigger_label'],
-                    'trigger_payload' => $trigger['trigger_payload'],
-                    'contract_rule_id' => $contractRule->id,
-                    'history_id' => $history->id,
-                    'scheduled_for' => $scheduledFor,
-                    'status' => 'PENDING',
-                    'retry_count' => 0,
-                    'last_checked_at' => null,
-                    'next_check_at' => now(),
-                ]);
+                    LeaseCutoffQueue::create([
+                        'partner_id' => $contractRule->partner_id,
+                        'vehicle_id' => $vehicle->id,
+                        'contract_id' => $contractId,
+                        'lease_id' => $leaseId,
+                        'lease_date_echeance' => $dueDate,
+                        'contract_link_id' => $contractLink->id,
+                        'parent_contract_id' => $contractLink->source_parent_contract_id,
+                        'type_contrat_id' => $contractLink->type_contrat_id,
+                        'type_contrat_label' => $contractLink->type_contrat_label,
+                        'contract_kind' => $contractLink->contract_kind,
+                        'trigger_label' => $trigger['trigger_label'],
+                        'trigger_payload' => $trigger['trigger_payload'],
+                        'contract_rule_id' => $contractRule->id,
+                        'history_id' => $history->id,
+                        'scheduled_for' => $scheduledFor,
+                        'status' => 'PENDING',
+                        'retry_count' => 0,
+                        'last_checked_at' => null,
+                        'next_check_at' => now(),
+                    ]);
+                } catch (\Illuminate\Database\QueryException $e) {
+                    if ((string) $e->getCode() !== '23000') {
+                        throw $e;
+                    }
+
+                    $reused++;
+                    $skipReasons['already_active_queue']++;
+                    Log::info('[LEASE_CUTOFF_PLAN] Création concurrente détectée (contrainte unique) : probablement créée par un pardon manuel au même instant.', $ctx);
+
+                    return;
+                }
 
                 $created++;
 
@@ -427,12 +445,27 @@ class LeaseCutoffPlannerService
         return Carbon::now($timezone)->toDateString();
     }
 
+    /**
+     * Le partner_id est obligatoire : sans lui, le filtre serait silencieusement
+     * ignoré et la requête pourrait matcher un LeaseContractLink appartenant à
+     * un AUTRE partenaire si jamais deux partenaires partageaient un
+     * source_contract_id. On préfère ignorer le lease plutôt que risquer de
+     * planifier une coupure sur le véhicule d'un tiers.
+     */
     private function resolveExactContractLink(int $sourceContractId, ?int $partnerId = null): ?LeaseContractLink
     {
+        if (! $partnerId || $partnerId <= 0) {
+            Log::warning('[LEASE_CUTOFF_PLAN] Résolution du contrat refusée : partner_id introuvable dans le payload API.', [
+                'source_contract_id' => $sourceContractId,
+            ]);
+
+            return null;
+        }
+
         return LeaseContractLink::query()
             ->with(['vehicle', 'cutoffRule'])
             ->where('source_contract_id', $sourceContractId)
-            ->when($partnerId && $partnerId > 0, fn ($query) => $query->where('partner_id', $partnerId))
+            ->where('partner_id', $partnerId)
             ->where(function ($query) {
                 $query->whereNull('status')
                     ->orWhere('status', '!=', 'DELETED');

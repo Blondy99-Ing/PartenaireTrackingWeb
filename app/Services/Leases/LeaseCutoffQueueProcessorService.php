@@ -31,7 +31,8 @@ class LeaseCutoffQueueProcessorService
     public function __construct(
         private readonly LeaseApiClientService $leaseApi,
         private readonly GpsControlService $gps,
-        private readonly GpsCommandDispatcherService $dispatcher
+        private readonly GpsCommandDispatcherService $dispatcher,
+        private readonly LeaseForgivenessService $forgiveness
     ) {
     }
 
@@ -120,115 +121,129 @@ class LeaseCutoffQueueProcessorService
                 }
 
                 /**
-                 * Re-vérification du paiement PAR LEASE (et non par date figée).
-                 *
-                 * Pourquoi : la date_echeance d'un lease impayé « roule » côté
-                 * recouvrement (ex. 2026-07-15 -> 2026-07-16) alors que la queue
-                 * garde la date d'origine. L'ancienne vérification, filtrée sur
-                 * cette date figée, concluait à tort « payé » et annulait la coupure
-                 * d'un lease pourtant toujours NON_PAYE (reste > 0, aucun paiement).
-                 *
-                 * On vérifie donc le lease par son id, et on n'écrit « payé » que si
-                 * un paiement RÉEL existe. L'audit reste ainsi fidèle à la réalité.
+                 * Une queue de confirmation de RALLUMAGE après pardon ne doit
+                 * jamais repasser par la revérification "toujours impayé" ni par
+                 * la revérification de règle active : ces deux contrôles ont un
+                 * sens pour décider si on doit COUPER, pas pour confirmer qu'un
+                 * rallumage déjà décidé par un employé a bien pris effet. Sans ce
+                 * garde-fou, un lease entre-temps réglé ferait écraser à tort le
+                 * statut REACTIVATION_REQUESTED_AFTER_FORGIVENESS par
+                 * CANCELLED_PAID/CANCELLED_UNVERIFIED.
                  */
-                $leaseNow = $this->leaseApi->fetchLeaseById($leaseId);
+                $isReactivationConfirmation = $item->history?->status === 'REACTIVATION_REQUESTED_AFTER_FORGIVENESS';
 
-                if ($leaseNow === null) {
-                    $this->markCancelledUnverified(
-                        $item,
-                        sprintf('Le lease #%d est introuvable côté recouvrement au moment de l’exécution. Coupure annulée par prudence, SANS confirmation de paiement.', $leaseId)
-                    );
-                    $cancelled++;
-                    Log::warning('[LEASE_CUTOFF_PROCESS] Queue annulée : lease introuvable côté recouvrement (aucune preuve de paiement)', $ctx);
-                    continue;
-                }
-
-                if (! $this->leaseApi->isNonPaidLeaseRow($leaseNow)) {
+                if (! $isReactivationConfirmation) {
                     /**
-                     * Le lease n'est réellement plus NON_PAYE. On EXIGE une preuve de
-                     * paiement avant d'écrire CANCELLED_PAID, sinon on trace un statut
-                     * distinct « à vérifier » plutôt que d'affirmer un paiement faux.
+                     * Re-vérification du paiement PAR LEASE (et non par date figée).
+                     *
+                     * Pourquoi : la date_echeance d'un lease impayé « roule » côté
+                     * recouvrement (ex. 2026-07-15 -> 2026-07-16) alors que la queue
+                     * garde la date d'origine. L'ancienne vérification, filtrée sur
+                     * cette date figée, concluait à tort « payé » et annulait la coupure
+                     * d'un lease pourtant toujours NON_PAYE (reste > 0, aucun paiement).
+                     *
+                     * On vérifie donc le lease par son id, et on n'écrit « payé » que si
+                     * un paiement RÉEL existe. L'audit reste ainsi fidèle à la réalité.
                      */
-                    $payment = $this->leaseApi->findPaymentForLease($leaseId);
+                    $leaseNow = $this->leaseApi->fetchLeaseById($leaseId);
 
-                    if ($payment) {
-                        $this->markCancelledPaid(
-                            $item,
-                            sprintf('Le lease #%d est réglé (paiement #%s, montant %s). Coupure automatique annulée.',
-                                $leaseId,
-                                (string) ($payment['id'] ?? '?'),
-                                (string) ($payment['montant'] ?? '?')
-                            ),
-                            $payment
-                        );
-                        Log::info('[LEASE_CUTOFF_PROCESS] Queue annulée : paiement réel confirmé', array_merge($ctx, [
-                            'payment_id' => $payment['id'] ?? null,
-                            'montant' => $payment['montant'] ?? null,
-                        ]));
-                    } else {
+                    if ($leaseNow === null) {
                         $this->markCancelledUnverified(
                             $item,
-                            sprintf('Le lease #%d n’est plus retourné comme NON_PAYE, mais AUCUN paiement n’a été trouvé (échéance probablement modifiée côté recouvrement). Coupure annulée à vérifier — non confirmée comme payée.', $leaseId)
-                        );
-                        Log::warning('[LEASE_CUTOFF_PROCESS] Queue annulée : plus NON_PAYE mais sans paiement trouvé (à vérifier)', array_merge($ctx, [
-                            'lease_statut' => $leaseNow['statut'] ?? null,
-                            'reste_a_payer' => $leaseNow['reste_a_payer'] ?? null,
-                        ]));
-                    }
-
-                    $cancelled++;
-                    continue;
-                }
-
-                /**
-                 * Ici le lease est TOUJOURS NON_PAYE (reste > 0), quelle que soit sa
-                 * date_echeance actuelle : on poursuit vers la coupure.
-                 */
-                Log::info('[LEASE_CUTOFF_PROCESS] Lease toujours NON_PAYE (vérifié par id) : poursuite de la coupure', array_merge($ctx, [
-                    'lease_statut' => $leaseNow['statut'] ?? null,
-                    'reste_a_payer' => $leaseNow['reste_a_payer'] ?? null,
-                    'date_echeance_actuelle' => $leaseNow['date_echeance'] ?? null,
-                    'date_echeance_queue' => $dueDate,
-                ]));
-
-                /**
-                 * Revérification de la règle spécifique avant commande GPS.
-                 *
-                 * Si la queue n'a pas encore envoyé de commande, la règle doit toujours
-                 * être active sur le même contrat/sous-contrat réel.
-                 *
-                 * Si la queue est déjà COMMAND_SENT, on ne renvoie pas la commande :
-                 * on vérifie seulement la confirmation moteur.
-                 */
-                if ($item->status !== 'COMMAND_SENT') {
-                    $activeRule = $this->resolveActiveContractRule($item);
-
-                    if (! $activeRule) {
-                        $this->markCancelledRule(
-                            $item,
-                            'CANCELLED_RULE_MISSING',
-                            'La coupure est annulée : aucune règle active n’est plus configurée sur ce contrat/sous-contrat spécifique au moment de l’exécution.'
+                            sprintf('Le lease #%d est introuvable côté recouvrement au moment de l’exécution. Coupure annulée par prudence, SANS confirmation de paiement.', $leaseId)
                         );
                         $cancelled++;
-                        Log::warning('[LEASE_CUTOFF_PROCESS] Queue annulée : règle spécifique absente ou désactivée', $ctx);
+                        Log::warning('[LEASE_CUTOFF_PROCESS] Queue annulée : lease introuvable côté recouvrement (aucune preuve de paiement)', $ctx);
                         continue;
                     }
 
-                    if (! $activeRule->effectiveCutoffTime()) {
-                        $this->markCancelledRule(
-                            $item,
-                            'CANCELLED_RULE_DISABLED',
-                            'La coupure est annulée : la règle spécifique du contrat/sous-contrat n’a plus d’heure de coupure valide.'
-                        );
+                    if (! $this->leaseApi->isNonPaidLeaseRow($leaseNow)) {
+                        /**
+                         * Le lease n'est réellement plus NON_PAYE. On EXIGE une preuve de
+                         * paiement avant d'écrire CANCELLED_PAID, sinon on trace un statut
+                         * distinct « à vérifier » plutôt que d'affirmer un paiement faux.
+                         */
+                        $payment = $this->leaseApi->findPaymentForLease($leaseId);
+
+                        if ($payment) {
+                            $this->markCancelledPaid(
+                                $item,
+                                sprintf('Le lease #%d est réglé (paiement #%s, montant %s). Coupure automatique annulée.',
+                                    $leaseId,
+                                    (string) ($payment['id'] ?? '?'),
+                                    (string) ($payment['montant'] ?? '?')
+                                ),
+                                $payment
+                            );
+                            Log::info('[LEASE_CUTOFF_PROCESS] Queue annulée : paiement réel confirmé', array_merge($ctx, [
+                                'payment_id' => $payment['id'] ?? null,
+                                'montant' => $payment['montant'] ?? null,
+                            ]));
+                        } else {
+                            $this->markCancelledUnverified(
+                                $item,
+                                sprintf('Le lease #%d n’est plus retourné comme NON_PAYE, mais AUCUN paiement n’a été trouvé (échéance probablement modifiée côté recouvrement). Coupure annulée à vérifier — non confirmée comme payée.', $leaseId)
+                            );
+                            Log::warning('[LEASE_CUTOFF_PROCESS] Queue annulée : plus NON_PAYE mais sans paiement trouvé (à vérifier)', array_merge($ctx, [
+                                'lease_statut' => $leaseNow['statut'] ?? null,
+                                'reste_a_payer' => $leaseNow['reste_a_payer'] ?? null,
+                            ]));
+                        }
+
                         $cancelled++;
-                        Log::warning('[LEASE_CUTOFF_PROCESS] Queue annulée : règle spécifique sans heure', array_merge($ctx, [
-                            'active_contract_rule_id' => $activeRule->id,
-                        ]));
                         continue;
                     }
 
-                    if ((int) $item->contract_rule_id !== (int) $activeRule->id) {
-                        $item->forceFill(['contract_rule_id' => $activeRule->id])->save();
+                    /**
+                     * Ici le lease est TOUJOURS NON_PAYE (reste > 0), quelle que soit sa
+                     * date_echeance actuelle : on poursuit vers la coupure.
+                     */
+                    Log::info('[LEASE_CUTOFF_PROCESS] Lease toujours NON_PAYE (vérifié par id) : poursuite de la coupure', array_merge($ctx, [
+                        'lease_statut' => $leaseNow['statut'] ?? null,
+                        'reste_a_payer' => $leaseNow['reste_a_payer'] ?? null,
+                        'date_echeance_actuelle' => $leaseNow['date_echeance'] ?? null,
+                        'date_echeance_queue' => $dueDate,
+                    ]));
+
+                    /**
+                     * Revérification de la règle spécifique avant commande GPS.
+                     *
+                     * Si la queue n'a pas encore envoyé de commande, la règle doit toujours
+                     * être active sur le même contrat/sous-contrat réel.
+                     *
+                     * Si la queue est déjà COMMAND_SENT, on ne renvoie pas la commande :
+                     * on vérifie seulement la confirmation moteur.
+                     */
+                    if ($item->status !== 'COMMAND_SENT') {
+                        $activeRule = $this->resolveActiveContractRule($item);
+
+                        if (! $activeRule) {
+                            $this->markCancelledRule(
+                                $item,
+                                'CANCELLED_RULE_MISSING',
+                                'La coupure est annulée : aucune règle active n’est plus configurée sur ce contrat/sous-contrat spécifique au moment de l’exécution.'
+                            );
+                            $cancelled++;
+                            Log::warning('[LEASE_CUTOFF_PROCESS] Queue annulée : règle spécifique absente ou désactivée', $ctx);
+                            continue;
+                        }
+
+                        if (! $activeRule->effectiveCutoffTime()) {
+                            $this->markCancelledRule(
+                                $item,
+                                'CANCELLED_RULE_DISABLED',
+                                'La coupure est annulée : la règle spécifique du contrat/sous-contrat n’a plus d’heure de coupure valide.'
+                            );
+                            $cancelled++;
+                            Log::warning('[LEASE_CUTOFF_PROCESS] Queue annulée : règle spécifique sans heure', array_merge($ctx, [
+                                'active_contract_rule_id' => $activeRule->id,
+                            ]));
+                            continue;
+                        }
+
+                        if ((int) $item->contract_rule_id !== (int) $activeRule->id) {
+                            $item->forceFill(['contract_rule_id' => $activeRule->id])->save();
+                        }
                     }
                 }
 
@@ -285,6 +300,40 @@ class LeaseCutoffQueueProcessorService
 
                 if ($item->status === 'COMMAND_SENT') {
                     $maxChecks = (int) env('LEASE_CUTOFF_CONFIRM_MAX_CHECKS', self::DEFAULT_CONFIRM_MAX_CHECKS);
+
+                    /**
+                     * Anomalie corrigée : le rallumage envoyé après un pardon
+                     * n'avait auparavant AUCUNE boucle de confirmation — le statut
+                     * "rallumé" était écrit dès l'acceptation de la commande par
+                     * le provider, jamais vérifié sur l'état moteur réel. On
+                     * applique ici exactement la même rigueur que pour la
+                     * coupure : condition inversée (succès quand le moteur n'est
+                     * PLUS coupé), même mécanisme de nouvelles tentatives et de
+                     * diagnostic boîtier en cas d'échec.
+                     */
+                    if ($item->history?->status === 'REACTIVATION_REQUESTED_AFTER_FORGIVENESS') {
+                        if ($engineState !== 'CUT') {
+                            $this->markReactivationConfirmed($item, $speed, $uiStatus);
+                            $processed++;
+                            Log::info('[LEASE_CUTOFF_PROCESS] Succès : rallumage après pardon confirmé', $ctx);
+                            continue;
+                        }
+
+                        if ($item->retry_count >= $maxChecks) {
+                            $deviceDiagnostic = $this->describeDeviceDiagnostic($item, $macId);
+                            $this->markReactivationFailed($item, $deviceDiagnostic, $maxChecks);
+                            $failed++;
+                            Log::warning('[LEASE_CUTOFF_PROCESS] Échec : rallumage après pardon non confirmé après plusieurs vérifications', array_merge($ctx, [
+                                'device_diagnostic' => $deviceDiagnostic,
+                            ]));
+                            continue;
+                        }
+
+                        $this->markReactivationStillPending($item, $engineState, $maxChecks);
+                        $waiting++;
+                        Log::info('[LEASE_CUTOFF_PROCESS] Attente : rallumage après pardon déjà envoyé, pas de renvoi', $ctx);
+                        continue;
+                    }
 
                     if ($engineState === 'CUT') {
                         $this->markProcessedCutOff(
@@ -620,6 +669,87 @@ class LeaseCutoffQueueProcessorService
                     'ignition_state' => $uiStatus,
                     'command_response' => $commandResponse,
                     'notes' => 'Coupure moteur confirmée ; événement clôturé avec succès.',
+                ]);
+            }
+        });
+    }
+
+    private function markReactivationConfirmed(LeaseCutoffQueue $item, ?float $speed, ?string $uiStatus): void
+    {
+        DB::transaction(function () use ($item, $speed, $uiStatus) {
+            $item->update([
+                'status' => 'PROCESSED',
+                'last_checked_at' => now(),
+                'next_check_at' => null,
+            ]);
+
+            if ($item->history) {
+                $vehicle = $item->vehicle;
+                $forgivenByName = $item->history->forgiven_by_name ?: 'un employé';
+
+                $reason = $vehicle
+                    ? $this->forgiveness->describeReactivationConfirmed($vehicle, $item->contractLink, $forgivenByName)
+                    : 'Rallumage confirmé après pardon.';
+
+                $item->history->update([
+                    'status' => 'REACTIVATED_AFTER_FORGIVENESS',
+                    'reason' => $reason,
+                    'speed_at_check' => $speed,
+                    'ignition_state' => $uiStatus,
+                    'notes' => 'Rallumage confirmé par l’état moteur live après pardon ; événement clôturé avec succès.',
+                ]);
+            }
+        });
+    }
+
+    private function markReactivationStillPending(LeaseCutoffQueue $item, string $engineState, int $maxChecks): void
+    {
+        $delay = (int) env('LEASE_CUTOFF_CONFIRM_DELAY_SECONDS', self::DEFAULT_CONFIRM_DELAY_SECONDS);
+
+        DB::transaction(function () use ($item, $engineState, $maxChecks, $delay) {
+            $item->update([
+                'status' => 'COMMAND_SENT',
+                'last_checked_at' => now(),
+                'retry_count' => $item->retry_count + 1,
+                'next_check_at' => now()->addSeconds($delay),
+            ]);
+
+            if ($item->history) {
+                $item->history->update([
+                    'reason' => sprintf(
+                        'Rallumage transmis après pardon, en attente de confirmation moteur — vérification %d/%d. Le boîtier rapporte pour l’instant le moteur « %s » (pas encore confirmé rallumé).',
+                        (int) $item->retry_count,
+                        $maxChecks,
+                        $engineState
+                    ),
+                    'notes' => 'Aucun renvoi de commande effectué ; le système attend encore une confirmation live du moteur après pardon.',
+                ]);
+            }
+        });
+    }
+
+    private function markReactivationFailed(LeaseCutoffQueue $item, ?string $deviceDiagnostic, int $maxChecks): void
+    {
+        DB::transaction(function () use ($item, $deviceDiagnostic, $maxChecks) {
+            $item->update([
+                'status' => 'FAILED',
+                'last_checked_at' => now(),
+                'retry_count' => $item->retry_count + 1,
+                'next_check_at' => null,
+            ]);
+
+            if ($item->history) {
+                $vehicle = $item->vehicle;
+                $forgivenByName = $item->history->forgiven_by_name ?: 'un employé';
+
+                $reason = $vehicle
+                    ? $this->forgiveness->describeReactivationNotConfirmed($vehicle, $item->contractLink, $forgivenByName, $maxChecks, $deviceDiagnostic)
+                    : 'Rallumage après pardon jamais confirmé par le boîtier.';
+
+                $item->history->update([
+                    'status' => 'REACTIVATION_FAILED_AFTER_FORGIVENESS',
+                    'reason' => $reason,
+                    'notes' => 'Échec final de la confirmation de rallumage après pardon ; aucune nouvelle tentative automatique ne sera lancée par cette queue.',
                 ]);
             }
         });
