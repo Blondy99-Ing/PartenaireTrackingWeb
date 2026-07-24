@@ -495,6 +495,11 @@
     transform: translateY(12px) scale(0.97);
     opacity: 0;
     transition: transform 0.22s ease, opacity 0.22s ease;
+    /* Sur un petit écran (portable), le contenu peut dépasser la hauteur
+       visible : le panneau devient alors son propre conteneur défilant au
+       lieu de se faire couper (bouton de confirmation inaccessible). */
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
 }
 .confirm-panel.open { transform: translateY(0) scale(1); opacity: 1; }
 
@@ -568,8 +573,14 @@
 
 .confirm-footer {
     display: flex; gap: 6px;
-    padding-top: 0.875rem;
+    padding: 0.875rem 1.5rem 1.5rem;
+    margin: 0 -1.5rem -1.5rem;
     border-top: 1px solid var(--color-border-subtle);
+    /* Reste visible même quand le panneau défile (petit écran) : les
+       boutons Annuler/Confirmer ne doivent jamais sortir de la vue. */
+    position: sticky;
+    bottom: -1.5rem;
+    background: var(--color-card);
 }
 .confirm-footer button { flex: 1; }
 
