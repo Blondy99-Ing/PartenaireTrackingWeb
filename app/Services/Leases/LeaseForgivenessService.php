@@ -237,7 +237,8 @@ class LeaseForgivenessService
             dueDate: $dueDate,
             lease: $lease,
             engineState: $engineState,
-            reason: $reason
+            reason: $reason,
+            cascade: $cascade
         );
     }
 
@@ -254,8 +255,67 @@ class LeaseForgivenessService
         ?string $dueDate,
         array $lease,
         string $engineState,
-        ?string $reason
+        ?string $reason,
+        bool $cascade = false
     ): array {
+        /**
+         * Anomalie corrigée : un véhicule peut porter plusieurs contrats
+         * indépendants (Moto, Téléphone, Royal care...). Pardonner CE lease
+         * avant sa coupure ne protège pas le véhicule si un AUTRE contrat
+         * (frère) est lui aussi en cours de coupure sur ce même véhicule :
+         * sa propre queue continuerait normalement et couperait quand même
+         * le véhicule, en contradiction avec le pardon qui vient d'être
+         * accordé. On propose donc la même option "Pardonner tout" que pour
+         * le rallumage après coupure.
+         */
+        $blockingSiblings = $this->findBlockingSiblingContracts($partnerId, $vehicle, $contractLink?->id ?? 0);
+
+        if ($blockingSiblings->isNotEmpty() && ! $cascade) {
+            return $this->recordForgiveBeforeCutBlockedBySiblings(
+                actor: $actor,
+                forgivenByName: $forgivenByName,
+                vehicle: $vehicle,
+                reason: $reason,
+                blockingSiblings: $blockingSiblings
+            );
+        }
+
+        if ($blockingSiblings->isNotEmpty() && $cascade) {
+            $needsGpsAction = $blockingSiblings->contains(
+                fn (array $b) => in_array($b['history_status'], ['COMMAND_SENT', 'CUT_OFF'], true)
+            );
+
+            if ($needsGpsAction) {
+                /**
+                 * Au moins un contrat frère a déjà une commande de coupure en
+                 * vol (ou confirmée coupée) : impossible de garantir sans
+                 * ambiguïté que le véhicule ne sera pas/n'est pas coupé à
+                 * cause de LUI, même si ce lease-ci n'a rien envoyé. On
+                 * délègue donc entièrement au chemin "après coupure", qui
+                 * envoie un rallumage et le CONFIRME réellement — la même
+                 * rigueur qu'un pardon après coupure classique, plutôt que
+                 * de prétendre à tort qu'annuler une simple queue suffit à
+                 * garder le véhicule en marche.
+                 */
+                return $this->forgiveAfterCut(
+                    actor: $actor,
+                    forgivenByName: $forgivenByName,
+                    partnerId: $partnerId,
+                    vehicle: $vehicle,
+                    contractId: $contractId,
+                    leaseId: $leaseId,
+                    queue: $queue,
+                    history: $history,
+                    contractLink: $contractLink,
+                    dueDate: $dueDate,
+                    lease: $lease,
+                    engineState: $engineState,
+                    reason: $reason,
+                    cascade: true
+                );
+            }
+        }
+
         $businessReason = $this->appendEmployeeReason(
             $this->reasonBeforeCut($vehicle, $contractLink, $forgivenByName),
             $reason,
@@ -275,7 +335,10 @@ class LeaseForgivenessService
             $dueDate,
             $lease,
             $engineState,
-            $businessReason
+            $businessReason,
+            $blockingSiblings,
+            $cascade,
+            $reason
         ) {
             [$queue, $history] = $this->lockCurrentQueueAndHistory($partnerId, $vehicle, $leaseId, $contractLink, $dueDate, $queue, $history);
 
@@ -293,6 +356,24 @@ class LeaseForgivenessService
                     'forgiven_by_user_id' => $actor->id,
                     'forgiven_by_name' => $forgivenByName,
                 ]);
+            }
+
+            /**
+             * À ce stade, s'il reste des contrats frères bloquants, aucun
+             * d'eux n'a de commande de coupure en vol (le cas contraire a
+             * été délégué à forgiveAfterCut plus haut) : les annuler ne
+             * nécessite donc aucune commande GPS.
+             */
+            $cascadedHistoryIds = [];
+            if ($blockingSiblings->isNotEmpty() && $cascade) {
+                $cascadedHistoryIds = $this->cascadePardonSiblingsBeforeCut(
+                    actor: $actor,
+                    forgivenByName: $forgivenByName,
+                    partnerId: $partnerId,
+                    vehicle: $vehicle,
+                    blockingSiblings: $blockingSiblings,
+                    reason: $reason
+                );
             }
 
             $historyPayload = [
@@ -313,7 +394,12 @@ class LeaseForgivenessService
                 ),
                 'notes' => $this->prependPreviousContext(
                     $history,
-                    'Pardon préventif : aucune commande de coupure ni de rallumage nécessaire. Le planner ne doit plus replanifier ce lease.'
+                    $cascadedHistoryIds
+                        ? sprintf(
+                            'Pardon préventif : aucune commande de coupure ni de rallumage nécessaire. Le planner ne doit plus replanifier ce lease. Pardonné en cascade avec %d contrat(s) frère(s) également en cours de coupure sur ce véhicule.',
+                            count($cascadedHistoryIds)
+                        )
+                        : 'Pardon préventif : aucune commande de coupure ni de rallumage nécessaire. Le planner ne doit plus replanifier ce lease.'
                 ),
             ];
 
@@ -365,12 +451,15 @@ class LeaseForgivenessService
             return [
                 'status' => 'forgiven_before_cut',
                 'history_status' => 'CANCELLED_FORGIVEN_BEFORE_CUT',
-                'message' => 'Pardon préventif enregistré. Le véhicule ne sera pas coupé pour ce lease.',
+                'message' => $cascadedHistoryIds
+                    ? 'Pardon préventif enregistré pour ce contrat et les contrats frères associés. Le véhicule ne sera pas coupé.'
+                    : 'Pardon préventif enregistré. Le véhicule ne sera pas coupé pour ce lease.',
                 'was_cut_before_forgiveness' => false,
                 'reason' => $businessReason,
                 'forgiven_by_user_id' => $actor->id,
                 'forgiven_by_name' => $forgivenByName,
                 'forgiven_at' => now()->toDateTimeString(),
+                'cascaded_history_ids' => $cascadedHistoryIds,
             ];
         });
     }
@@ -916,6 +1005,130 @@ class LeaseForgivenessService
             }
 
             Log::info('[LEASE_FORGIVENESS] Contrat frère pardonné en cascade', [
+                'sibling_contract_link_id' => $siblingLink->id,
+                'sibling_history_id' => $siblingHistory->id,
+                'vehicle_id' => $vehicle->id,
+                'forgiven_by_user_id' => $actor->id,
+                'forgiven_by_name' => $forgivenByName,
+            ]);
+
+            $historyIds[] = $siblingHistory->id;
+        }
+
+        return $historyIds;
+    }
+
+    /**
+     * Réponse retournée quand un pardon AVANT coupure est bloqué par un ou
+     * plusieurs contrats frères toujours en cause sur le même véhicule
+     * (aucune commande GPS en vol parmi eux — sinon voir forgiveAfterCut).
+     *
+     * N'écrit volontairement rien en base : rien n'a encore été décidé, la
+     * réponse ne fait qu'informer le front pour proposer "Pardonner tout"
+     * dans la même modale, sans laisser de trace d'un pardon qui n'a pas
+     * eu lieu.
+     */
+    private function recordForgiveBeforeCutBlockedBySiblings(
+        User $actor,
+        string $forgivenByName,
+        Voiture $vehicle,
+        ?string $reason,
+        Collection $blockingSiblings
+    ): array {
+        Log::warning('[LEASE_FORGIVENESS] Pardon avant coupure incomplet : contrat(s) frère(s) toujours en cause sur ce véhicule', [
+            'vehicle_id' => $vehicle->id,
+            'immatriculation' => $vehicle->immatriculation,
+            'blocking_siblings' => $blockingSiblings->map(fn (array $b) => [
+                'contract_link_id' => $b['contract_link']->id,
+                'label' => $b['label'],
+                'history_status' => $b['history_status'],
+            ])->all(),
+            'forgiven_by_user_id' => $actor->id,
+            'forgiven_by_name' => $forgivenByName,
+            'reason' => $reason,
+        ]);
+
+        return [
+            'status' => 'forgiven_before_cut_blocked_by_siblings',
+            'message' => 'Ce véhicule a un autre contrat toujours en cours de coupure : pardonner ce lease seul ne suffira pas à éviter la coupure du véhicule.',
+            'blocking_siblings' => $blockingSiblings->map(fn (array $b) => [
+                'contract_link_id' => $b['contract_link']->id,
+                'label' => $b['label'],
+            ])->values()->all(),
+        ];
+    }
+
+    /**
+     * Pardonne en cascade, AVANT coupure, chaque contrat frère bloquant dont
+     * aucune commande GPS n'a été envoyée (PENDING/WAITING_STOP, ou un
+     * CUT_OFF constaté obsolète puisque le moteur vient d'être vérifié en
+     * direct comme non coupé) : une simple annulation de queue suffit, sans
+     * aucune commande GPS individuelle — contrairement à cascadePardonSiblings()
+     * (après coupure), qui doit suivre une confirmation de rallumage réel.
+     */
+    private function cascadePardonSiblingsBeforeCut(
+        User $actor,
+        string $forgivenByName,
+        int $partnerId,
+        Voiture $vehicle,
+        Collection $blockingSiblings,
+        ?string $reason
+    ): array {
+        $historyIds = [];
+
+        foreach ($blockingSiblings as $blocker) {
+            /** @var LeaseContractLink $siblingLink */
+            $siblingLink = $blocker['contract_link'];
+
+            $siblingHistory = LeaseCutoffHistory::query()
+                ->where('partner_id', $partnerId)
+                ->where('contract_link_id', $siblingLink->id)
+                ->orderByDesc('id')
+                ->lockForUpdate()
+                ->first();
+
+            if (! $siblingHistory) {
+                continue;
+            }
+
+            $narrative = $this->appendEmployeeReason(
+                sprintf(
+                    'Le contrat %s du véhicule %s a été pardonné en cascade avant sa coupure, avec un autre contrat sur ce même véhicule, à la demande de %s.',
+                    $siblingLink->displayTypeLabel(),
+                    $this->vehicleLabel($vehicle),
+                    $forgivenByName
+                ),
+                $reason,
+                $forgivenByName
+            );
+
+            $siblingHistory->update([
+                'status' => 'CANCELLED_FORGIVEN_BEFORE_CUT',
+                'reason' => $narrative,
+                'forgiven_by_user_id' => $actor->id,
+                'forgiven_by_name' => $forgivenByName,
+                'forgiven_at' => now(),
+                'notes' => $this->prependPreviousContext(
+                    $siblingHistory,
+                    'Pardon préventif en cascade : aucune commande GPS nécessaire, ce contrat n’avait pas encore de commande de coupure envoyée.'
+                ),
+            ]);
+
+            $siblingQueue = LeaseCutoffQueue::query()
+                ->where('partner_id', $partnerId)
+                ->where('history_id', $siblingHistory->id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($siblingQueue) {
+                $siblingQueue->update([
+                    'status' => 'CANCELLED',
+                    'last_checked_at' => now(),
+                    'next_check_at' => null,
+                ]);
+            }
+
+            Log::info('[LEASE_FORGIVENESS] Contrat frère pardonné en cascade avant coupure', [
                 'sibling_contract_link_id' => $siblingLink->id,
                 'sibling_history_id' => $siblingHistory->id,
                 'vehicle_id' => $vehicle->id,

@@ -1185,6 +1185,17 @@
                         'statut'                => 'Statut paiement',
                     ];
 
+                    /**
+                     * Réservé aux COURTS libellés bruts venant de la base
+                     * (ex. type de contrat "Type #3") : on y retire les
+                     * identifiants internes pour ne pas les exposer au
+                     * partenaire. NE PAS l'appliquer au texte libre de
+                     * $history->reason (phrases complètes déjà rédigées par
+                     * le service métier) : ces regex y supprimaient à tort
+                     * des mots entiers comme "lease #1234" au lieu du seul
+                     * numéro, rendant le motif affiché incompréhensible
+                     * ("Le  est introuvable…").
+                     */
                     $cleanBusinessText = function (?string $value, string $fallback = '—') {
                         $value = trim((string) $value);
 
@@ -1197,6 +1208,16 @@
                         $value = preg_replace('/#\d+/', '', $value);
                         $value = preg_replace('/\s*[·|,-]\s*(?=\s*[·|,-]|$)/', ' ', $value);
                         $value = preg_replace('/\s+/', ' ', trim($value, " ·|-\t\n\r\0\x0B"));
+
+                        return $value !== '' ? $value : $fallback;
+                    };
+
+                    /**
+                     * Pour le motif complet (phrase déjà rédigée) : on ne
+                     * touche qu'aux espaces, jamais au contenu.
+                     */
+                    $cleanFreeText = function (?string $value, string $fallback = '—') {
+                        $value = trim((string) $value);
 
                         return $value !== '' ? $value : $fallback;
                     };
@@ -1214,7 +1235,7 @@
                         ? 'Cause : sous-contrat ' . $businessTypeLabel
                         : 'Cause : contrat principal ' . $businessTypeLabel;
 
-                    $businessReason = $cleanBusinessText($history->reason, 'Motif non renseigné.');
+                    $businessReason = $cleanFreeText($history->reason, 'Motif non renseigné.');
 
                     $businessActionLabel = match($history->status) {
                         'CUT_OFF' => 'Chauffeur coupé',

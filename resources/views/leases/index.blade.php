@@ -3143,23 +3143,33 @@ input:checked + .fl-slider:before {
             }
 
             /**
-             * Rallumage refusé car un ou plusieurs contrats frères sur le même
-             * véhicule sont toujours impayés : on laisse la modale ouverte et on
-             * propose "Pardonner tout" au lieu de fermer/recharger comme pour un
-             * pardon terminé normalement.
+             * Pardon incomplet car un ou plusieurs contrats frères sur le même
+             * véhicule sont toujours en cause (soit le rallumage a été refusé
+             * après coupure, soit le pardon avant coupure ne suffirait pas à
+             * éviter la coupure du véhicule) : on laisse la modale ouverte et
+             * on propose "Pardonner tout" au lieu de fermer/recharger comme
+             * pour un pardon terminé normalement.
              */
+            const BLOCKED_STATUSES = ['forgiven_reactivation_blocked_by_siblings', 'forgiven_before_cut_blocked_by_siblings'];
             const blockingSiblings = payload.data?.blocking_siblings || [];
-            if (payload.data?.status === 'forgiven_reactivation_blocked_by_siblings' && blockingSiblings.length > 0) {
+            if (BLOCKED_STATUSES.includes(payload.data?.status) && blockingSiblings.length > 0) {
+                const isAfterCut = payload.data.status === 'forgiven_reactivation_blocked_by_siblings';
                 if (blockedBox) {
                     const labels = blockingSiblings.map(s => s.label).join(', ');
                     const msgEl = document.getElementById('forgiveBlockedMessage');
                     if (msgEl) {
-                        msgEl.textContent = `Ce véhicule reste coupé à cause de : ${labels}. Cliquez ci-dessous pour pardonner ces contrats en même temps et rallumer le véhicule.`;
+                        msgEl.textContent = isAfterCut
+                            ? `Ce véhicule reste coupé à cause de : ${labels}. Cliquez ci-dessous pour pardonner ces contrats en même temps et rallumer le véhicule.`
+                            : `Ce véhicule serait quand même coupé à cause de : ${labels}. Cliquez ci-dessous pour pardonner ces contrats en même temps et éviter la coupure.`;
                     }
                     blockedBox.style.display = 'block';
                 }
                 if (window.showToast) {
-                    window.showToast('Rallumage refusé', payload.message || 'Un autre contrat sur ce véhicule est toujours impayé.', 'warning');
+                    window.showToast(
+                        isAfterCut ? 'Rallumage refusé' : 'Pardon incomplet',
+                        payload.message || 'Un autre contrat sur ce véhicule est toujours en cause.',
+                        'warning'
+                    );
                 }
                 return;
             }
