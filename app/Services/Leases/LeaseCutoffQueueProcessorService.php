@@ -8,6 +8,7 @@ use App\Models\LeaseCutoffQueue;
 use App\Services\Gps\GpsCommandDispatcherService;
 use App\Services\GpsControlService;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -673,6 +674,30 @@ class LeaseCutoffQueueProcessorService
                 ]);
             }
         });
+
+        $this->cacheConfirmedEngineState($item, 'CUT');
+    }
+
+    /**
+     * Même clé de cache que ControlGpsController::cacheConfirmedEngineState() :
+     * la page "coupure manuelle" lit uniquement la dernière position stockée
+     * pour rester rapide sur toute la flotte, et ne serait donc mise à jour
+     * qu'à la prochaine remontée GPS du boîtier. Sans ce partage, un
+     * couper/rallumer déclenché par CE pipeline automatique n'apparaîtrait
+     * pas tout de suite sur cette page.
+     */
+    private function cacheConfirmedEngineState(LeaseCutoffQueue $item, string $engineState): void
+    {
+        $mac = trim((string) ($item->vehicle?->mac_id_gps ?? ''));
+
+        if ($mac === '') {
+            return;
+        }
+
+        Cache::put('gps18gps:confirmed_engine:' . $mac, [
+            'cut' => $engineState === 'CUT',
+            'engineState' => $engineState,
+        ], now()->addMinutes(15));
     }
 
     private function markReactivationConfirmed(LeaseCutoffQueue $item, ?float $speed, ?string $uiStatus): void
@@ -703,6 +728,8 @@ class LeaseCutoffQueueProcessorService
 
             $this->finalizeCascadedSiblings($item, 'REACTIVATED_AFTER_FORGIVENESS', 'Rallumage confirmé conjointement avec le contrat principal du pardon.');
         });
+
+        $this->cacheConfirmedEngineState($item, 'ON');
     }
 
     private function markReactivationStillPending(LeaseCutoffQueue $item, string $engineState, int $maxChecks): void

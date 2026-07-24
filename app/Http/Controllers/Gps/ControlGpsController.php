@@ -114,6 +114,8 @@ class ControlGpsController extends Controller
             report($e);
         }
 
+        $confirmedStates = $this->getConfirmedEngineStates($macIds);
+
         $out = [];
 
         foreach ($ids as $id) {
@@ -138,6 +140,22 @@ class ControlGpsController extends Controller
 
             $loc = $latestByMac[$mac] ?? null;
             $payload = $this->buildEnginePayloadFromLocalLocation($mac, $loc);
+
+            /**
+             * Anomalie corrigée : après un couper/rallumer confirmé par le GPS
+             * (vérification LIVE), la table locations n'est mise à jour qu'à la
+             * PROCHAINE remontée de position du boîtier — qui peut prendre du
+             * temps. En rechargeant la page entre-temps, ce tableau (qui lit
+             * seulement la position locale pour rester rapide sur toute la
+             * flotte) montrait donc l'ancien état moteur malgré une commande
+             * confirmée. On superpose ici le dernier état RÉELLEMENT confirmé
+             * en direct (mémorisé par toggleEngine()/engineStatus()) tant qu'il
+             * est plus récent que ce court délai.
+             */
+            if (isset($confirmedStates[$mac])) {
+                $payload['engine']['cut']         = $confirmedStates[$mac]['cut'];
+                $payload['engine']['engineState'] = $confirmedStates[$mac]['engineState'];
+            }
 
             // Overlay du statut online LIVE quand le boîtier est présent dans la
             // device-list (le moteur, lui, reste décodé depuis le bit `status`).
@@ -186,7 +204,10 @@ class ControlGpsController extends Controller
         $status = $this->getLiveEngineStatusWithAccountRetry($mac, true);
 
         if (($status['success'] ?? false) === true) {
-            return response()->json($this->buildEnginePayloadFromProviderStatus($status));
+            $payload = $this->buildEnginePayloadFromProviderStatus($status);
+            $this->cacheConfirmedEngineState($mac, (string) ($payload['engine']['engineState'] ?? 'UNKNOWN'));
+
+            return response()->json($payload);
         }
 
         $local = $this->buildEnginePayloadFromLocalLocation($mac, $this->latestLocationForMac($mac));
@@ -323,6 +344,10 @@ class ControlGpsController extends Controller
         Cache::forget("gps18gps:engine_status:mobility:{$mac}");
 
         $after = $this->getLiveEngineStatusWithAccountRetry($mac, true);
+
+        if (($after['success'] ?? false) === true) {
+            $this->cacheConfirmedEngineState($mac, (string) ($after['decoded']['engineState'] ?? 'UNKNOWN'));
+        }
 
         return response()->json([
             'success' => true,
@@ -580,6 +605,51 @@ class ControlGpsController extends Controller
             ->first();
 
         return $loc?->toArray();
+    }
+
+    /**
+     * Mémorise le dernier état moteur RÉELLEMENT confirmé en direct par le
+     * provider (durée courte : le temps que la prochaine remontée de position
+     * du boîtier vienne mettre à jour `locations` normalement). Voir le
+     * commentaire dans engineStatusBatch().
+     */
+    private function cacheConfirmedEngineState(string $mac, string $engineState): void
+    {
+        $mac = trim($mac);
+        if ($mac === '' || $engineState === 'UNKNOWN') {
+            return;
+        }
+
+        Cache::put('gps18gps:confirmed_engine:' . $mac, [
+            'cut' => $engineState === 'CUT',
+            'engineState' => $engineState,
+        ], now()->addMinutes(15));
+    }
+
+    /**
+     * @param array<string> $macIds
+     * @return array<string, array{cut: bool, engineState: string}>
+     */
+    private function getConfirmedEngineStates(array $macIds): array
+    {
+        $macIds = array_values(array_filter(array_map(fn ($m) => trim((string) $m), $macIds), fn ($m) => $m !== ''));
+
+        if (empty($macIds)) {
+            return [];
+        }
+
+        $keys = array_map(fn ($mac) => 'gps18gps:confirmed_engine:' . $mac, $macIds);
+        $cached = Cache::many($keys);
+
+        $out = [];
+        foreach ($macIds as $mac) {
+            $value = $cached['gps18gps:confirmed_engine:' . $mac] ?? null;
+            if (is_array($value)) {
+                $out[$mac] = $value;
+            }
+        }
+
+        return $out;
     }
 
     private function buildEnginePayloadFromProviderStatus(array $status): array
