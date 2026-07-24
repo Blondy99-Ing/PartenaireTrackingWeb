@@ -605,6 +605,23 @@
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ── Message clair du résultat de la vérification live ──────── */
+.confirm-status-verified {
+    display: flex; align-items: flex-start; gap: 7px;
+    padding: 8px 10px;
+    border-radius: var(--r-md);
+    margin-bottom: 0.75rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    line-height: 1.45;
+    text-align: left;
+    background: rgba(59,130,246,.1);
+    border: 1px solid rgba(59,130,246,.3);
+    color: #1d4ed8;
+}
+.confirm-status-verified i { margin-top: 1px; flex-shrink: 0; color: #3b82f6; }
+.dark-mode .confirm-status-verified { background: rgba(59,130,246,.15); color: #93c5fd; }
+
 /* ── Bannière d'état GPS dans le formulaire (avant envoi) ─────── */
 .confirm-gps-banner {
     display: flex; align-items: flex-start; gap: 7px;
@@ -951,6 +968,14 @@
                 <span id="confirmActionText">Voulez-vous vraiment COUPER le moteur ?</span>
             </div>
 
+            {{-- Message explicite du résultat de la vérification live 18gps
+                 qui vient d'avoir lieu, pour que le gestionnaire sache
+                 clairement ce qui a été constaté avant de confirmer. --}}
+            <div class="confirm-status-verified" id="confirmStatusVerified">
+                <i class="fas fa-satellite-dish" aria-hidden="true"></i>
+                <span id="confirmStatusVerifiedText"></span>
+            </div>
+
             {{-- Rempli dynamiquement : état GPS actuel du véhicule, pour que le
                  gestionnaire sache AVANT d'envoyer si une réponse immédiate est
                  probable ou si la commande risque d'attendre longtemps. --}}
@@ -1044,6 +1069,9 @@ const pwdError   = document.getElementById('enginePasswordError');
 
 const gpsBanner     = document.getElementById('confirmGpsBanner');
 const gpsBannerText = document.getElementById('confirmGpsBannerText');
+
+const statusVerified     = document.getElementById('confirmStatusVerified');
+const statusVerifiedText = document.getElementById('confirmStatusVerifiedText');
 
 const formStep      = document.getElementById('confirmFormStep');
 const waitStep       = document.getElementById('confirmWaitStep');
@@ -1425,6 +1453,18 @@ switches.forEach(btn => {
         pendingAction      = currentCut ? 'restore' : 'cut';
         pendingExpectedCut = !currentCut;
         pendingTarget      = btn;
+
+        /*
+         * Message clair et explicite de ce qui vient d'être constaté en
+         * direct sur 18gps, pour que le gestionnaire n'ait pas à deviner à
+         * partir des seuls badges de la ligne.
+         */
+        const onlineLabel = live.gps?.online === true
+            ? 'GPS EN LIGNE'
+            : (live.gps?.online === false ? 'GPS HORS LIGNE' : 'GPS état inconnu');
+        const engineLabel = currentCut ? 'moteur COUPÉ' : 'moteur ACTIF';
+        statusVerifiedText.textContent = `Vérifié à l'instant sur 18gps : ${onlineLabel} · ${engineLabel}.`;
+        window.showToast?.('Statut vérifié', `${onlineLabel} · ${engineLabel}.`, 'success');
 
         const isCut  = pendingAction === 'cut';
         const immat  = btn.dataset.immat  || '—';

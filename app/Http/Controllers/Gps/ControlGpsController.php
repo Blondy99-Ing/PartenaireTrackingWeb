@@ -201,6 +201,36 @@ class ControlGpsController extends Controller
             $payload = $this->buildEnginePayloadFromProviderStatus($status);
             $payload['meta']['is_live'] = true;
 
+            /**
+             * L'appel getUserAndGpsInfoByIDsUtcNew (position/moteur) ne porte
+             * pas le même bit "offline" que getDeviceList : sa connectivité
+             * n'est ici qu'une estimation par écart de temps (seuil de
+             * offlineThresholdMinutes, 25 min par défaut), alors que le badge
+             * affiché sur la ligne AVANT le clic vient de la classification
+             * 18gps elle-même (device-list, rafraîchie chaque minute). Les
+             * deux pouvaient donc se contredire (ex: "hors-ligne" affiché
+             * puis "en ligne" après vérification). On aligne ici sur la même
+             * source que le badge pour que le résultat du clic ne contredise
+             * jamais ce qui était affiché juste avant.
+             */
+            try {
+                $liveOnline = $this->gps->getLiveOnlineMap();
+            } catch (\Throwable $e) {
+                $liveOnline = [];
+            }
+
+            if (isset($liveOnline[$mac])) {
+                $lo = $liveOnline[$mac];
+                $payload['gps']['online']  = $lo['is_online'];
+                $payload['gps']['state']   = $lo['state'];
+                $payload['gps']['message'] = match ($lo['state']) {
+                    'ONLINE_MOVING'     => 'GPS en mouvement',
+                    'ONLINE_STATIONARY' => 'GPS connecté - véhicule arrêté',
+                    'OFFLINE'           => 'GPS hors ligne',
+                    default             => 'État GPS inconnu',
+                };
+            }
+
             return response()->json($payload);
         }
 
