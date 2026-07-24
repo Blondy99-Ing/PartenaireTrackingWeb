@@ -51,3 +51,17 @@ Schedule::command('lease:cutoff:process')
 Schedule::command('gps:refresh-online-map')
     ->everyMinute()
     ->withoutOverlapping();
+
+/*
+|--------------------------------------------------------------------------
+| GPS - état moteur réel de toute la flotte
+|--------------------------------------------------------------------------
+| Interroge 18gps en parallèle (Http::pool) pour toute la flotte et écrit
+| le résultat dans `locations`. Remplace le besoin d'un cache "confirmé"
+| ou d'une vérification manuelle par véhicule : la page de coupure lit
+| toujours seulement `locations` (rapide), mais celle-ci reste alignée sur
+| l'état réel du provider en quasi temps réel.
+*/
+Schedule::command('gps:sync-engine-status')
+    ->everyTwoMinutes()
+    ->withoutOverlapping(180);
