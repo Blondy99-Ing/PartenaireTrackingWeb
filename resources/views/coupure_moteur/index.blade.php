@@ -403,6 +403,32 @@
     min-width: 90px;
 }
 
+.engine-as-of {
+    font-size: 0.6rem;
+    color: var(--color-secondary-text);
+    opacity: .8;
+}
+.engine-as-of.stale { color: #d97706; font-weight: 700; }
+
+.engine-live-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: none;
+    background: none;
+    padding: 0;
+    margin-top: 1px;
+    font-size: 0.62rem;
+    font-weight: 700;
+    color: var(--color-primary);
+    cursor: pointer;
+    white-space: nowrap;
+}
+.engine-live-check:hover { text-decoration: underline; }
+.engine-live-check:disabled { opacity: .5; cursor: not-allowed; text-decoration: none; }
+.engine-live-check i { font-size: 0.6rem; }
+.engine-live-check.is-checking i { animation: spin 0.8s linear infinite; }
+
 /* ── Vide ───────────────────────────────────────────────────── */
 .en-empty {
     text-align: center;
@@ -893,6 +919,18 @@
                                     <span class="gps-badge-status unknown" id="gpsBadge-{{ $voiture->id }}">
                                         GPS: N/A
                                     </span>
+                                    {{-- Honnête sur la fraîcheur : ceci vient de la dernière position
+                                         reçue en base, pas d'un appel direct au GPS à chaque affichage
+                                         (impossible pour toute la flotte à la fois, voir "Vérifier en direct"). --}}
+                                    <span class="engine-as-of" id="engineAsOf-{{ $voiture->id }}" style="display:none;"></span>
+                                    <button type="button"
+                                            class="engine-live-check"
+                                            id="liveCheckBtn-{{ $voiture->id }}"
+                                            data-id="{{ $voiture->id }}"
+                                            data-status-url="{{ route('voitures.engineStatus', ['voiture' => $voiture->id], false) }}"
+                                            title="Interroger le GPS en direct pour ce véhicule">
+                                        <i class="fas fa-satellite-dish" aria-hidden="true"></i> Vérifier en direct
+                                    </button>
                                 </div>
                             </div>
                         </td>
@@ -1237,6 +1275,42 @@ let pendingTarget      = null;
 let pendingAction      = null;
 let pendingExpectedCut = null;
 
+/*
+ * Formatte payload.meta.data_as_of (timestamp de la dernière position reçue
+ * du boîtier) en texte relatif court, et signale visuellement (.stale)
+ * quand cette donnée est trop vieille pour être fiable — plutôt que de la
+ * cacher ou de la faire passer pour une donnée fraîche.
+ */
+function formatAsOf(iso) {
+    if (!iso) return null;
+    const t = new Date(iso).getTime();
+    if (Number.isNaN(t)) return null;
+    const diffMs  = Date.now() - t;
+    const diffMin = Math.round(diffMs / 60000);
+    let label;
+    if (diffMin < 1)        label = "à l'instant";
+    else if (diffMin < 60)  label = `il y a ${diffMin} min`;
+    else if (diffMin < 1440) label = `il y a ${Math.round(diffMin / 60)} h`;
+    else                     label = `il y a ${Math.round(diffMin / 1440)} j`;
+    return { label, stale: diffMin >= 15 };
+}
+
+function setEngineAsOf(id, meta) {
+    const el = document.getElementById(`engineAsOf-${id}`);
+    if (!el) return;
+    if (meta?.is_live) {
+        el.innerHTML = '<i class="fas fa-satellite-dish" aria-hidden="true"></i> vérifié en direct';
+        el.classList.remove('stale');
+        el.style.display = 'inline-flex';
+        return;
+    }
+    const info = formatAsOf(meta?.data_as_of);
+    if (!info) { el.style.display = 'none'; return; }
+    el.innerHTML = `<i class="fas fa-clock" aria-hidden="true"></i> position ${info.label}`;
+    el.classList.toggle('stale', info.stale);
+    el.style.display = 'inline-flex';
+}
+
 function setUI(id, payload) {
     const btn         = document.querySelector(`.engine-toggle[data-id="${id}"]`);
     const engineBadge = document.getElementById(`engineBadge-${id}`);
@@ -1256,6 +1330,7 @@ function setUI(id, payload) {
         engineBadge.className = 'engine-badge loading';
         gpsBadge.textContent  = noGps ? 'GPS: absent' : 'GPS: N/A';
         gpsBadge.className    = 'gps-badge-status unknown';
+        setEngineAsOf(id, null);
         if (row) row.dataset.engine = 'unknown';
         updateKpi(); scheduleFilter(); return;
     }
@@ -1289,6 +1364,8 @@ function setUI(id, payload) {
     if (online === true)       { gpsBadge.textContent = 'GPS: ONLINE';  gpsBadge.className = 'gps-badge-status online'; }
     else if (online === false) { gpsBadge.textContent = 'GPS: OFFLINE'; gpsBadge.className = 'gps-badge-status offline'; }
     else                       { gpsBadge.textContent = 'GPS: N/A';     gpsBadge.className = 'gps-badge-status unknown'; }
+
+    setEngineAsOf(id, payload.meta);
 
     updateKpi();
     scheduleFilter();
@@ -1373,6 +1450,42 @@ async function loadBatchStatus(attempt = 1) {
 }
 
 loadBatchStatus();
+
+/* ════════════════════════════════════════════════════════════════
+   VÉRIFIER EN DIRECT (interroge réellement 18gps pour ce véhicule,
+   à la demande — aucun appel groupé "moteur" n'existe côté provider).
+════════════════════════════════════════════════════════════════ */
+document.querySelectorAll('.engine-live-check').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        if (btn.classList.contains('is-checking')) return;
+        const id  = btn.dataset.id;
+        const url = btn.dataset.statusUrl;
+        if (!id || !url) return;
+
+        btn.classList.add('is-checking');
+        btn.disabled = true;
+
+        try {
+            const { ok, json } = await fetchJson(`${url}?_t=${Date.now()}`, {
+                cache: 'no-store', credentials: 'same-origin',
+                headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+            }, 20000);
+
+            if (ok && json?.success) {
+                setUI(id, json);
+                const cut = json.engine?.engineState === 'CUT';
+                window.showToast?.('Statut en direct', `Moteur ${cut ? 'COUPÉ' : 'ACTIF'} confirmé par le GPS à l'instant.`, 'success');
+            } else {
+                window.showToast?.('Vérification impossible', json?.message || "Le GPS n'a pas répondu (hors-ligne ?).", 'error');
+            }
+        } catch (e) {
+            window.showToast?.('Erreur réseau', 'Impossible de contacter le serveur.', 'error');
+        } finally {
+            btn.classList.remove('is-checking');
+            btn.disabled = false;
+        }
+    });
+});
 
 /* ════════════════════════════════════════════════════════════════
    OUVRIR MODALE
