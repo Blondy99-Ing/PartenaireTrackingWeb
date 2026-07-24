@@ -95,18 +95,7 @@ class ControlGpsController extends Controller
             ->get(['voitures.id', 'voitures.mac_id_gps'])
             ->keyBy('id');
 
-        $macIds = $voitures
-            ->pluck('mac_id_gps')
-            ->filter(fn ($mac) => trim((string) $mac) !== '')
-            ->map(fn ($mac) => trim((string) $mac))
-            ->unique()
-            ->values()
-            ->all();
-
-        $latestByMac = $this->latestLocationsByMac($macIds);
-
         // Statut online LIVE (device-list 18gps, 1 appel par compte, caché 15 s).
-        // Plus fiable que la dernière position stockée pour l'état en ligne/hors-ligne.
         $liveOnline = [];
         try {
             $liveOnline = $this->gps->getLiveOnlineMap();
@@ -136,26 +125,35 @@ class ControlGpsController extends Controller
                 continue;
             }
 
-            $loc = $latestByMac[$mac] ?? null;
-            $payload = $this->buildEnginePayloadFromLocalLocation($mac, $loc);
-
             /**
-             * Aucune donnée devinée/mise en cache ici : ce tableau affiche
-             * exactement ce que dit la dernière position réellement reçue du
-             * boîtier (locations.status), avec l'horodatage de cette position
-             * (meta.data_as_of) pour que ce soit visible si c'est ancien —
-             * plutôt que de superposer un état "confirmé" qui masquerait la
-             * vraie fraîcheur de la donnée. 18gps ne propose pas d'appel
-             * groupé donnant l'état moteur en direct pour toute la flotte
-             * (un seul boîtier par appel, jusqu'à 20 s) : pour une certitude
-             * absolue sur UN véhicule précis, utiliser "Vérifier en direct"
-             * qui interroge réellement 18gps pour ce véhicule seul.
+             * Volontairement AUCUNE lecture de `locations` ici (ni cache
+             * "confirmé", ni sync planifié) : afficher un état moteur en
+             * masse pour toute la flotte s'est montré peu fiable, avec des
+             * écarts observés allant jusqu'à ~1h par rapport à la réalité
+             * sur certains boîtiers. L'état moteur n'est donc plus affiché
+             * qu'au clic sur un véhicule précis, via un appel live 18gps
+             * pour CE véhicule seul (voir engineStatus()) juste avant
+             * d'ouvrir la modale de confirmation. Ce tableau ne sert plus
+             * qu'à afficher la connexion GPS (online/offline), qui elle
+             * provient d'un cache réellement rafraîchi chaque minute
+             * (gps:refresh-online-map) et n'a pas cette dérive.
              */
-            $payload['meta']['data_as_of'] = $loc['sys_time'] ?? $loc['created_at'] ?? null;
-            $payload['meta']['is_live']    = false;
+            $payload = [
+                'success' => true,
+                'engine' => [
+                    'cut' => null,
+                    'engineState' => 'UNKNOWN',
+                ],
+                'gps' => [
+                    'online' => null,
+                    'state' => 'UNKNOWN',
+                    'message' => 'État GPS inconnu',
+                ],
+                'meta' => [
+                    'checked_live' => false,
+                ],
+            ];
 
-            // Overlay du statut online LIVE quand le boîtier est présent dans la
-            // device-list (le moteur, lui, reste décodé depuis le bit `status`).
             if (isset($liveOnline[$mac])) {
                 $lo = $liveOnline[$mac];
                 $payload['gps']['online']  = $lo['is_online'];
@@ -166,7 +164,6 @@ class ControlGpsController extends Controller
                     'OFFLINE'           => 'GPS hors ligne',
                     default             => 'État GPS inconnu',
                 };
-                $payload['meta']['online_source'] = 'live';
             }
 
             $out[$id] = $payload;
@@ -555,35 +552,6 @@ class ControlGpsController extends Controller
         }
 
         return $status;
-    }
-
-    private function latestLocationsByMac(array $macIds): array
-    {
-        $macIds = collect($macIds)
-            ->filter(fn ($mac) => trim((string) $mac) !== '')
-            ->map(fn ($mac) => trim((string) $mac))
-            ->unique()
-            ->values()
-            ->all();
-
-        if (empty($macIds)) {
-            return [];
-        }
-
-        $sub = Location::query()
-            ->selectRaw('MAX(id) as max_id, mac_id_gps')
-            ->whereIn('mac_id_gps', $macIds)
-            ->groupBy('mac_id_gps');
-
-        return Location::query()
-            ->joinSub($sub, 't', function ($join) {
-                $join->on('locations.id', '=', 't.max_id');
-            })
-            ->select('locations.*')
-            ->get()
-            ->keyBy(fn ($loc) => (string) $loc->mac_id_gps)
-            ->map(fn ($loc) => $loc->toArray())
-            ->all();
     }
 
     private function latestLocationForMac(string $mac): ?array

@@ -900,10 +900,9 @@
                                     <span class="gps-badge-status unknown" id="gpsBadge-{{ $voiture->id }}">
                                         GPS: N/A
                                     </span>
-                                    {{-- Honnête sur la fraîcheur : horodatage de la dernière position
-                                         connue, resynchronisée automatiquement depuis 18gps toutes les
-                                         ~2 min (voir gps:sync-engine-status), sans appel provider dans
-                                         cette requête web. --}}
+                                    {{-- Rempli uniquement après une vérification live 18gps (au clic
+                                         sur le véhicule, juste avant la modale) : jamais depuis une
+                                         donnée chargée en masse. --}}
                                     <span class="engine-as-of" id="engineAsOf-{{ $voiture->id }}" style="display:none;"></span>
                                 </div>
                             </div>
@@ -1326,7 +1325,7 @@ function setUI(id, payload) {
     btn.title = cut ? 'Rétablir le moteur' : 'Couper le moteur';
 
     if (!known) {
-        engineBadge.innerHTML = '<i class="fas fa-question-circle" style="font-size:0.5rem;"></i> INCONNU';
+        engineBadge.innerHTML = '<i class="fas fa-question-circle" style="font-size:0.5rem;"></i> Cliquer pour vérifier';
         engineBadge.className = 'engine-badge loading';
     } else {
         engineBadge.innerHTML = cut
@@ -1425,23 +1424,42 @@ async function loadBatchStatus(attempt = 1) {
 
 loadBatchStatus();
 
-/*
- * La fraîcheur affichée (engineAsOf) s'améliore toute seule : un job
- * planifié (gps:sync-engine-status, toutes les ~2 min) resynchronise
- * `locations` depuis 18gps en direct pour toute la flotte en parallèle.
- * On recharge donc ce tableau périodiquement pour refléter ces mises à
- * jour sans action de l'utilisateur.
- */
-setInterval(() => loadBatchStatus(), 60000);
-
 /* ════════════════════════════════════════════════════════════════
    OUVRIR MODALE
+   Aucun état moteur chargé en masse n'est fiable (dérive observée
+   jusqu'à ~1h sur certains boîtiers). Au clic sur UN véhicule, on
+   interroge donc 18gps en direct pour CE véhicule seul avant
+   d'ouvrir la modale — le temps de chargement reste limité à un
+   seul boîtier (pas toute la flotte), tout en garantissant que
+   l'action proposée (couper/rétablir) part de l'état réel.
 ════════════════════════════════════════════════════════════════ */
 switches.forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
         if (btn.classList.contains('is-loading')) return;
 
-        const currentCut   = btn.dataset.cut === '1';
+        const id        = btn.dataset.id;
+        const statusUrl = btn.dataset.statusUrl;
+
+        setPending(id, 'Vérification GPS…');
+
+        let live = null;
+        try {
+            const { ok, json } = await fetchJson(`${statusUrl}?_t=${Date.now()}`, {
+                cache: 'no-store', credentials: 'same-origin',
+                headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+            }, 20000);
+            if (ok && json?.success) live = json;
+        } catch (e) { /* traité ci-dessous (live reste null) */ }
+
+        if (!live) {
+            setUI(id, { success: false });
+            window.showToast?.('Vérification impossible', "Le GPS de ce véhicule n'a pas répondu. Réessayez dans un instant.", 'error');
+            return;
+        }
+
+        setUI(id, live);
+
+        const currentCut   = !!live.engine?.cut;
         pendingAction      = currentCut ? 'restore' : 'cut';
         pendingExpectedCut = !currentCut;
         pendingTarget      = btn;
@@ -1479,10 +1497,11 @@ switches.forEach(btn => {
          * Avertir clairement AVANT l'envoi si le véhicule est actuellement
          * hors-ligne : le bouton restait cliquable jusqu'ici sans le dire, ce
          * qui laissait croire qu'une commande "envoyée" avait un effet
-         * immédiat alors qu'elle part seulement en file d'attente.
+         * immédiat alors qu'elle part seulement en file d'attente. On utilise
+         * ici directement le résultat de la vérification live qu'on vient de
+         * faire (pas un badge séparé potentiellement désynchronisé).
          */
-        const gpsBadgeEl = document.getElementById(`gpsBadge-${btn.dataset.id}`);
-        const isOffline  = gpsBadgeEl?.classList.contains('offline');
+        const isOffline = live.gps?.online === false;
         if (isOffline) {
             gpsBannerText.textContent = 'Ce véhicule semble hors-ligne (GPS injoignable). La commande sera mise en attente chez le fournisseur et ne s\'exécutera qu\'au retour en ligne du boîtier — cela peut prendre du temps.';
             gpsBanner.style.display = 'flex';
