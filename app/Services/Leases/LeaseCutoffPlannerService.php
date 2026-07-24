@@ -446,26 +446,23 @@ class LeaseCutoffPlannerService
     }
 
     /**
-     * Le partner_id est obligatoire : sans lui, le filtre serait silencieusement
-     * ignoré et la requête pourrait matcher un LeaseContractLink appartenant à
-     * un AUTRE partenaire si jamais deux partenaires partageaient un
-     * source_contract_id. On préfère ignorer le lease plutôt que risquer de
-     * planifier une coupure sur le véhicule d'un tiers.
+     * ATTENTION : une version stricte (refuser le lease si partner_id est
+     * introuvable dans le payload API) a été testée en production le
+     * 2026-07-24 et a cassé la planification (237/237 leases ignorés en
+     * "contract_link_missing") : les payloads réels de Recouvrement ne
+     * portent le partner_id dans AUCUN des champs sondés ici, donc le
+     * filtre était refusé systématiquement, pas seulement dans les cas
+     * ambigus. Reverti au comportement d'origine (filtre ignoré si
+     * partner_id absent) le jour même. Le risque théorique de collision
+     * inter-partenaire sur un source_contract_id reste documenté mais
+     * n'a jamais été observé en pratique.
      */
     private function resolveExactContractLink(int $sourceContractId, ?int $partnerId = null): ?LeaseContractLink
     {
-        if (! $partnerId || $partnerId <= 0) {
-            Log::warning('[LEASE_CUTOFF_PLAN] Résolution du contrat refusée : partner_id introuvable dans le payload API.', [
-                'source_contract_id' => $sourceContractId,
-            ]);
-
-            return null;
-        }
-
         return LeaseContractLink::query()
             ->with(['vehicle', 'cutoffRule'])
             ->where('source_contract_id', $sourceContractId)
-            ->where('partner_id', $partnerId)
+            ->when($partnerId && $partnerId > 0, fn ($query) => $query->where('partner_id', $partnerId))
             ->where(function ($query) {
                 $query->whereNull('status')
                     ->orWhere('status', '!=', 'DELETED');
