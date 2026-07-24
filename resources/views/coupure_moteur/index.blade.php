@@ -613,6 +613,50 @@
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ── Bannière d'état GPS dans le formulaire (avant envoi) ─────── */
+.confirm-gps-banner {
+    display: flex; align-items: flex-start; gap: 7px;
+    padding: 8px 10px;
+    border-radius: var(--r-md);
+    margin-bottom: 0.75rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    line-height: 1.45;
+    text-align: left;
+    background: rgba(245,158,11,.1);
+    border: 1px solid rgba(245,158,11,.3);
+    color: #92400e;
+}
+.confirm-gps-banner i { margin-top: 1px; flex-shrink: 0; color: #d97706; }
+.dark-mode .confirm-gps-banner { background: rgba(245,158,11,.15); color: #fcd34d; }
+
+/* ── Étape 2 : suivi de commande (envoi / attente / résultat) ──── */
+.confirm-wait-icon {
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0.25rem auto 1rem;
+    font-size: 1.3rem;
+    background: rgba(59,130,246,.12);
+    border: 2px solid rgba(59,130,246,.3);
+    color: #2563eb;
+}
+.confirm-wait-icon.pulse i { animation: wait-pulse 1.1s ease-in-out infinite; }
+@keyframes wait-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .55; transform: scale(.88); } }
+
+.confirm-wait-icon.state-queued  { background: rgba(245,158,11,.12); border-color: rgba(245,158,11,.35); color: #d97706; }
+.confirm-wait-icon.state-success { background: rgba(22,163,74,.12);  border-color: rgba(22,163,74,.35);  color: #16a34a; }
+.confirm-wait-icon.state-timeout { background: rgba(245,158,11,.12); border-color: rgba(245,158,11,.35); color: #d97706; }
+.confirm-wait-icon.state-failed  { background: rgba(239,68,68,.12);  border-color: rgba(239,68,68,.35);  color: #dc2626; }
+
+.confirm-wait-text {
+    font-size: 0.76rem;
+    color: var(--color-secondary-text);
+    line-height: 1.55;
+    margin: 0 0 0.5rem;
+    text-align: center;
+}
+
 /* ── Responsive ─────────────────────────────────────────────── */
 @media (max-width: 767px) {
     .engine-page { height: auto; overflow: visible; gap: var(--sp-sm); }
@@ -888,59 +932,88 @@
 <div id="engineConfirmModal" class="confirm-overlay" style="display:none;" aria-modal="true" role="alertdialog">
     <div id="engineConfirmPanel" class="confirm-panel">
 
-        <div class="confirm-icon-wrap cut" id="confirmIconWrap">
-            <i class="fas fa-power-off" id="confirmIconEl" aria-hidden="true"></i>
-        </div>
+        {{-- ── Étape 1 : formulaire de confirmation ─────────────────── --}}
+        <div id="confirmFormStep">
 
-        <h2 class="confirm-title" id="confirmTitle">Confirmation</h2>
-
-        <div class="vehicle-info-block">
-            <div class="vehicle-info-row">
-                <i class="fas fa-car" style="color:var(--color-primary);font-size:0.65rem;" aria-hidden="true"></i>
-                <strong id="confirmImmat">—</strong>
-                <span id="confirmModel" style="font-size:0.68rem;"></span>
+            <div class="confirm-icon-wrap cut" id="confirmIconWrap">
+                <i class="fas fa-power-off" id="confirmIconEl" aria-hidden="true"></i>
             </div>
-            <div class="vehicle-info-row">
-                <i class="fas fa-user" style="color:var(--color-primary);font-size:0.65rem;" aria-hidden="true"></i>
-                <span id="confirmDriver">—</span>
+
+            <h2 class="confirm-title" id="confirmTitle">Confirmation</h2>
+
+            <div class="vehicle-info-block">
+                <div class="vehicle-info-row">
+                    <i class="fas fa-car" style="color:var(--color-primary);font-size:0.65rem;" aria-hidden="true"></i>
+                    <strong id="confirmImmat">—</strong>
+                    <span id="confirmModel" style="font-size:0.68rem;"></span>
+                </div>
+                <div class="vehicle-info-row">
+                    <i class="fas fa-user" style="color:var(--color-primary);font-size:0.65rem;" aria-hidden="true"></i>
+                    <span id="confirmDriver">—</span>
+                </div>
+                <div class="vehicle-info-row" id="confirmPhoneRow" style="display:none;">
+                    <i class="fas fa-phone" style="color:var(--color-primary);font-size:0.6rem;" aria-hidden="true"></i>
+                    <span id="confirmPhone"></span>
+                </div>
             </div>
-            <div class="vehicle-info-row" id="confirmPhoneRow" style="display:none;">
-                <i class="fas fa-phone" style="color:var(--color-primary);font-size:0.6rem;" aria-hidden="true"></i>
-                <span id="confirmPhone"></span>
+
+            <div class="confirm-action-box cut" id="confirmActionBox">
+                <i class="fas fa-power-off" id="confirmActionIcon" aria-hidden="true"></i>
+                <span id="confirmActionText">Voulez-vous vraiment COUPER le moteur ?</span>
             </div>
+
+            {{-- Rempli dynamiquement : état GPS actuel du véhicule, pour que le
+                 gestionnaire sache AVANT d'envoyer si une réponse immédiate est
+                 probable ou si la commande risque d'attendre longtemps. --}}
+            <div class="confirm-gps-banner" id="confirmGpsBanner" style="display:none;">
+                <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+                <span id="confirmGpsBannerText"></span>
+            </div>
+
+            <p class="confirm-hint">
+                <i class="fas fa-satellite-dish" style="color:var(--color-primary);margin-top:1px;flex-shrink:0;" aria-hidden="true"></i>
+                Commande transmise au module GPS. Le statut sera mis à jour automatiquement après confirmation.
+            </p>
+
+            {{-- Confirmation par mot de passe : action sensible (immobilisation d'un véhicule). --}}
+            <div class="confirm-pwd-wrap">
+                <label class="confirm-pwd-label" for="enginePassword">
+                    <i class="fas fa-lock" aria-hidden="true"></i>
+                    Saisissez votre mot de passe pour confirmer
+                </label>
+                <input type="password"
+                       id="enginePassword"
+                       class="ui-input-style confirm-pwd-input"
+                       autocomplete="current-password"
+                       placeholder="Mot de passe">
+                <p class="confirm-pwd-error" id="enginePasswordError" role="alert" hidden></p>
+            </div>
+
+            <div class="confirm-footer">
+                <button type="button" id="cancelEngineBtn" class="btn-secondary">Annuler</button>
+                <button type="button" id="confirmEngineBtn" class="btn-danger">
+                    <span class="btn-spinner" id="confirmSpinner"></span>
+                    <i id="confirmBtnIcon" class="fas fa-power-off" aria-hidden="true"></i>
+                    <span id="confirmBtnLabel">Couper</span>
+                </button>
+            </div>
+
         </div>
 
-        <div class="confirm-action-box cut" id="confirmActionBox">
-            <i class="fas fa-power-off" id="confirmActionIcon" aria-hidden="true"></i>
-            <span id="confirmActionText">Voulez-vous vraiment COUPER le moteur ?</span>
-        </div>
+        {{-- ── Étape 2 : suivi de la commande (envoi / attente / résultat) ── --}}
+        <div id="confirmWaitStep" style="display:none;text-align:center;">
 
-        <p class="confirm-hint">
-            <i class="fas fa-satellite-dish" style="color:var(--color-primary);margin-top:1px;flex-shrink:0;" aria-hidden="true"></i>
-            Commande transmise au module GPS. Le statut sera mis à jour automatiquement après confirmation.
-        </p>
+            <div class="confirm-wait-icon" id="confirmWaitIconWrap">
+                <i class="fas fa-satellite-dish" id="confirmWaitIcon" aria-hidden="true"></i>
+            </div>
 
-        {{-- Confirmation par mot de passe : action sensible (immobilisation d'un véhicule). --}}
-        <div class="confirm-pwd-wrap">
-            <label class="confirm-pwd-label" for="enginePassword">
-                <i class="fas fa-lock" aria-hidden="true"></i>
-                Saisissez votre mot de passe pour confirmer
-            </label>
-            <input type="password"
-                   id="enginePassword"
-                   class="ui-input-style confirm-pwd-input"
-                   autocomplete="current-password"
-                   placeholder="Mot de passe">
-            <p class="confirm-pwd-error" id="enginePasswordError" role="alert" hidden></p>
-        </div>
+            <h2 class="confirm-title" id="confirmWaitTitle">Envoi de la commande…</h2>
+            <p class="confirm-wait-text" id="confirmWaitText">Un instant, connexion au boîtier GPS…</p>
 
-        <div class="confirm-footer">
-            <button type="button" id="cancelEngineBtn" class="btn-secondary">Annuler</button>
-            <button type="button" id="confirmEngineBtn" class="btn-danger">
-                <span class="btn-spinner" id="confirmSpinner"></span>
-                <i id="confirmBtnIcon" class="fas fa-power-off" aria-hidden="true"></i>
-                <span id="confirmBtnLabel">Couper</span>
-            </button>
+            <div class="confirm-footer">
+                <button type="button" id="closeWaitBtn" class="btn-secondary" style="flex:1;">Fermer</button>
+            </div>
+
         </div>
 
     </div>
@@ -980,6 +1053,17 @@ const btnSpinner = document.getElementById('confirmSpinner');
 const pwdInput   = document.getElementById('enginePassword');
 const pwdError   = document.getElementById('enginePasswordError');
 
+const gpsBanner     = document.getElementById('confirmGpsBanner');
+const gpsBannerText = document.getElementById('confirmGpsBannerText');
+
+const formStep      = document.getElementById('confirmFormStep');
+const waitStep       = document.getElementById('confirmWaitStep');
+const waitIconWrap   = document.getElementById('confirmWaitIconWrap');
+const waitIconEl     = document.getElementById('confirmWaitIcon');
+const waitTitleEl    = document.getElementById('confirmWaitTitle');
+const waitTextEl     = document.getElementById('confirmWaitText');
+const closeWaitBtn   = document.getElementById('closeWaitBtn');
+
 function showPwdError(msg) {
     if (pwdError) {
         pwdError.innerHTML = '<i class="fas fa-circle-exclamation" aria-hidden="true"></i> ' + msg;
@@ -991,6 +1075,30 @@ function showPwdError(msg) {
 function clearPwdError() {
     if (pwdError) { pwdError.hidden = true; pwdError.textContent = ''; }
     pwdInput?.classList.remove('is-invalid');
+}
+
+/*
+ * Étape 2 de la modale : un seul message clair à la fois, jamais un simple
+ * toast qu'on peut manquer. `kind` pilote l'icône/couleur/animation :
+ *   sending  -> commande en cours d'envoi (bref)
+ *   waiting  -> envoyée, en attente de confirmation moteur (icône qui pulse)
+ *   queued   -> boîtier hors-ligne, commande mise en file d'attente
+ *   success  -> confirmé par le GPS
+ *   timeout  -> toujours pas confirmé après le délai d'attente
+ *   failed   -> commande refusée par le GPS
+ */
+function showWaitState(kind, title, text, iconClass) {
+    formStep.style.display = 'none';
+    waitStep.style.display = 'block';
+
+    waitIconWrap.className = 'confirm-wait-icon' + (kind === 'sending' || kind === 'waiting' ? ' pulse' : '');
+    if (kind !== 'sending' && kind !== 'waiting') {
+        waitIconWrap.classList.add('state-' + kind);
+    }
+    waitIconEl.className = iconClass + ' fa-fw';
+
+    waitTitleEl.textContent = title;
+    waitTextEl.textContent  = text;
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -1097,6 +1205,10 @@ function openModal()  {
     // Le mot de passe n'est jamais conservé d'une confirmation à l'autre.
     if (pwdInput) pwdInput.value = '';
     clearPwdError();
+    // Toujours repartir du formulaire, même si la modale précédente s'est
+    // terminée sur l'étape de suivi (envoi/attente/résultat).
+    formStep.style.display = 'block';
+    waitStep.style.display = 'none';
     modal.style.display = 'flex';
     document.body.style.overflow = 'hidden';
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -1111,6 +1223,7 @@ function closeModal() {
 }
 
 cancelBtn?.addEventListener('click', closeModal);
+closeWaitBtn?.addEventListener('click', closeModal);
 modal?.addEventListener('click', e => { if (e.target === modal) closeModal(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && modal.style.display !== 'none') closeModal(); });
 
@@ -1302,6 +1415,21 @@ switches.forEach(btn => {
         btnSpinner.style.display = 'none';
         confirmBtn.disabled   = false;
 
+        /*
+         * Avertir clairement AVANT l'envoi si le véhicule est actuellement
+         * hors-ligne : le bouton restait cliquable jusqu'ici sans le dire, ce
+         * qui laissait croire qu'une commande "envoyée" avait un effet
+         * immédiat alors qu'elle part seulement en file d'attente.
+         */
+        const gpsBadgeEl = document.getElementById(`gpsBadge-${btn.dataset.id}`);
+        const isOffline  = gpsBadgeEl?.classList.contains('offline');
+        if (isOffline) {
+            gpsBannerText.textContent = 'Ce véhicule semble hors-ligne (GPS injoignable). La commande sera mise en attente chez le fournisseur et ne s\'exécutera qu\'au retour en ligne du boîtier — cela peut prendre du temps.';
+            gpsBanner.style.display = 'flex';
+        } else {
+            gpsBanner.style.display = 'none';
+        }
+
         openModal();
     });
 });
@@ -1373,20 +1501,56 @@ confirmBtn?.addEventListener('click', async () => {
         return;
     }
 
-    // Mot de passe validé : on ferme et on suit la commande.
-    closeModal();
+    // Mot de passe validé : on garde la modale ouverte et on bascule sur le
+    // suivi de commande (étape 2), pour un message clair pendant toute
+    // l'attente au lieu de fermer et de compter sur un simple toast.
+    const verb = expectedCut ? 'coupure' : 'rallumage';
+    showWaitState(
+        'sending',
+        expectedCut ? 'Envoi de la commande de coupure…' : 'Envoi de la commande de rallumage…',
+        'Connexion au boîtier GPS en cours, un instant…',
+        'fas fa-satellite-dish'
+    );
     setPending(id, label);
 
     try {
         const ok = res.ok && data?.success;
 
         if (!ok) {
+            showWaitState(
+                'failed',
+                'Commande refusée',
+                data?.message || `Le GPS a refusé la commande de ${verb}. Réessayez dans quelques instants ou contactez le support si ça persiste.`,
+                'fas fa-circle-xmark'
+            );
             window.showToast?.('Erreur commande', data?.message || 'Échec de la commande moteur.', 'error');
             setUI(id, { success: false });
             return;
         }
 
         setUI(id, { success: true, engine: { cut: expectedCut }, gps: { online: null } });
+
+        if (data.queued) {
+            /*
+             * Le provider a mis la commande en attente : le boîtier ne répond
+             * pas actuellement. Le dire clairement plutôt que de laisser
+             * penser que la commande vient de s'exécuter.
+             */
+            showWaitState(
+                'queued',
+                'Boîtier hors-ligne',
+                `Le véhicule ne répond pas actuellement au GPS. La commande de ${verb} a été mise en file d'attente chez le fournisseur et s'exécutera automatiquement dès que le boîtier se reconnecte — cela peut prendre du temps. Vous pouvez fermer cette fenêtre, le statut se mettra à jour tout seul.`,
+                'fas fa-satellite-dish'
+            );
+        } else {
+            showWaitState(
+                'waiting',
+                'En attente de confirmation…',
+                `Commande de ${verb} envoyée au GPS. Confirmation du moteur en cours (jusqu'à environ 1 minute).`,
+                'fas fa-satellite-dish'
+            );
+        }
+
         window.showToast?.(
             'Commande envoyée',
             (data.message || 'Commande en cours…') + (data.cmd_no ? ` · CmdNo: ${data.cmd_no}` : ''),
@@ -1398,6 +1562,12 @@ confirmBtn?.addEventListener('click', async () => {
         const p = await pollConfirm(statusUrl, expectedCut, 12, 4000);
         if (p.confirmed && p.json) {
             setUI(id, p.json);
+            showWaitState(
+                'success',
+                'Confirmé !',
+                expectedCut ? 'Moteur coupé — confirmé par le GPS.' : 'Moteur rétabli — confirmé par le GPS.',
+                'fas fa-circle-check'
+            );
             window.showToast?.(
                 'Confirmé',
                 expectedCut ? 'Moteur coupé — confirmé par le GPS.' : 'Moteur rétabli — confirmé par le GPS.',
@@ -1409,10 +1579,31 @@ confirmBtn?.addEventListener('click', async () => {
                 headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
             });
             if (r.ok && r.json?.success) setUI(id, r.json);
+
+            /*
+             * Si la commande était déjà annoncée "en file d'attente" (boîtier
+             * hors-ligne), ce message a déjà tout expliqué — inutile de le
+             * remplacer par un message d'attente générique qui ferait croire
+             * à un nouveau problème.
+             */
+            if (!data.queued) {
+                showWaitState(
+                    'timeout',
+                    'Pas encore confirmé',
+                    `Toujours pas de confirmation du GPS après une minute. Le véhicule est peut-être hors-ligne ou met plus de temps que prévu à répondre. Le statut se mettra à jour automatiquement dès que le GPS confirmera — vous pouvez fermer cette fenêtre.`,
+                    'fas fa-triangle-exclamation'
+                );
+            }
             window.showToast?.('En attente', "Commande envoyée — le GPS n'a pas encore confirmé.", 'error');
         }
 
     } catch {
+        showWaitState(
+            'failed',
+            'Erreur réseau',
+            'Impossible de contacter le serveur pour suivre cette commande. Vérifiez votre connexion et rafraîchissez la page pour voir l\'état réel du véhicule.',
+            'fas fa-circle-xmark'
+        );
         window.showToast?.('Erreur réseau', 'Impossible de contacter le serveur.', 'error');
     } finally {
         document.querySelector(`.engine-toggle[data-id="${id}"]`)?.classList.remove('is-loading');
