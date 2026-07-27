@@ -894,12 +894,9 @@ class LeaseForgivenessService
      * bloqueraient encore un rallumage — utilisé pour afficher "Pardonner
      * tout" dès l'ouverture de la modale, avec le chauffeur et le VRAI nom
      * du type de contrat (Téléphone, Moto, ...) plutôt qu'un identifiant.
-     *
-     * Le nom réel vient de Recouvrement (/contrats/) : si cet appel échoue
-     * (API indisponible), on retombe sur le libellé local déjà connu
-     * (lease_contract_links.type_contrat_label) plutôt que de faire échouer
-     * tout l'aperçu — l'essentiel (qui bloque, qui est le chauffeur) reste
-     * disponible même dans ce cas.
+     * Purement local (lease_contract_links / lease_cutoff_histories) :
+     * aucun appel à l'API Recouvrement, donc disponible même quand ce
+     * dernier est indisponible.
      */
     public function previewBlockingSiblings(int $partnerId, int $contractLinkId): array
     {
@@ -918,31 +915,8 @@ class LeaseForgivenessService
             return [];
         }
 
-        $realContractLabels = [];
-        try {
-            foreach ($this->leaseApi->fetchContractsIndexedById() as $sourceContractId => $contract) {
-                $label = trim((string) (
-                    $contract['type_contrat_libelle']
-                    ?? $contract['type_contrat_label']
-                    ?? data_get($contract, 'type_contrat.libelle')
-                    ?? data_get($contract, 'type_contrat.label')
-                    ?? ''
-                ));
-
-                if ($label !== '') {
-                    $realContractLabels[(int) $sourceContractId] = $label;
-                }
-            }
-        } catch (\Throwable $e) {
-            Log::warning('[LEASE_FORGIVENESS] Aperçu sous-contrats : API Recouvrement indisponible, repli sur libellé local.', [
-                'partner_id' => $partnerId,
-                'contract_link_id' => $contractLinkId,
-                'error' => $e->getMessage(),
-            ]);
-        }
-
         return $this->findBlockingSiblingContracts($partnerId, $vehicle, $contractLink)
-            ->map(function (array $blocker) use ($realContractLabels) {
+            ->map(function (array $blocker) {
                 /** @var LeaseContractLink $siblingLink */
                 $siblingLink = $blocker['contract_link'];
                 $driver = $siblingLink->driver;
@@ -953,14 +927,9 @@ class LeaseForgivenessService
                     ?? trim(($driver->prenom ?? '') . ' ' . ($driver->nom ?? ''))
                 )) : '';
 
-                $label = $this->safeSiblingContractLabel(
-                    $siblingLink,
-                    $realContractLabels[(int) $siblingLink->source_contract_id] ?? null
-                );
-
                 return [
                     'contract_link_id' => $siblingLink->id,
-                    'label' => $label,
+                    'label' => $blocker['label'],
                     'history_status' => $blocker['history_status'],
                     'driver_name' => $driverName !== '' ? $driverName : null,
                 ];
@@ -971,13 +940,22 @@ class LeaseForgivenessService
 
     /**
      * Règle d'affichage du projet (voir LeaseCutoffRuleService) : jamais
-     * "Type #4", "Contrat #40", "#7", etc. On préfère le vrai nom
-     * Recouvrement, puis le libellé local s'il a l'air réel, et seulement en
-     * dernier recours un libellé générique propre.
+     * "Type #4", "Contrat #40", "#7", etc. Le nom réel du type de contrat
+     * (ex. "Moto Pro", "Telephone Pro") est déjà connu localement : chaque
+     * lease_contract_link garde, dans last_snapshot, une copie complète du
+     * contrat Recouvrement au moment de sa dernière synchronisation — pas
+     * besoin d'un nouvel appel API, ni de dépendre de sa disponibilité.
      */
-    private function safeSiblingContractLabel(LeaseContractLink $link, ?string $realLabel): string
+    private function safeSiblingContractLabel(LeaseContractLink $link): string
     {
-        $candidates = [$realLabel, $link->type_contrat_label, $link->displayTypeLabel()];
+        $candidates = [
+            data_get($link->last_snapshot, 'type_contrat_libelle'),
+            data_get($link->last_snapshot, 'type_contrat_label'),
+            data_get($link->last_snapshot, 'type_contrat.libelle'),
+            data_get($link->last_snapshot, 'type_contrat.label'),
+            $link->type_contrat_label,
+            $link->displayTypeLabel(),
+        ];
 
         foreach ($candidates as $candidate) {
             $label = trim((string) $candidate);
@@ -1048,7 +1026,7 @@ class LeaseForgivenessService
             if ($latestHistory && in_array($latestHistory->status, self::SIBLING_STILL_BLOCKING_STATUSES, true)) {
                 $blocking->push([
                     'contract_link' => $sibling,
-                    'label' => $this->safeSiblingContractLabel($sibling, null),
+                    'label' => $this->safeSiblingContractLabel($sibling),
                     'history_status' => $latestHistory->status,
                 ]);
             }
