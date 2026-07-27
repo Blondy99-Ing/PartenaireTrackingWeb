@@ -892,11 +892,14 @@ class LeaseForgivenessService
     /**
      * Aperçu, pour l'interface, des VRAIS sous-contrats de ce véhicule qui
      * bloqueraient encore un rallumage — utilisé pour afficher "Pardonner
-     * tout" dès l'ouverture de la modale, avec le chauffeur et le contrat
-     * réels, plutôt qu'un libellé générique deviné côté client. Purement
-     * local (lease_contract_links / lease_cutoff_histories) : aucun appel à
-     * l'API Recouvrement, donc disponible même quand ce dernier est
-     * indisponible.
+     * tout" dès l'ouverture de la modale, avec le chauffeur et le VRAI nom
+     * du type de contrat (Téléphone, Moto, ...) plutôt qu'un identifiant.
+     *
+     * Le nom réel vient de Recouvrement (/contrats/) : si cet appel échoue
+     * (API indisponible), on retombe sur le libellé local déjà connu
+     * (lease_contract_links.type_contrat_label) plutôt que de faire échouer
+     * tout l'aperçu — l'essentiel (qui bloque, qui est le chauffeur) reste
+     * disponible même dans ce cas.
      */
     public function previewBlockingSiblings(int $partnerId, int $contractLinkId): array
     {
@@ -915,8 +918,31 @@ class LeaseForgivenessService
             return [];
         }
 
+        $realContractLabels = [];
+        try {
+            foreach ($this->leaseApi->fetchContractsIndexedById() as $sourceContractId => $contract) {
+                $label = trim((string) (
+                    $contract['type_contrat_libelle']
+                    ?? $contract['type_contrat_label']
+                    ?? data_get($contract, 'type_contrat.libelle')
+                    ?? data_get($contract, 'type_contrat.label')
+                    ?? ''
+                ));
+
+                if ($label !== '') {
+                    $realContractLabels[(int) $sourceContractId] = $label;
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[LEASE_FORGIVENESS] Aperçu sous-contrats : API Recouvrement indisponible, repli sur libellé local.', [
+                'partner_id' => $partnerId,
+                'contract_link_id' => $contractLinkId,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
         return $this->findBlockingSiblingContracts($partnerId, $vehicle, $contractLink)
-            ->map(function (array $blocker) {
+            ->map(function (array $blocker) use ($realContractLabels) {
                 /** @var LeaseContractLink $siblingLink */
                 $siblingLink = $blocker['contract_link'];
                 $driver = $siblingLink->driver;
@@ -927,9 +953,11 @@ class LeaseForgivenessService
                     ?? trim(($driver->prenom ?? '') . ' ' . ($driver->nom ?? ''))
                 )) : '';
 
+                $label = $realContractLabels[(int) $siblingLink->source_contract_id] ?? $blocker['label'];
+
                 return [
                     'contract_link_id' => $siblingLink->id,
-                    'label' => $blocker['label'],
+                    'label' => $label,
                     'history_status' => $blocker['history_status'],
                     'driver_name' => $driverName !== '' ? $driverName : null,
                 ];
