@@ -1578,6 +1578,8 @@ protected function getCutoffStatusMetaByLeaseId(): array
         'REACTIVATION_REQUESTED_AFTER_FORGIVENESS',
         'REACTIVATED_AFTER_FORGIVENESS',
         'REACTIVATION_FAILED_AFTER_FORGIVENESS',
+        'CANCELLED_MANUAL_RESTORE',
+        'REACTIVATED_MANUAL_RESTORE',
     ];
 
     $historyRows = LeaseCutoffHistory::query()
@@ -1677,6 +1679,9 @@ protected function cutoffStatusLabel(?string $status): string
         'REACTIVATED_AFTER_FORGIVENESS' => 'Rallumé après pardon',
         'REACTIVATION_FAILED_AFTER_FORGIVENESS' => 'Échec rallumage',
 
+        'CANCELLED_MANUAL_RESTORE' => 'Annulée : rallumage manuel',
+        'REACTIVATED_MANUAL_RESTORE' => 'Rallumé manuellement',
+
         default => 'Aucune coupure',
     };
 }
@@ -1701,7 +1706,9 @@ protected function cutoffStatusUiType(?string $status): string
 
         'CANCELLED_PAID',
         'CANCELLED_FORGIVEN_BEFORE_CUT',
-        'REACTIVATED_AFTER_FORGIVENESS' => 'success',
+        'CANCELLED_MANUAL_RESTORE',
+        'REACTIVATED_AFTER_FORGIVENESS',
+        'REACTIVATED_MANUAL_RESTORE' => 'success',
 
         default => 'muted',
     };

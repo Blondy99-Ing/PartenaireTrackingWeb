@@ -1626,6 +1626,8 @@ class DashboardLeaseService
             'REACTIVATION_REQUESTED_AFTER_FORGIVENESS' => 'Rallumage demandé après pardon, en attente de confirmation.',
             'REACTIVATED_AFTER_FORGIVENESS' => 'Véhicule rallumé après pardon.',
             'REACTIVATION_FAILED_AFTER_FORGIVENESS' => 'Échec du rallumage après pardon.',
+            'CANCELLED_MANUAL_RESTORE' => 'Coupure annulée : rallumage manuel avant exécution.',
+            'REACTIVATED_MANUAL_RESTORE' => 'Rallumé manuellement, lease toujours impayé.',
             'FAILED' => 'Échec de coupure.',
             default => 'Décision enregistrée.',
         };
@@ -1643,6 +1645,8 @@ class DashboardLeaseService
             'REACTIVATION_REQUESTED_AFTER_FORGIVENESS' => 'Rallumage en attente',
             'REACTIVATED_AFTER_FORGIVENESS' => 'Rallumé',
             'REACTIVATION_FAILED_AFTER_FORGIVENESS' => 'Échec rallumage',
+            'CANCELLED_MANUAL_RESTORE' => 'Annulée : rallumage manuel',
+            'REACTIVATED_MANUAL_RESTORE' => 'Rallumé manuellement',
             'FAILED' => 'Échec',
             default => $status ?: '—',
         };
@@ -1655,9 +1659,9 @@ class DashboardLeaseService
             'WAITING_STOP' => 'info',
             'COMMAND_SENT' => 'info',
             'CUT_OFF' => 'success',
-            'CANCELLED_PAID', 'CANCELLED', 'CANCELLED_FORGIVEN_BEFORE_CUT' => 'muted',
+            'CANCELLED_PAID', 'CANCELLED', 'CANCELLED_FORGIVEN_BEFORE_CUT', 'CANCELLED_MANUAL_RESTORE' => 'muted',
             'REACTIVATION_REQUESTED_AFTER_FORGIVENESS' => 'info',
-            'REACTIVATED_AFTER_FORGIVENESS' => 'success',
+            'REACTIVATED_AFTER_FORGIVENESS', 'REACTIVATED_MANUAL_RESTORE' => 'success',
             'REACTIVATION_FAILED_AFTER_FORGIVENESS', 'FAILED' => 'danger',
             default => 'muted',
         };

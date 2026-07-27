@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Gps;
 
 use App\Http\Controllers\Controller;
 use App\Models\Commande;
+use App\Models\LeaseCutoffHistory;
+use App\Models\LeaseCutoffQueue;
 use App\Models\Location;
 use App\Models\SimGps;
 use App\Models\User;
@@ -12,6 +14,7 @@ use App\Services\GpsControlService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use App\Support\UserMessages;
 
@@ -252,6 +255,82 @@ class ControlGpsController extends Controller
         ], 502);
     }
 
+    private function actorLabel(User $actor): string
+    {
+        $name = trim((string) (
+            $actor->nom_complet
+            ?? $actor->full_name
+            ?? trim(($actor->prenom ?? '') . ' ' . ($actor->nom ?? ''))
+        ));
+
+        return $name !== '' ? $name : 'Utilisateur connecté';
+    }
+
+    /**
+     * Neutralise toute coupure automatique lease en cours ou déjà confirmée
+     * pour ce véhicule, juste avant d'envoyer un rallumage manuel.
+     *
+     * - Coupure pas encore envoyée/confirmée (PENDING/WAITING_STOP/COMMAND_SENT) :
+     *   annulée, elle ne partira jamais.
+     * - Coupure déjà confirmée (CUT_OFF) : marquée comme rallumée manuellement,
+     *   pour que l'historique reflète la réalité du terrain.
+     *
+     * Aucun pardon de dette n'est enregistré ici (voir LeaseForgivenessService
+     * pour ça) : le lease reste impayé côté Recouvrement, et sera recoupé
+     * demain si toujours impayé — c'est le comportement voulu du système.
+     */
+    private function cancelAutomaticCutoffForManualRestore(int $partnerId, Voiture $voiture, User $actor): void
+    {
+        $actorName = $this->actorLabel($actor);
+        $now = now();
+
+        DB::transaction(function () use ($partnerId, $voiture, $actor, $actorName, $now) {
+            $activeQueues = LeaseCutoffQueue::query()
+                ->where('partner_id', $partnerId)
+                ->where('vehicle_id', $voiture->id)
+                ->whereIn('status', ['PENDING', 'WAITING_STOP', 'COMMAND_SENT'])
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($activeQueues as $queue) {
+                $queue->update(['status' => 'CANCELLED']);
+
+                $history = $queue->history_id
+                    ? LeaseCutoffHistory::query()->whereKey($queue->history_id)->lockForUpdate()->first()
+                    : null;
+
+                if ($history && ! in_array($history->status, ['CUT_OFF', 'CANCELLED_MANUAL_RESTORE', 'REACTIVATED_MANUAL_RESTORE'], true)) {
+                    $history->update([
+                        'status' => 'CANCELLED_MANUAL_RESTORE',
+                        'forgiven_by_user_id' => $actor->id,
+                        'forgiven_by_name' => $actorName,
+                        'forgiven_at' => $now,
+                        'notes' => trim(($history->notes ? $history->notes . ' | ' : '')
+                            . "Coupure automatique annulée : rallumage manuel effectué par {$actorName} avant l'envoi de la commande de coupure."),
+                    ]);
+                }
+            }
+
+            $confirmedCutHistories = LeaseCutoffHistory::query()
+                ->where('partner_id', $partnerId)
+                ->where('vehicle_id', $voiture->id)
+                ->where('status', 'CUT_OFF')
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($confirmedCutHistories as $history) {
+                $history->update([
+                    'status' => 'REACTIVATED_MANUAL_RESTORE',
+                    'forgiven_by_user_id' => $actor->id,
+                    'forgiven_by_name' => $actorName,
+                    'forgiven_at' => $now,
+                    'notes' => trim(($history->notes ? $history->notes . ' | ' : '')
+                        . "Rallumé manuellement par {$actorName} depuis la page Coupure moteur. Le lease reste impayé : une nouvelle coupure pourra être planifiée si le paiement n'est toujours pas fait."),
+                ]);
+            }
+        });
+    }
+
     /**
      * Manual engine command.
      * POST /voitures/{voiture}/toggle-engine
@@ -299,6 +378,30 @@ class ControlGpsController extends Controller
         $accDb = $this->getAccountFromDb($mac);
         if ($accDb) {
             $this->gps->setAccount($accDb);
+        }
+
+        /*
+         | Rallumage manuel après une coupure automatique lease.
+         |
+         | Le simple toggle GPS ne touchait jusqu'ici aucune ligne
+         | lease_cutoff_queue/histories : le véhicule pouvait donc être
+         | recoupé juste après, soit parce qu'une commande de coupure
+         | restait en file d'attente chez le fournisseur (boîtier hors-ligne
+         | au moment de la coupure automatique), soit parce qu'une coupure
+         | déjà planifiée pour un AUTRE contrat/sous-contrat du même véhicule
+         | (ex. Téléphone) n'avait pas encore été envoyée. On neutralise donc
+         | ici toute coupure automatique en cours ou déjà confirmée pour ce
+         | véhicule avant d'envoyer la commande de rallumage, et on purge la
+         | file de commandes du boîtier pour éviter qu'une coupure en
+         | attente côté fournisseur ne s'exécute plus tard toute seule.
+         |
+         | Le lease reste impayé : ceci n'est pas un pardon (aucune commande
+         | LeaseForgivenessService n'est appelée) — demain, si toujours
+         | impayé, la planification automatique recoupera normalement.
+         */
+        if ($action === 'restore') {
+            $this->cancelAutomaticCutoffForManualRestore($this->tenantPartner($user)->id, $voiture, $user);
+            $this->gps->clearCmdList($mac);
         }
 
         $providerResp = $action === 'cut'
