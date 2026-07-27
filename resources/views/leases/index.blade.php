@@ -3095,9 +3095,40 @@ input:checked + .fl-slider:before {
                 : 'Pardon préventif accordé avant coupure automatique.';
         }
 
+        /*
+         * Détection proactive des contrats frères.
+         *
+         * Avant, "Pardonner tout" ne s'affichait qu'APRÈS un premier clic
+         * "Pardonner" refusé par le serveur (contrat frère encore en cause) :
+         * il fallait échouer une fois avant de voir l'option. On sait déjà,
+         * avec les données déjà chargées dans RAW_DATA, si un AUTRE contrat
+         * du même véhicule est encore impayé et toujours en position de
+         * (re)couper — donc on propose "Pardonner tout" tout de suite, sans
+         * attendre un premier refus. Mêmes statuts bloquants que côté
+         * serveur (LeaseForgivenessService::SIBLING_STILL_BLOCKING_STATUSES).
+         */
+        const SIBLING_STILL_BLOCKING_STATUSES = ['PENDING', 'WAITING_STOP', 'COMMAND_SENT', 'CUT_OFF'];
+        const siblingRows = row.vehicle_id
+            ? RAW_DATA.filter(r =>
+                r.vehicle_id === row.vehicle_id
+                && Number(r.id) !== Number(row.id)
+                && r.statut !== 'paid'
+                && SIBLING_STILL_BLOCKING_STATUSES.includes(r.coupure_status)
+            )
+            : [];
+
         const blockedBox = document.getElementById('forgiveBlockedBox');
         if (blockedBox) {
-            blockedBox.style.display = 'none';
+            if (siblingRows.length > 0) {
+                const labels = siblingRows.map(s => s.type_contrat_label || s.contrat_type || 'autre contrat').join(', ');
+                const msgEl = document.getElementById('forgiveBlockedMessage');
+                if (msgEl) {
+                    msgEl.textContent = `Ce véhicule a aussi un contrat impayé qui pourrait encore le (re)couper : ${labels}. Cliquez ci-dessous pour pardonner tous ces contrats en même temps.`;
+                }
+                blockedBox.style.display = 'block';
+            } else {
+                blockedBox.style.display = 'none';
+            }
         }
 
         window.openModal('modalForgive');
