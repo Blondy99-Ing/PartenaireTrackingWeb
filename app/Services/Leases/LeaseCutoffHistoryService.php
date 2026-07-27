@@ -87,14 +87,6 @@ class LeaseCutoffHistoryService
                 ->where('status', 'REACTIVATION_FAILED_AFTER_FORGIVENESS')
                 ->count(),
 
-            'cancelled_manual_restore' => (clone $filteredQuery)
-                ->where('status', 'CANCELLED_MANUAL_RESTORE')
-                ->count(),
-
-            'reactivated_manual_restore' => (clone $filteredQuery)
-                ->where('status', 'REACTIVATED_MANUAL_RESTORE')
-                ->count(),
-
             'failed' => (clone $filteredQuery)->where('status', 'FAILED')->count(),
         ];
     }
@@ -122,9 +114,6 @@ class LeaseCutoffHistoryService
             'REACTIVATED_AFTER_FORGIVENESS' => 'Rallumé après pardon',
             'REACTIVATION_FAILED_AFTER_FORGIVENESS' => 'Échec rallumage après pardon',
 
-            'CANCELLED_MANUAL_RESTORE' => 'Annulé : rallumage manuel avant coupure',
-            'REACTIVATED_MANUAL_RESTORE' => 'Rallumé manuellement (lease toujours impayé)',
-
             'FAILED' => 'Échec final',
         ];
     }
@@ -150,9 +139,6 @@ class LeaseCutoffHistoryService
             'REACTIVATED_AFTER_FORGIVENESS' => 'Rallumé après pardon',
             'REACTIVATION_FAILED_AFTER_FORGIVENESS' => 'Échec rallumage après pardon',
 
-            'CANCELLED_MANUAL_RESTORE' => 'Annulé : rallumage manuel avant coupure',
-            'REACTIVATED_MANUAL_RESTORE' => 'Rallumé manuellement (lease toujours impayé)',
-
             'FAILED' => 'Échec final',
 
             default => (string) ($status ?: 'Inconnu'),
@@ -174,12 +160,10 @@ class LeaseCutoffHistoryService
             'CANCELLED_UNVERIFIED',
             'CANCELLED_RULE_MISSING',
             'CANCELLED_RULE_DISABLED',
-            'CANCELLED_FORGIVEN_BEFORE_CUT',
-            'CANCELLED_MANUAL_RESTORE' => 'cancelled',
+            'CANCELLED_FORGIVEN_BEFORE_CUT' => 'cancelled',
 
             'REACTIVATION_REQUESTED_AFTER_FORGIVENESS' => 'sent',
-            'REACTIVATED_AFTER_FORGIVENESS',
-            'REACTIVATED_MANUAL_RESTORE' => 'success',
+            'REACTIVATED_AFTER_FORGIVENESS' => 'success',
 
             'REACTIVATION_FAILED_AFTER_FORGIVENESS',
             'FAILED' => 'failed',
