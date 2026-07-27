@@ -196,6 +196,10 @@ Route::middleware('can:lease.contracts.manage')->group(function () {
     Route::post('/leases/{leaseId}/forgive', [\App\Http\Controllers\Leases\LeaseController::class, 'forgive'])
     ->middleware('can:lease.payments')->name('leases.forgive');
 
+    // sous-contrats réels du même véhicule qui bloqueraient encore le rallumage
+    Route::get('/leases/contract-link/{contractLinkId}/blocking-siblings', [\App\Http\Controllers\Leases\LeaseController::class, 'blockingSiblingContracts'])
+    ->middleware('can:lease.payments')->name('leases.blocking-siblings');
+
 // histirique de coupure automatique
 Route::get('lease/cutoff-history', [LeaseCutoffHistoryController::class, 'index'])
     ->middleware('can:lease.view')->name('lease.cutoff-history.index');

@@ -1765,6 +1765,7 @@ input:checked + .fl-slider:before {
     const CASH_PAYMENT_URL = @json(route('leases.payments.cash'));
     const MOBILE_PAYMENT_URL = @json(route('leases.payments.mobile'));
     const FORGIVE_URL_TEMPLATE = @json(route('leases.forgive', ['leaseId' => '__LEASE_ID__']));
+    const BLOCKING_SIBLINGS_URL_TEMPLATE = @json(route('leases.blocking-siblings', ['contractLinkId' => '__CONTRACT_LINK_ID__']));
 
     let filteredData = [...RAW_DATA];
     let currentPage = 1;
@@ -3063,7 +3064,7 @@ input:checked + .fl-slider:before {
         }
     };
 
-    window.openForgiveModal = function (rowId) {
+    window.openForgiveModal = async function (rowId) {
         const row = RAW_DATA.find(r => Number(r.id) === Number(rowId));
 
         if (!row) {
@@ -3095,43 +3096,58 @@ input:checked + .fl-slider:before {
                 : 'Pardon préventif accordé avant coupure automatique.';
         }
 
-        /*
-         * Détection proactive des contrats frères.
-         *
-         * Avant, "Pardonner tout" ne s'affichait qu'APRÈS un premier clic
-         * "Pardonner" refusé par le serveur (contrat frère encore en cause) :
-         * il fallait échouer une fois avant de voir l'option. On sait déjà,
-         * avec les données déjà chargées dans RAW_DATA, si un AUTRE contrat
-         * du même véhicule est encore impayé et toujours en position de
-         * (re)couper — donc on propose "Pardonner tout" tout de suite, sans
-         * attendre un premier refus. Mêmes statuts bloquants que côté
-         * serveur (LeaseForgivenessService::SIBLING_STILL_BLOCKING_STATUSES).
-         */
-        const SIBLING_STILL_BLOCKING_STATUSES = ['PENDING', 'WAITING_STOP', 'COMMAND_SENT', 'CUT_OFF'];
-        const siblingRows = row.vehicle_id
-            ? RAW_DATA.filter(r =>
-                r.vehicle_id === row.vehicle_id
-                && Number(r.id) !== Number(row.id)
-                && r.statut !== 'paid'
-                && SIBLING_STILL_BLOCKING_STATUSES.includes(r.coupure_status)
-            )
-            : [];
-
         const blockedBox = document.getElementById('forgiveBlockedBox');
         if (blockedBox) {
-            if (siblingRows.length > 0) {
-                const labels = siblingRows.map(s => s.type_contrat_label || s.contrat_type || 'autre contrat').join(', ');
+            blockedBox.style.display = 'none';
+        }
+
+        window.openModal('modalForgive');
+
+        /*
+         * Détection proactive des VRAIS sous-contrats frères.
+         *
+         * Avant, "Pardonner tout" ne s'affichait qu'APRÈS un premier clic
+         * "Pardonner" refusé par le serveur : il fallait échouer une fois
+         * avant de voir l'option. On interroge maintenant le serveur dès
+         * l'ouverture (lease_contract_links / lease_cutoff_histories, les
+         * mêmes tables que le pardon lui-même utilise) pour afficher les
+         * vrais sous-contrats de ce chauffeur qui bloqueraient encore le
+         * rallumage, avec leur libellé réel — pas une déduction côté client.
+         */
+        if (!row.contract_link_id) {
+            return;
+        }
+
+        try {
+            const url = BLOCKING_SIBLINGS_URL_TEMPLATE.replace('__CONTRACT_LINK_ID__', String(row.contract_link_id));
+            const response = await fetch(url, {
+                headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                credentials: 'same-origin',
+            });
+            const payload = await response.json().catch(() => null);
+
+            // La modale a pu être fermée ou une autre ligne ouverte entre temps.
+            if (Number(pendingRowId) !== Number(rowId)) {
+                return;
+            }
+
+            const siblings = (response.ok && payload?.ok) ? (payload.siblings || []) : [];
+
+            if (blockedBox && siblings.length > 0) {
+                const labels = siblings
+                    .map(s => s.driver_name ? `${s.label} (${s.driver_name})` : s.label)
+                    .join(', ');
                 const msgEl = document.getElementById('forgiveBlockedMessage');
                 if (msgEl) {
                     msgEl.textContent = `Ce véhicule a aussi un contrat impayé qui pourrait encore le (re)couper : ${labels}. Cliquez ci-dessous pour pardonner tous ces contrats en même temps.`;
                 }
                 blockedBox.style.display = 'block';
-            } else {
-                blockedBox.style.display = 'none';
             }
+        } catch (e) {
+            // Vérification proactive best-effort : en cas d'échec réseau, le
+            // bouton "Pardonner" normal reste utilisable — le serveur
+            // refusera quand même explicitement si un frère bloque encore.
         }
-
-        window.openModal('modalForgive');
     };
 
     window.confirmForgive = async function (cascade) {

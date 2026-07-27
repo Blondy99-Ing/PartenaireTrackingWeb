@@ -897,6 +897,55 @@ class LeaseForgivenessService
      * envoyer une commande de rallumage serait contredire une coupure encore
      * légitime.
      */
+    /**
+     * Aperçu, pour l'interface, des VRAIS sous-contrats de ce véhicule qui
+     * bloqueraient encore un rallumage — utilisé pour afficher "Pardonner
+     * tout" dès l'ouverture de la modale, avec le chauffeur et le contrat
+     * réels, plutôt qu'un libellé générique deviné côté client. Purement
+     * local (lease_contract_links / lease_cutoff_histories) : aucun appel à
+     * l'API Recouvrement, donc disponible même quand ce dernier est
+     * indisponible.
+     */
+    public function previewBlockingSiblings(int $partnerId, int $contractLinkId): array
+    {
+        $contractLink = LeaseContractLink::query()
+            ->where('partner_id', $partnerId)
+            ->where('id', $contractLinkId)
+            ->first();
+
+        if (! $contractLink || ! $contractLink->vehicle_id) {
+            return [];
+        }
+
+        $vehicle = Voiture::query()->find($contractLink->vehicle_id);
+
+        if (! $vehicle) {
+            return [];
+        }
+
+        return $this->findBlockingSiblingContracts($partnerId, $vehicle, $contractLinkId)
+            ->map(function (array $blocker) {
+                /** @var LeaseContractLink $siblingLink */
+                $siblingLink = $blocker['contract_link'];
+                $driver = $siblingLink->driver;
+
+                $driverName = $driver ? trim((string) (
+                    $driver->nom_complet
+                    ?? $driver->full_name
+                    ?? trim(($driver->prenom ?? '') . ' ' . ($driver->nom ?? ''))
+                )) : '';
+
+                return [
+                    'contract_link_id' => $siblingLink->id,
+                    'label' => $blocker['label'],
+                    'history_status' => $blocker['history_status'],
+                    'driver_name' => $driverName !== '' ? $driverName : null,
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
     private function findBlockingSiblingContracts(int $partnerId, Voiture $vehicle, int $excludeContractLinkId): Collection
     {
         $siblings = LeaseContractLink::query()

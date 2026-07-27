@@ -353,9 +353,31 @@ public function forgive(
     }
 }
 
+/**
+ * Sous-contrats réels du même véhicule qui bloqueraient encore un
+ * rallumage, pour afficher "Pardonner tout" dès l'ouverture de la
+ * modale (sans attendre un premier refus). Purement local : aucun
+ * appel Recouvrement.
+ */
+public function blockingSiblingContracts(
+    int $contractLinkId,
+    Request $request,
+    LeaseForgivenessService $forgivenessService
+): JsonResponse {
+    $user = $request->user();
+    $partnerId = (int) ($user->partner_id ?: $user->id);
+
+    $siblings = $forgivenessService->previewBlockingSiblings($partnerId, $contractLinkId);
+
+    return response()->json([
+        'ok' => true,
+        'siblings' => $siblings,
+    ]);
+}
 
 
-//utilisateur connecté 
+
+//utilisateur connecté
 private function connectedUserLabel($user): string
 {
     if (! $user) {
