@@ -268,7 +268,7 @@ class LeaseForgivenessService
          * accordé. On propose donc la même option "Pardonner tout" que pour
          * le rallumage après coupure.
          */
-        $blockingSiblings = $this->findBlockingSiblingContracts($partnerId, $vehicle, $contractLink?->id ?? 0);
+        $blockingSiblings = $this->findBlockingSiblingContracts($partnerId, $vehicle, $contractLink);
 
         if ($blockingSiblings->isNotEmpty() && ! $cascade) {
             return $this->recordForgiveBeforeCutBlockedBySiblings(
@@ -496,7 +496,7 @@ class LeaseForgivenessService
          * contrats frères sont pardonnés avec le même acteur/raison avant de
          * poursuivre le rallumage.
          */
-        $blockingSiblings = $this->findBlockingSiblingContracts($partnerId, $vehicle, $contractLink?->id ?? 0);
+        $blockingSiblings = $this->findBlockingSiblingContracts($partnerId, $vehicle, $contractLink);
 
         if ($blockingSiblings->isNotEmpty() && ! $cascade) {
             return $this->recordReactivationBlockedBySiblings(
@@ -890,14 +890,6 @@ class LeaseForgivenessService
     }
 
     /**
-     * Retourne les contrats/sous-contrats frères sur le MÊME véhicule dont la
-     * dernière décision de coupure locale est toujours active (planifiée, en
-     * attente, commande envoyée ou confirmée coupée) — c'est-à-dire toujours
-     * non résolue par un paiement ou un pardon. Tant que l'un d'eux existe,
-     * envoyer une commande de rallumage serait contredire une coupure encore
-     * légitime.
-     */
-    /**
      * Aperçu, pour l'interface, des VRAIS sous-contrats de ce véhicule qui
      * bloqueraient encore un rallumage — utilisé pour afficher "Pardonner
      * tout" dès l'ouverture de la modale, avec le chauffeur et le contrat
@@ -923,7 +915,7 @@ class LeaseForgivenessService
             return [];
         }
 
-        return $this->findBlockingSiblingContracts($partnerId, $vehicle, $contractLinkId)
+        return $this->findBlockingSiblingContracts($partnerId, $vehicle, $contractLink)
             ->map(function (array $blocker) {
                 /** @var LeaseContractLink $siblingLink */
                 $siblingLink = $blocker['contract_link'];
@@ -946,12 +938,32 @@ class LeaseForgivenessService
             ->all();
     }
 
-    private function findBlockingSiblingContracts(int $partnerId, Voiture $vehicle, int $excludeContractLinkId): Collection
+    /**
+     * Retourne les contrats/sous-contrats frères du MÊME chauffeur sur le
+     * MÊME véhicule dont la dernière décision de coupure locale est toujours
+     * active (planifiée, en attente, commande envoyée ou confirmée coupée)
+     * — c'est-à-dire toujours non résolue par un paiement ou un pardon. Tant
+     * que l'un d'eux existe, envoyer une commande de rallumage serait
+     * contredire une coupure encore légitime.
+     *
+     * Un même véhicule peut porter des lease_contract_links de chauffeurs
+     * DIFFÉRENTS (véhicule réattribué, ancien contrat non nettoyé, etc.).
+     * On ne doit jamais pardonner la dette d'un autre chauffeur au passage :
+     * on limite donc les "frères" au même chauffeur que le contrat qu'on
+     * est en train de pardonner. Si ce contrat n'a pas de chauffeur assigné,
+     * on retombe sur l'ancien comportement (tout le véhicule), faute de
+     * mieux pour le rattacher.
+     */
+    private function findBlockingSiblingContracts(int $partnerId, Voiture $vehicle, ?LeaseContractLink $contractLink): Collection
     {
+        $excludeContractLinkId = $contractLink?->id ?? 0;
+        $driverId = $contractLink?->driver_id;
+
         $siblings = LeaseContractLink::query()
             ->where('partner_id', $partnerId)
             ->where('vehicle_id', $vehicle->id)
             ->where('id', '!=', $excludeContractLinkId)
+            ->when($driverId, fn ($query) => $query->where('driver_id', $driverId))
             ->where(function ($query) {
                 $query->whereNull('status')->orWhere('status', '!=', 'DELETED');
             })
