@@ -1565,9 +1565,10 @@ input:checked + .fl-slider:before {
             <table class="ui-table" id="leaseTable">
                 <thead>
                     <tr>
-                        <th style="cursor:pointer;" onclick="window.sortBy('date')" title="Trier par date">
-                            Date <i class="fas fa-sort" style="font-size:.55rem;opacity:.4;"></i>
+                        <th style="cursor:pointer;" onclick="window.sortBy('date')" title="Trier par date d’échéance">
+                            Échéance <i class="fas fa-sort" style="font-size:.55rem;opacity:.4;"></i>
                         </th>
+                        <th title="Date à laquelle le paiement a réellement été enregistré">Date paiement</th>
                         <th>Véhicule</th>
                         <th>Contrat</th>
                         <th style="cursor:pointer;" onclick="window.sortBy('chauffeur')">
@@ -1582,7 +1583,6 @@ input:checked + .fl-slider:before {
                         <th>Statut</th>
                         <th>Coupure</th>
                         <th>H. coupure</th>
-                        <th>Heure paiement</th>
                         <th style="text-align:right;">Actions</th>
                     </tr>
                 </thead>
@@ -2058,9 +2058,19 @@ input:checked + .fl-slider:before {
         return 'Aucune règle active';
     }
 
-    function paymentTime(row) {
-        if (row.statut !== 'paid') return '—';
-        return row.heure_paiement || row.payment_time || row.paid_time || row.heure_enreg || '—';
+    /*
+     * Date de paiement complète (jour + heure), à côté de la date
+     * d'échéance en première colonne, pour que la différence entre les
+     * deux (paiement en retard, à l'avance, ou le jour même) saute aux
+     * yeux sans avoir à comparer deux colonnes éloignées.
+     */
+    function paymentDateCell(row) {
+        if (row.statut !== 'paid' || !row.date_paiement) return '—';
+
+        const datePart = String(row.date_paiement).slice(0, 10);
+        const timePart = row.heure_paiement || row.payment_time || row.paid_time || row.heure_enreg || String(row.date_paiement).slice(11, 16);
+
+        return timePart && timePart !== '—' ? `${datePart} ${timePart}` : datePart;
     }
 
     function cutoffBadge(row) {
@@ -2481,6 +2491,8 @@ input:checked + .fl-slider:before {
                 <tr data-id="${esc(r.id)}">
                     <td><span class="time-cell">${esc(r.date)}</span></td>
 
+                    <td><span class="time-cell">${esc(paymentDateCell(r))}</span></td>
+
                     <td><span class="immat-badge">${esc(r.vehicule)}</span></td>
 
                     <td style="white-space:nowrap;">
@@ -2523,8 +2535,6 @@ input:checked + .fl-slider:before {
                     <td>${cutoffBadge(r)}</td>
 
                     <td><span class="time-cell">${esc(cutoffTimeCell(r))}</span></td>
-
-                    <td><span class="time-cell">${esc(paymentTime(r))}</span></td>
 
                     <td>
                         <div style="display:flex;align-items:center;justify-content:flex-end;gap:.2rem;">
