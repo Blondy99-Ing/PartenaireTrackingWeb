@@ -953,7 +953,10 @@ class LeaseForgivenessService
                     ?? trim(($driver->prenom ?? '') . ' ' . ($driver->nom ?? ''))
                 )) : '';
 
-                $label = $realContractLabels[(int) $siblingLink->source_contract_id] ?? $blocker['label'];
+                $label = $this->safeSiblingContractLabel(
+                    $siblingLink,
+                    $realContractLabels[(int) $siblingLink->source_contract_id] ?? null
+                );
 
                 return [
                     'contract_link_id' => $siblingLink->id,
@@ -964,6 +967,42 @@ class LeaseForgivenessService
             })
             ->values()
             ->all();
+    }
+
+    /**
+     * Règle d'affichage du projet (voir LeaseCutoffRuleService) : jamais
+     * "Type #4", "Contrat #40", "#7", etc. On préfère le vrai nom
+     * Recouvrement, puis le libellé local s'il a l'air réel, et seulement en
+     * dernier recours un libellé générique propre.
+     */
+    private function safeSiblingContractLabel(LeaseContractLink $link, ?string $realLabel): string
+    {
+        $candidates = [$realLabel, $link->type_contrat_label, $link->displayTypeLabel()];
+
+        foreach ($candidates as $candidate) {
+            $label = trim((string) $candidate);
+
+            if (! $this->labelLooksTechnical($label)) {
+                return $label;
+            }
+        }
+
+        return $link->contract_kind === LeaseContractLink::KIND_MAIN ? 'Contrat principal' : 'Sous-contrat';
+    }
+
+    private function labelLooksTechnical(?string $label): bool
+    {
+        $label = trim((string) $label);
+
+        if ($label === '') {
+            return true;
+        }
+
+        return (bool) preg_match('/^(type|contrat|sous-contrat)\s*#?\d+$/i', $label)
+            || (bool) preg_match('/^#\d+$/', $label)
+            || (bool) preg_match('/^\d+$/', $label)
+            || (bool) preg_match('/^CTR[-_ ]?\d+$/i', $label)
+            || (bool) preg_match('/^parent\s*#?\d+$/i', $label);
     }
 
     /**
@@ -1009,7 +1048,7 @@ class LeaseForgivenessService
             if ($latestHistory && in_array($latestHistory->status, self::SIBLING_STILL_BLOCKING_STATUSES, true)) {
                 $blocking->push([
                     'contract_link' => $sibling,
-                    'label' => $sibling->displayTypeLabel(),
+                    'label' => $this->safeSiblingContractLabel($sibling, null),
                     'history_status' => $latestHistory->status,
                 ]);
             }
