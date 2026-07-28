@@ -151,13 +151,26 @@ class LeaseForgivenessService
 
         $dueDate = $this->extractLeaseDueDate($lease);
 
+        /**
+         * Bug corrigé : la date_echeance d'un lease impayé peut avancer côté
+         * Recouvrement entre le moment où le planificateur a créé la ligne
+         * (avec la date du jour) et le moment où le partenaire clique sur
+         * "Pardonner" (qui re-demande le lease à Recouvrement et peut donc
+         * recevoir une date déjà avancée). Filtrer sur cette date fraîchement
+         * relue faisait alors échouer la recherche de la VRAIE ligne encore
+         * PENDING/WAITING_STOP/COMMAND_SENT : le pardon écrivait une ligne
+         * orpheline sur une date différente, pendant que la ligne réelle
+         * continuait son traitement et coupait quand même le véhicule. Le
+         * lease_id (l'identifiant précis sur lequel le partenaire a cliqué)
+         * suffit déjà à retrouver la bonne ligne sans dépendre de cette date
+         * mouvante.
+         */
         $queue = LeaseCutoffQueue::query()
             ->with(['history'])
             ->where('partner_id', $partnerId)
             ->where('lease_id', $leaseId)
             ->where('vehicle_id', $vehicle->id)
             ->when($contractLink, fn ($query) => $query->where('contract_link_id', $contractLink->id))
-            ->when($dueDate, fn ($query) => $query->whereDate('lease_date_echeance', $dueDate))
             ->orderByDesc('id')
             ->first();
 
@@ -169,7 +182,6 @@ class LeaseForgivenessService
                 ->where('lease_id', $leaseId)
                 ->where('vehicle_id', $vehicle->id)
                 ->when($contractLink, fn ($query) => $query->where('contract_link_id', $contractLink->id))
-                ->when($dueDate, fn ($query) => $query->whereDate('lease_date_echeance', $dueDate))
                 ->orderByDesc('id')
                 ->first();
         }
@@ -373,6 +385,38 @@ class LeaseForgivenessService
                     vehicle: $vehicle,
                     blockingSiblings: $blockingSiblings,
                     reason: $reason
+                );
+            }
+
+            /**
+             * Bug corrigé : "Pardonner tout" ne protégeait que les contrats
+             * frères ayant DÉJÀ une ligne locale (donc déjà vus par le
+             * planificateur aujourd'hui). Un contrat dont l'heure de coupure
+             * arrive plus tard dans la journée — ou que le cron n'a simplement
+             * pas encore traité — restait invisible : "Pardonner tout" ne
+             * pardonnait rien pour lui, et il se faisait couper normalement
+             * plus tard, sans lien avec le pardon déjà accordé. On va donc
+             * directement demander à Recouvrement si CHAQUE frère (même
+             * chauffeur, même véhicule) a une échéance impayée aujourd'hui,
+             * et si oui on pose la suppression tout de suite — le
+             * planificateur la trouvera déjà en place quand il l'évaluera.
+             */
+            if ($cascade) {
+                $alreadyCascadedLinkIds = $blockingSiblings
+                    ->map(fn (array $b) => $b['contract_link']->id)
+                    ->all();
+
+                $cascadedHistoryIds = array_merge(
+                    $cascadedHistoryIds,
+                    $this->suppressUnplannedSiblingsBeforeCut(
+                        partnerId: $partnerId,
+                        vehicle: $vehicle,
+                        excludeContractLink: $contractLink,
+                        alreadyHandledContractLinkIds: $alreadyCascadedLinkIds,
+                        actor: $actor,
+                        forgivenByName: $forgivenByName,
+                        reason: $reason
+                    )
                 );
             }
 
@@ -1249,6 +1293,164 @@ class LeaseForgivenessService
     }
 
     /**
+     * Complète "Pardonner tout" (avant coupure) pour les contrats frères
+     * (même chauffeur, même véhicule) que le planificateur n'a PAS encore
+     * évalués aujourd'hui — donc sans aucune ligne locale à annuler. On
+     * demande directement à Recouvrement si chacun a une échéance impayée
+     * pour aujourd'hui ; si oui, on pose tout de suite une ligne
+     * CANCELLED_FORGIVEN_BEFORE_CUT avec son vrai lease_id du jour, pour que
+     * le planificateur la trouve déjà en place quand il l'évaluera plus
+     * tard (heure de coupure différente, ou simplement pas encore passé).
+     *
+     * Si l'appel Recouvrement échoue, on ne bloque pas le reste du pardon :
+     * ces contrats resteront simplement non couverts par la cascade, comme
+     * avant ce correctif.
+     */
+    private function suppressUnplannedSiblingsBeforeCut(
+        int $partnerId,
+        Voiture $vehicle,
+        ?LeaseContractLink $excludeContractLink,
+        array $alreadyHandledContractLinkIds,
+        User $actor,
+        string $forgivenByName,
+        ?string $reason
+    ): array {
+        $driverId = $excludeContractLink?->driver_id;
+
+        if (! $driverId) {
+            return [];
+        }
+
+        $today = Carbon::now(config('app.timezone', 'Africa/Douala'))->toDateString();
+
+        $candidateLinks = LeaseContractLink::query()
+            ->where('partner_id', $partnerId)
+            ->where('vehicle_id', $vehicle->id)
+            ->where('driver_id', $driverId)
+            ->where('id', '!=', $excludeContractLink->id)
+            ->whereNotIn('id', $alreadyHandledContractLinkIds)
+            ->where(function ($query) {
+                $query->whereNull('status')->orWhere('status', '!=', 'DELETED');
+            })
+            ->get();
+
+        if ($candidateLinks->isEmpty()) {
+            return [];
+        }
+
+        $alreadyPlannedTodayLinkIds = LeaseCutoffHistory::query()
+            ->where('partner_id', $partnerId)
+            ->whereIn('contract_link_id', $candidateLinks->pluck('id'))
+            ->whereDate('lease_date_echeance', $today)
+            ->pluck('contract_link_id')
+            ->all();
+
+        $unplannedLinks = $candidateLinks->reject(
+            fn (LeaseContractLink $link) => in_array($link->id, $alreadyPlannedTodayLinkIds, true)
+        );
+
+        if ($unplannedLinks->isEmpty()) {
+            return [];
+        }
+
+        try {
+            $todaysNonPaidLeases = $this->leaseApi->fetchNonPaidLeasesForDate($today);
+        } catch (\Throwable $e) {
+            Log::warning('[LEASE_FORGIVENESS] Suppression préventive des frères non planifiés : API Recouvrement indisponible.', [
+                'partner_id' => $partnerId,
+                'vehicle_id' => $vehicle->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [];
+        }
+
+        $leasesByContractId = collect($todaysNonPaidLeases)
+            ->keyBy(fn (array $lease) => $this->leaseApi->extractLeaseContractId($lease));
+
+        $historyIds = [];
+
+        foreach ($unplannedLinks as $link) {
+            $lease = $leasesByContractId->get((int) $link->source_contract_id);
+
+            if (! $lease) {
+                continue;
+            }
+
+            $siblingLeaseId = $this->leaseApi->extractLeaseId($lease);
+
+            if ($siblingLeaseId <= 0) {
+                continue;
+            }
+
+            $narrative = $this->appendEmployeeReason(
+                sprintf(
+                    'Le contrat %s du véhicule %s a une échéance impayée aujourd\'hui mais n\'avait pas encore été planifié : pardonné préventivement en cascade à la demande de %s.',
+                    $link->displayTypeLabel(),
+                    $this->vehicleLabel($vehicle),
+                    $forgivenByName
+                ),
+                $reason,
+                $forgivenByName
+            );
+
+            $history = $this->createOrUpdateHistory(
+                existing: null,
+                payload: [
+                    'status' => 'CANCELLED_FORGIVEN_BEFORE_CUT',
+                    'reason' => $narrative,
+                    'forgiven_by_user_id' => $actor->id,
+                    'forgiven_by_name' => $forgivenByName,
+                    'forgiven_at' => now(),
+                    'notes' => 'Pardon préventif en cascade : contrat pas encore évalué par le planificateur au moment du clic — suppression posée à l’avance pour l’échéance du jour.',
+                ],
+                createExtra: [
+                    'partner_id' => $partnerId,
+                    'vehicle_id' => $vehicle->id,
+                    'contract_id' => (int) $link->source_contract_id,
+                    'lease_id' => $siblingLeaseId,
+                    'lease_date_echeance' => $today,
+                    'contract_link_id' => $link->id,
+                    'parent_contract_id' => $link->source_parent_contract_id,
+                    'type_contrat_id' => $link->type_contrat_id,
+                    'type_contrat_label' => $link->type_contrat_label,
+                    'contract_kind' => $link->contract_kind,
+                    'trigger_label' => $link->displayTypeLabel(),
+                    'trigger_payload' => [
+                        'source_contract_id' => (int) $link->source_contract_id,
+                        'lease_id' => $siblingLeaseId,
+                        'date_echeance' => $today,
+                        'origin' => 'manual_forgiveness_cascade_unplanned_sibling',
+                    ],
+                    'contract_rule_id' => $link->cutoffRule?->id,
+                    'scheduled_for' => now(),
+                    'detected_at' => now(),
+                ],
+                lookup: [
+                    'partner_id' => $partnerId,
+                    'vehicle_id' => $vehicle->id,
+                    'lease_id' => $siblingLeaseId,
+                    'contract_link_id' => $link->id,
+                    'lease_date_echeance' => $today,
+                ]
+            );
+
+            Log::info('[LEASE_FORGIVENESS] Contrat frère jamais planifié aujourd’hui, pardonné préventivement par anticipation', [
+                'sibling_contract_link_id' => $link->id,
+                'sibling_lease_id' => $siblingLeaseId,
+                'history_id' => $history->id,
+                'vehicle_id' => $vehicle->id,
+                'forgiven_by_user_id' => $actor->id,
+                'forgiven_by_name' => $forgivenByName,
+            ]);
+
+            $historyIds[] = $history->id;
+        }
+
+        return $historyIds;
+    }
+
+    /**
      * Relit et verrouille (FOR UPDATE) la queue/l'historique juste avant
      * d'écrire, pour éviter une course avec le cron de planification/traitement
      * qui pourrait modifier la même ligne au même instant. Les objets passés en
@@ -1273,7 +1475,6 @@ class LeaseForgivenessService
                 ->where('vehicle_id', $vehicle->id)
                 ->where('lease_id', $leaseId)
                 ->when($contractLink, fn ($q) => $q->where('contract_link_id', $contractLink->id))
-                ->when($dueDate, fn ($q) => $q->whereDate('lease_date_echeance', $dueDate))
                 ->orderByDesc('id')
                 ->lockForUpdate()
                 ->first();
@@ -1287,7 +1488,6 @@ class LeaseForgivenessService
                 ->where('vehicle_id', $vehicle->id)
                 ->where('lease_id', $leaseId)
                 ->when($contractLink, fn ($q) => $q->where('contract_link_id', $contractLink->id))
-                ->when($dueDate, fn ($q) => $q->whereDate('lease_date_echeance', $dueDate))
                 ->orderByDesc('id')
                 ->lockForUpdate()
                 ->first();
