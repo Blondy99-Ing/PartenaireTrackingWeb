@@ -1321,7 +1321,7 @@ class LeaseForgivenessService
             return [];
         }
 
-        $today = Carbon::now(config('app.timezone', 'Africa/Douala'))->toDateString();
+        $today = now(config('app.timezone', 'Africa/Douala'))->toDateString();
 
         $candidateLinks = LeaseContractLink::query()
             ->where('partner_id', $partnerId)
