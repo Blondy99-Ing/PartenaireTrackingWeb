@@ -460,7 +460,7 @@ class LeaseForgivenessService
                     'parent_contract_id' => $contractLink?->source_parent_contract_id,
                     'type_contrat_id' => $contractLink?->type_contrat_id,
                     'type_contrat_label' => $contractLink?->type_contrat_label,
-                    'contract_kind' => $contractLink?->contract_kind,
+                    'contract_kind' => $contractLink?->contract_kind ?? 'MAIN',
                     'trigger_label' => $contractLink?->displayTypeLabel(),
                     'trigger_payload' => [
                         'source_contract_id' => $contractId,
@@ -746,7 +746,7 @@ class LeaseForgivenessService
                     'parent_contract_id' => $contractLink?->source_parent_contract_id,
                     'type_contrat_id' => $contractLink?->type_contrat_id,
                     'type_contrat_label' => $contractLink?->type_contrat_label,
-                    'contract_kind' => $contractLink?->contract_kind,
+                    'contract_kind' => $contractLink?->contract_kind ?? 'MAIN',
                     'trigger_label' => $contractLink?->displayTypeLabel(),
                     'trigger_payload' => [
                         'source_contract_id' => $contractId,
@@ -801,7 +801,7 @@ class LeaseForgivenessService
                     'parent_contract_id' => $contractLink?->source_parent_contract_id,
                     'type_contrat_id' => $contractLink?->type_contrat_id,
                     'type_contrat_label' => $contractLink?->type_contrat_label,
-                    'contract_kind' => $contractLink?->contract_kind,
+                    'contract_kind' => $contractLink?->contract_kind ?? 'MAIN',
                     'trigger_label' => $contractLink?->displayTypeLabel(),
                     'trigger_payload' => array_filter([
                         'source_contract_id' => $contractId,
