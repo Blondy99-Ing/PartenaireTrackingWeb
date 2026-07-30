@@ -346,9 +346,23 @@ public function forgive(
     } catch (\Throwable $e) {
         report($e);
 
+        /**
+         * Bug corrigé : une erreur inattendue (ex. colonne trop petite en
+         * base) affichait sa trace SQL brute au partenaire, parce que
+         * $e->getMessage() était renvoyé tel quel dans tous les cas. Seules
+         * les RuntimeException, levées volontairement par
+         * LeaseForgivenessService avec un message métier déjà propre
+         * ("Lease introuvable côté recouvrement", etc.), sont sûres à
+         * afficher. Toute autre exception reste générique côté partenaire ;
+         * le détail technique part uniquement dans les logs via report($e).
+         */
+        $message = $e instanceof \RuntimeException
+            ? ($e->getMessage() ?: "Impossible d’enregistrer le pardon.")
+            : "Impossible d’enregistrer le pardon : une erreur technique est survenue. L’équipe technique a été notifiée.";
+
         return response()->json([
             'ok' => false,
-            'message' => $e->getMessage() ?: "Impossible d’enregistrer le pardon.",
+            'message' => $message,
         ], 500);
     }
 }
