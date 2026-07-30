@@ -132,6 +132,57 @@ class LeaseController extends Controller
     }
 
     /**
+     * Mêmes données que index(), en JSON, pour actualiser le tableau après
+     * une action (paiement, pardon, coupure) sans recharger toute la page —
+     * ce qui perdait les filtres/tri/pagination du partenaire à chaque fois.
+     */
+    public function refreshData(Request $request, PartnerLeaseApiService $leaseApiService): JsonResponse
+    {
+        try {
+            $contracts = $leaseApiService->fetchContracts();
+
+            $leaseFilters = $request->only([
+                'search',
+                'statut',
+                'statut__in',
+                'date_echeance',
+                'date_echeance_start',
+                'date_echeance_end',
+                'created_at',
+                'start_date',
+                'end_date',
+                'page',
+            ]);
+
+            $leaseResult = $leaseApiService->fetchLeases(null, $contracts, $leaseFilters);
+            $leaseData = $leaseResult['data'];
+
+            return response()->json([
+                'ok' => true,
+                'lease_data' => $leaseData,
+                'cutoff_hub' => $leaseApiService->buildPaymentCutoffHub($leaseData),
+                'lease_pagination' => [
+                    'count' => $leaseResult['count'],
+                    'current_page' => $leaseResult['current_page'],
+                    'page_size' => $leaseResult['page_size'],
+                    'total_pages' => $leaseResult['total_pages'],
+                    'has_next' => $leaseResult['has_next'],
+                    'has_previous' => $leaseResult['has_previous'],
+                ],
+            ]);
+        } catch (Throwable $e) {
+            report($e);
+
+            return response()->json([
+                'ok' => false,
+                'message' => $e instanceof LeaseApiException
+                    ? $e->userMessage()
+                    : 'Impossible de rafraîchir les données pour le moment.',
+            ], 500);
+        }
+    }
+
+    /**
      * Activation/désactivation en masse des règles spécifiques existantes par contrat/sous-contrat.
      *
      * Important : cette action ne crée aucune règle et ne doit jamais créer de
@@ -365,6 +416,72 @@ public function forgive(
             'message' => $message,
         ], 500);
     }
+}
+
+/**
+ * Pardon en masse pour une sélection libre de leases (cases à cocher sur
+ * le tableau) — chaque lease est traité indépendamment via le même
+ * LeaseForgivenessService::forgive() que le pardon unitaire, pour ne
+ * jamais dupliquer la logique métier (frères, cascade, etc.). Un échec
+ * sur un lease n'interrompt pas les autres : on remonte un résumé par
+ * lease pour que le partenaire voie précisément ce qui a marché.
+ */
+public function forgiveBulk(
+    Request $request,
+    LeaseForgivenessService $forgivenessService
+): JsonResponse {
+    $data = $request->validate([
+        'lease_ids' => ['required', 'array', 'min:1', 'max:200'],
+        'lease_ids.*' => ['integer', 'min:1'],
+        'reason' => ['nullable', 'string', 'max:255'],
+        'cascade' => ['nullable', 'boolean'],
+    ]);
+
+    $leaseIds = collect($data['lease_ids'])->map(fn ($id) => (int) $id)->unique()->values();
+    $reason = trim((string) ($data['reason'] ?? '')) ?: null;
+    $cascade = filter_var($data['cascade'] ?? false, FILTER_VALIDATE_BOOLEAN);
+    $actor = $request->user();
+
+    $results = [];
+    $succeeded = 0;
+    $failed = 0;
+
+    foreach ($leaseIds as $leaseId) {
+        try {
+            $result = $forgivenessService->forgive($actor, $leaseId, $reason, $cascade);
+
+            $results[] = [
+                'lease_id' => $leaseId,
+                'ok' => true,
+                'message' => $result['message'] ?? 'Pardon enregistré.',
+                'status' => $result['status'] ?? null,
+            ];
+            $succeeded++;
+        } catch (\Throwable $e) {
+            report($e);
+
+            $message = $e instanceof \RuntimeException
+                ? ($e->getMessage() ?: "Impossible d’enregistrer le pardon.")
+                : "Erreur technique : l’équipe a été notifiée.";
+
+            $results[] = [
+                'lease_id' => $leaseId,
+                'ok' => false,
+                'message' => $message,
+            ];
+            $failed++;
+        }
+    }
+
+    return response()->json([
+        'ok' => $failed === 0,
+        'message' => $failed === 0
+            ? sprintf('%d lease(s) pardonné(s).', $succeeded)
+            : sprintf('%d lease(s) pardonné(s), %d échec(s).', $succeeded, $failed),
+        'succeeded' => $succeeded,
+        'failed' => $failed,
+        'results' => $results,
+    ]);
 }
 
 /**

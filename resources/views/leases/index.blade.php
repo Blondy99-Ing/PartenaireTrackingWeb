@@ -1560,11 +1560,26 @@ input:checked + .fl-slider:before {
 
     <div class="active-filters-strip" id="activeFiltersStrip"></div>
 
+    <div id="bulkForgiveBar" style="display:none;position:sticky;top:0;z-index:5;margin-bottom:.75rem;padding:.65rem 1rem;border-radius:10px;background:var(--color-warning-bg,#fff7ed);border:1px solid var(--color-warning,#f59e0b);align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap;">
+        <div style="font-size:.85rem;font-weight:600;color:var(--color-text);">
+            <span id="bulkForgiveCount">0</span> lease(s) sélectionné(s)
+        </div>
+        <div style="display:flex;gap:.5rem;align-items:center;">
+            <button type="button" class="btn-secondary" onclick="window.clearLeaseSelection()">Annuler la sélection</button>
+            <button type="button" class="btn-primary" style="background:var(--color-warning);" onclick="window.openBulkForgiveModal()">
+                <i class="fas fa-hand-holding-heart"></i> Pardonner la sélection
+            </button>
+        </div>
+    </div>
+
     <div class="lease-table-card">
         <div class="lease-table-scroll">
             <table class="ui-table" id="leaseTable">
                 <thead>
                     <tr>
+                        <th style="width:2rem;">
+                            <input type="checkbox" id="selectAllLeasesCheckbox" title="Tout sélectionner (page affichée)">
+                        </th>
                         <th style="cursor:pointer;" onclick="window.sortBy('date')" title="Trier par date d’échéance">
                             Échéance <i class="fas fa-sort" style="font-size:.55rem;opacity:.4;"></i>
                         </th>
@@ -1724,6 +1739,59 @@ input:checked + .fl-slider:before {
     </div>
 </div>
 
+<div id="modalBulkForgive" class="fl-modal-overlay" aria-modal="true" role="dialog">
+    <div class="fl-modal-panel sm" id="modalBulkForgivePanel">
+        <div class="fl-modal-header">
+            <div>
+                <h2 class="fl-modal-title">Pardonner la sélection</h2>
+            </div>
+            <button class="fl-modal-close" onclick="window.closeModal('modalBulkForgive')">&times;</button>
+        </div>
+
+        <div class="fl-modal-body" style="text-align:center;padding-top:1.25rem;">
+            <div class="fl-confirm-icon warn"><i class="fas fa-hand-holding-heart"></i></div>
+            <p class="fl-confirm-title" id="bulkForgiveTitle">Pardonner ces leases ?</p>
+            <p class="fl-confirm-msg">
+                Chaque lease sélectionné sera traité indépendamment. Si un véhicule est déjà coupé, le rallumage sera tenté pour lui.
+            </p>
+
+            <div style="margin-top:.75rem;text-align:left;">
+                <label style="display:flex;align-items:center;gap:.5rem;font-size:.82rem;cursor:pointer;">
+                    <input type="checkbox" id="bulkForgiveCascade">
+                    Pardonner aussi les sous-contrats/contrats frères impayés du même chauffeur (recommandé)
+                </label>
+            </div>
+
+            <div style="margin-top:.75rem;">
+                <label class="fl-form-label" style="text-align:left;display:block;">Pardonné par</label>
+                <input type="text"
+                       id="bulkForgiveBy"
+                       class="ui-input-style"
+                       value="{{ $connectedUserName ?? 'Utilisateur connecté' }}"
+                       readonly>
+            </div>
+
+            <div style="margin-top:.75rem;">
+                <label class="fl-form-label" style="text-align:left;display:block;">Raison du pardon</label>
+                <textarea id="bulkForgiveReason"
+                          class="ui-input-style"
+                          rows="3"
+                          placeholder="Ex: régularisation groupée, arrangement validé..."
+                          style="resize:vertical;"></textarea>
+            </div>
+
+            <div id="bulkForgiveResults" style="display:none;margin-top:.75rem;max-height:220px;overflow-y:auto;text-align:left;font-size:.78rem;border:1px solid var(--color-border,#e5e7eb);border-radius:8px;padding:.5rem .65rem;"></div>
+        </div>
+
+        <div class="fl-modal-footer">
+            <button class="btn-secondary" id="bulkForgiveCancelBtn" onclick="window.closeModal('modalBulkForgive')">Annuler</button>
+            <button class="btn-primary" id="bulkForgiveConfirmBtn" onclick="window.confirmBulkForgive()" style="background:var(--color-warning);">
+                <i class="fas fa-hand-holding-heart"></i> Confirmer le pardon
+            </button>
+        </div>
+    </div>
+</div>
+
 <div id="modalCut" class="fl-modal-overlay" aria-modal="true" role="dialog">
     <div class="fl-modal-panel sm" id="modalCutPanel">
         <div class="fl-modal-header">
@@ -1756,8 +1824,8 @@ input:checked + .fl-slider:before {
 (function () {
     'use strict';
 
-    const RAW_DATA = @json($lease_data ?? []);
-    const HUB_DATA = @json($cutoffHub ?? []);
+    let RAW_DATA = @json($lease_data ?? []);
+    let HUB_DATA = @json($cutoffHub ?? []);
     const PAGINATION = @json($leasePagination ?? []);
     const CONNECTED_USER_NAME = @json($connectedUserName ?? 'Utilisateur connecté');
 
@@ -1766,12 +1834,67 @@ input:checked + .fl-slider:before {
     const MOBILE_PAYMENT_URL = @json(route('leases.payments.mobile'));
     const FORGIVE_URL_TEMPLATE = @json(route('leases.forgive', ['leaseId' => '__LEASE_ID__']));
     const BLOCKING_SIBLINGS_URL_TEMPLATE = @json(route('leases.blocking-siblings', ['contractLinkId' => '__CONTRACT_LINK_ID__']));
+    const LEASE_FORGIVE_BULK_URL = @json(route('leases.forgive-bulk'));
+    const LEASE_DATA_REFRESH_URL = @json(route('lease.data'));
+
+    /*
+     * Actualisation ciblée après une action (paiement, pardon, coupure) :
+     * on relit juste les données depuis le serveur et on redessine le
+     * tableau/les KPI, sans recharger toute la page — ce qui gardait avant
+     * les filtres, le tri, la pagination et la position de défilement du
+     * partenaire, au lieu de tout remettre à zéro à chaque clic.
+     */
+    async function refreshLeaseData() {
+        try {
+            const res = await fetch(LEASE_DATA_REFRESH_URL, {
+                headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                credentials: 'same-origin',
+                cache: 'no-store',
+            });
+            const payload = await res.json().catch(() => null);
+
+            if (!res.ok || !payload?.ok) {
+                throw new Error(payload?.message || 'Actualisation impossible.');
+            }
+
+            RAW_DATA = payload.lease_data || [];
+            HUB_DATA = payload.cutoff_hub || {};
+
+            applyFilters();
+            renderTable();
+            renderKPIs();
+            if (typeof renderUpcomingPreview === 'function') {
+                renderUpcomingPreview();
+            }
+
+            return true;
+        } catch (e) {
+            /*
+             * Best-effort : l'action elle-même (paiement/pardon/coupure) a
+             * déjà réussi côté serveur à ce stade — un échec d'actualisation
+             * ne doit pas le remettre en cause, juste prévenir que
+             * l'affichage peut être obsolète.
+             */
+            if (window.showToast) {
+                window.showToast('Affichage non actualisé', 'Rechargez la page pour voir les dernières données.', 'warning');
+            }
+            return false;
+        }
+    }
 
     let filteredData = [...RAW_DATA];
     let currentPage = 1;
     let perPage = 25;
     let sortKey = 'date';
     let sortDir = 'desc';
+
+    /*
+     * Pardon en masse sur une sélection libre de lignes, indépendante des
+     * filtres/pages : on garde les IDs sélectionnés à travers les
+     * changements de page/tri/filtre, jusqu'à ce que le partenaire
+     * pardonne la sélection ou la vide explicitement.
+     */
+    let selectedLeaseIds = new Set();
 
     let activeFilters = {
         statut: 'all',
@@ -2394,7 +2517,7 @@ input:checked + .fl-slider:before {
         if (!page.length) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="15">
+                    <td colspan="16">
                         <div class="lease-empty">
                             <i class="fas fa-filter"></i>
                             Aucune ligne ne correspond aux filtres actifs.
@@ -2489,6 +2612,10 @@ input:checked + .fl-slider:before {
 
             return `
                 <tr data-id="${esc(r.id)}">
+                    <td>
+                        <input type="checkbox" class="lease-row-select" data-lease-id="${esc(r.id)}" ${selectedLeaseIds.has(Number(r.id)) ? 'checked' : ''}>
+                    </td>
+
                     <td><span class="time-cell">${esc(r.date)}</span></td>
 
                     <td><span class="time-cell">${esc(paymentDateCell(r))}</span></td>
@@ -2546,7 +2673,186 @@ input:checked + .fl-slider:before {
                 </tr>
             `;
         }).join('');
+
+        const selectAllBox = document.getElementById('selectAllLeasesCheckbox');
+        if (selectAllBox) {
+            selectAllBox.checked = page.length > 0 && page.every(r => selectedLeaseIds.has(Number(r.id)));
+        }
     }
+
+    function updateBulkForgiveBar() {
+        const bar = document.getElementById('bulkForgiveBar');
+        const countEl = document.getElementById('bulkForgiveCount');
+
+        if (countEl) {
+            countEl.textContent = String(selectedLeaseIds.size);
+        }
+
+        if (bar) {
+            bar.style.display = selectedLeaseIds.size > 0 ? 'flex' : 'none';
+        }
+    }
+
+    window.clearLeaseSelection = function () {
+        selectedLeaseIds.clear();
+        updateBulkForgiveBar();
+        renderTable();
+    };
+
+    document.getElementById('leaseTableBody')?.addEventListener('change', function (event) {
+        const checkbox = event.target.closest('.lease-row-select');
+        if (!checkbox) {
+            return;
+        }
+
+        const leaseId = Number(checkbox.dataset.leaseId);
+
+        if (checkbox.checked) {
+            selectedLeaseIds.add(leaseId);
+        } else {
+            selectedLeaseIds.delete(leaseId);
+        }
+
+        updateBulkForgiveBar();
+
+        const selectAllBox = document.getElementById('selectAllLeasesCheckbox');
+        if (selectAllBox) {
+            const rows = Array.from(document.querySelectorAll('#leaseTableBody .lease-row-select'));
+            selectAllBox.checked = rows.length > 0 && rows.every(r => selectedLeaseIds.has(Number(r.dataset.leaseId)));
+        }
+    });
+
+    document.getElementById('selectAllLeasesCheckbox')?.addEventListener('change', function () {
+        const rows = Array.from(document.querySelectorAll('#leaseTableBody .lease-row-select'));
+
+        rows.forEach(row => {
+            const leaseId = Number(row.dataset.leaseId);
+
+            if (this.checked) {
+                selectedLeaseIds.add(leaseId);
+            } else {
+                selectedLeaseIds.delete(leaseId);
+            }
+        });
+
+        updateBulkForgiveBar();
+        renderTable();
+    });
+
+    window.openBulkForgiveModal = function () {
+        if (selectedLeaseIds.size === 0) {
+            return;
+        }
+
+        const title = document.getElementById('bulkForgiveTitle');
+        if (title) {
+            title.textContent = `Pardonner ${selectedLeaseIds.size} lease(s) sélectionné(s) ?`;
+        }
+
+        const reasonEl = document.getElementById('bulkForgiveReason');
+        if (reasonEl) {
+            reasonEl.value = '';
+        }
+
+        const cascadeEl = document.getElementById('bulkForgiveCascade');
+        if (cascadeEl) {
+            cascadeEl.checked = true;
+        }
+
+        const resultsEl = document.getElementById('bulkForgiveResults');
+        if (resultsEl) {
+            resultsEl.style.display = 'none';
+            resultsEl.innerHTML = '';
+        }
+
+        const confirmBtn = document.getElementById('bulkForgiveConfirmBtn');
+        if (confirmBtn) {
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = '<i class="fas fa-hand-holding-heart"></i> Confirmer le pardon';
+        }
+
+        window.openModal('modalBulkForgive');
+    };
+
+    window.confirmBulkForgive = async function () {
+        const leaseIds = Array.from(selectedLeaseIds);
+
+        if (leaseIds.length === 0) {
+            return;
+        }
+
+        const confirmBtn = document.getElementById('bulkForgiveConfirmBtn');
+        const cancelBtn = document.getElementById('bulkForgiveCancelBtn');
+        const reason = document.getElementById('bulkForgiveReason')?.value || '';
+        const cascade = document.getElementById('bulkForgiveCascade')?.checked ?? true;
+
+        if (confirmBtn) {
+            confirmBtn.disabled = true;
+            confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Pardon en cours…';
+        }
+        if (cancelBtn) {
+            cancelBtn.disabled = true;
+        }
+
+        try {
+            const response = await fetch(LEASE_FORGIVE_BULK_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': getCsrfToken(),
+                },
+                body: JSON.stringify({
+                    lease_ids: leaseIds,
+                    reason: reason,
+                    cascade: !!cascade,
+                }),
+            });
+
+            const payload = await response.json().catch(() => null);
+
+            if (!response.ok && !payload) {
+                throw new Error("Impossible d'enregistrer le pardon en masse.");
+            }
+
+            const resultsEl = document.getElementById('bulkForgiveResults');
+            if (resultsEl && payload?.results) {
+                resultsEl.style.display = 'block';
+                resultsEl.innerHTML = payload.results.map(r => `
+                    <div style="padding:.25rem 0;border-bottom:1px solid var(--color-border,#f1f1f1);color:${r.ok ? 'var(--color-success,#16a34a)' : 'var(--color-error,#dc2626)'};">
+                        <i class="fas ${r.ok ? 'fa-check-circle' : 'fa-circle-xmark'}"></i>
+                        Lease #${r.lease_id} — ${r.message}
+                    </div>
+                `).join('');
+            }
+
+            if (window.showToast) {
+                window.showToast(
+                    payload?.ok ? 'Pardon en masse terminé' : 'Pardon en masse terminé avec des échecs',
+                    payload?.message || 'Traitement terminé.',
+                    payload?.ok ? 'success' : 'warning'
+                );
+            }
+
+            selectedLeaseIds.clear();
+            updateBulkForgiveBar();
+            await refreshLeaseData();
+
+            if (payload?.ok) {
+                window.closeModal('modalBulkForgive');
+            }
+        } catch (e) {
+            alert(e.message || 'Erreur pendant le pardon en masse.');
+        } finally {
+            if (confirmBtn) {
+                confirmBtn.disabled = false;
+                confirmBtn.innerHTML = '<i class="fas fa-hand-holding-heart"></i> Confirmer le pardon';
+            }
+            if (cancelBtn) {
+                cancelBtn.disabled = false;
+            }
+        }
+    };
 
     function renderKPIs() {
         const data = filteredData;
@@ -3063,7 +3369,7 @@ input:checked + .fl-slider:before {
                 window.showToast('Paiement enregistré', `${fmt(amount)} en cash`, 'success');
             }
 
-            window.location.reload();
+            await refreshLeaseData();
         } catch (e) {
             alert(e.message || "Erreur pendant l'enregistrement du paiement.");
         } finally {
@@ -3241,7 +3547,7 @@ input:checked + .fl-slider:before {
                 );
             }
 
-            window.location.reload();
+            await refreshLeaseData();
         } catch (e) {
             alert(e.message || 'Erreur pendant le pardon.');
         } finally {

@@ -109,6 +109,8 @@ Route::middleware(['auth:web', 'partner.only'])->group(function () {
     //gestion des lease
     Route::get('lease', [LeaseController::class, 'index'])
         ->middleware('can:lease.view')->name('lease.index');
+    Route::get('lease/data', [LeaseController::class, 'refreshData'])
+        ->middleware('can:lease.view')->name('lease.data');
     Route::post('/leases/payments/cash', [\App\Http\Controllers\Leases\LeaseController::class, 'payCash'])
     ->middleware('can:lease.payments')->name('leases.payments.cash');
 
@@ -195,6 +197,10 @@ Route::middleware('can:lease.contracts.manage')->group(function () {
     //pardonner un lease non payé  en rallumant le vehicuel
     Route::post('/leases/{leaseId}/forgive', [\App\Http\Controllers\Leases\LeaseController::class, 'forgive'])
     ->middleware('can:lease.payments')->name('leases.forgive');
+
+    // pardon en masse pour une sélection libre de leases
+    Route::post('/leases/forgive-bulk', [\App\Http\Controllers\Leases\LeaseController::class, 'forgiveBulk'])
+    ->middleware('can:lease.payments')->name('leases.forgive-bulk');
 
     // sous-contrats réels du même véhicule qui bloqueraient encore le rallumage
     Route::get('/leases/contract-link/{contractLinkId}/blocking-siblings', [\App\Http\Controllers\Leases\LeaseController::class, 'blockingSiblingContracts'])
