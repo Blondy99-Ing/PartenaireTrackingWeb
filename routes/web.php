@@ -98,6 +98,10 @@ Route::middleware(['auth:web', 'partner.only'])->group(function () {
         //Route::get('/voitures/{id}/trajets', [TrajetController::class, 'byVoiture'])->name('voitures.trajets');
         Route::get('/trajets/show/{voiture_id}/{trajet_id}', [TrajetController::class, 'showTrajet'])
             ->name('trajets.show');
+
+        // Replay libre : véhicule + période choisie manuellement, sans dépendre
+        // d'un trajet déjà découpé par le système.
+        Route::get('/trajets/replay', [TrajetController::class, 'replay'])->name('trajets.replay');
     });
 
     // ── Vehicles ───────────────────────────────────────────────────────

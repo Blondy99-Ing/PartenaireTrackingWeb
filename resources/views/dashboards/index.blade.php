@@ -968,6 +968,37 @@
     z-index: 75
 }
 
+.rp-hud {
+    display: flex;
+    gap: .5rem;
+    padding: .5rem .75rem 0;
+    flex-wrap: wrap
+}
+
+.rp-hud-item {
+    display: flex;
+    flex-direction: column;
+    gap: .1rem;
+    background: var(--color-surface-2, rgba(255,255,255,.04));
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 10px;
+    padding: .3rem .55rem;
+    min-width: 84px
+}
+
+.rp-hud-item .k {
+    font-size: .58rem;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--color-secondary-text, #8b949e)
+}
+
+.rp-hud-item .v {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: .74rem
+}
+
 .rp {
     padding: .65rem .75rem;
     display: flex;
@@ -1279,35 +1310,67 @@ $defaultTab = $canFlotte ? 'flotte' : ($canTrajets ? 'trajets' : ($canAlertes ? 
                 </div>
 
                 <div class="pane {{ $defaultTab === 'trajets' ? 'active' : '' }}" id="pane-trajets">
-                    <div class="modebar">
-                        <button class="mbtn" id="mode-trajets-simple" onclick="window.setMode('trajets','simple')">Liste</button>
-                        <button class="mbtn active" id="mode-trajets-detailed" onclick="window.setMode('trajets','detailed')">Détaillé</button>
+                    <div class="modebar" id="trajetsSubtabs">
+                        <button class="mbtn active" id="subtab-trajets-list" onclick="window.setTrajetsSubtab('list')">Trajets détectés</button>
+                        <button class="mbtn" id="subtab-trajets-replay" onclick="window.setTrajetsSubtab('replay')">Replay libre</button>
                     </div>
-                    <div class="fbar">
-                        <button class="fbtn" onclick="window.togglePaneFilters('trajets')"><i class="fas fa-sliders-h"></i> Filtres</button>
-                        <button class="fbtn2" onclick="window.toggleTripsCustom()"><i class="fas fa-calendar"></i> Personnaliser</button>
-                    </div>
-                    <div class="quickbar" id="tQuick">
-                        <span class="qc active" data-q="today" onclick="window.setTripsQuick(this,'today')">Aujourd'hui</span>
-                        <span class="qc" data-q="yesterday" onclick="window.setTripsQuick(this,'yesterday')">Hier</span>
-                        <span class="qc" data-q="this_week" onclick="window.setTripsQuick(this,'this_week')">Semaine</span>
-                        <span class="qc" data-q="this_month" onclick="window.setTripsQuick(this,'this_month')">Mois</span>
-                        <span class="qc" data-q="this_year" onclick="window.setTripsQuick(this,'this_year')">Année</span>
-                    </div>
-                    <div class="datebox" id="tDateBox">
-                        <div class="dr">
-                            <input type="date" id="tFrom">
-                            <span>→</span>
-                            <input type="date" id="tTo">
+
+                    <div id="trajetsListSection">
+                        <div class="modebar">
+                            <button class="mbtn" id="mode-trajets-simple" onclick="window.setMode('trajets','simple')">Liste</button>
+                            <button class="mbtn active" id="mode-trajets-detailed" onclick="window.setMode('trajets','detailed')">Détaillé</button>
+                        </div>
+                        <div class="fbar">
+                            <button class="fbtn" onclick="window.togglePaneFilters('trajets')"><i class="fas fa-sliders-h"></i> Filtres</button>
+                            <button class="fbtn2" onclick="window.toggleTripsCustom()"><i class="fas fa-calendar"></i> Personnaliser</button>
+                        </div>
+                        <div class="quickbar" id="tQuick">
+                            <span class="qc active" data-q="today" onclick="window.setTripsQuick(this,'today')">Aujourd'hui</span>
+                            <span class="qc" data-q="yesterday" onclick="window.setTripsQuick(this,'yesterday')">Hier</span>
+                            <span class="qc" data-q="this_week" onclick="window.setTripsQuick(this,'this_week')">Semaine</span>
+                            <span class="qc" data-q="this_month" onclick="window.setTripsQuick(this,'this_month')">Mois</span>
+                            <span class="qc" data-q="this_year" onclick="window.setTripsQuick(this,'this_year')">Année</span>
+                        </div>
+                        <div class="datebox" id="tDateBox">
+                            <div class="dr">
+                                <input type="date" id="tFrom">
+                                <span>→</span>
+                                <input type="date" id="tTo">
+                            </div>
+                        </div>
+                        <div class="filters" id="tf">
+                            <span class="f active" data-f="all" onclick="window.setTripFilter(this,'all')">Tous</span>
+                            <span class="f" data-f="active" onclick="window.setTripFilter(this,'active')">En cours</span>
+                            <span class="f" data-f="done" onclick="window.setTripFilter(this,'done')">Terminés</span>
+                        </div>
+                        <div class="scroll" id="tripList">
+                            <div class="empty"><i class="fas fa-route"></i><div style="margin-top:.6rem">Aucun trajet chargé</div></div>
                         </div>
                     </div>
-                    <div class="filters" id="tf">
-                        <span class="f active" data-f="all" onclick="window.setTripFilter(this,'all')">Tous</span>
-                        <span class="f" data-f="active" onclick="window.setTripFilter(this,'active')">En cours</span>
-                        <span class="f" data-f="done" onclick="window.setTripFilter(this,'done')">Terminés</span>
-                    </div>
-                    <div class="scroll" id="tripList">
-                        <div class="empty"><i class="fas fa-route"></i><div style="margin-top:.6rem">Aucun trajet chargé</div></div>
+
+                    <div id="trajetsReplaySection" style="display:none;padding:.75rem;flex-direction:column;gap:.7rem;">
+                        <div>
+                            <label class="fl-form-label" style="display:block;margin-bottom:.3rem;">Véhicule</label>
+                            <select id="replayVehicleSelect" class="ui-input-style" style="width:100%;"></select>
+                        </div>
+                        <div>
+                            <label class="fl-form-label" style="display:block;margin-bottom:.3rem;">Date</label>
+                            <input type="date" id="replayDate" class="ui-input-style" style="width:100%;">
+                        </div>
+                        <div style="display:flex;gap:.5rem;">
+                            <div style="flex:1;">
+                                <label class="fl-form-label" style="display:block;margin-bottom:.3rem;">Heure début</label>
+                                <input type="time" id="replayStartTime" class="ui-input-style" style="width:100%;" value="06:00">
+                            </div>
+                            <div style="flex:1;">
+                                <label class="fl-form-label" style="display:block;margin-bottom:.3rem;">Heure fin</label>
+                                <input type="time" id="replayEndTime" class="ui-input-style" style="width:100%;" value="18:00">
+                            </div>
+                        </div>
+                        <button class="btn-primary" style="justify-content:center;" onclick="window.loadFreeReplay()" id="replayLoadBtn">
+                            <i class="fas fa-route"></i> Charger le trajet
+                        </button>
+                        <div id="replayStatus" style="font-size:.78rem;color:var(--color-secondary-text,#8b949e);"></div>
                     </div>
                 </div>
 
@@ -1511,6 +1574,24 @@ $defaultTab = $canFlotte ? 'flotte' : ($canTrajets ? 'trajets' : ($canAlertes ? 
                 </div>
 
                 <div class="card" id="tripReplay">
+                    <div class="rp-hud" id="rpHud">
+                        <div class="rp-hud-item">
+                            <span class="k">Heure</span>
+                            <span class="v" id="rpHudTime">—</span>
+                        </div>
+                        <div class="rp-hud-item">
+                            <span class="k">Vitesse</span>
+                            <span class="v" id="rpHudSpeed">— km/h</span>
+                        </div>
+                        <div class="rp-hud-item">
+                            <span class="k">Position</span>
+                            <span class="v" id="rpHudPos" style="font-family:var(--font-mono,monospace);font-size:.68rem;">—</span>
+                        </div>
+                        <div class="rp-hud-item">
+                            <span class="k">Direction</span>
+                            <span class="v" id="rpHudDir">—</span>
+                        </div>
+                    </div>
                     <div class="rp">
                         <strong>Replay</strong>
                         <button onclick="window.replayPlay()">▶</button>
@@ -1578,6 +1659,11 @@ $defaultTab = $canFlotte ? 'flotte' : ($canTrajets ? 'trajets' : ($canAlertes ? 
         trajetDetail: (vId, tId) => {
             const base = @json(url('/trajets/show'));
             return `${base}/${encodeURIComponent(vId)}/${encodeURIComponent(tId)}?format=json`;
+        },
+        trajetReplay: (vId, startAt, endAt) => {
+            const base = @json(route('trajets.replay'));
+            const params = new URLSearchParams({ vehicle_id: vId, start_at: startAt, end_at: endAt });
+            return `${base}?${params.toString()}`;
         },
     };
 
@@ -2533,6 +2619,26 @@ $defaultTab = $canFlotte ? 'flotte' : ($canTrajets ? 'trajets' : ($canAlertes ? 
         };
     }
 
+    /*
+     * Icône directionnelle pour le curseur de replay : un google.maps.Symbol
+     * (chemin SVG) tourne nativement via `rotation`, contrairement à une
+     * icône PNG classique — c'est pour ça que le curseur de replay a besoin
+     * d'une icône dédiée, séparée de carIcon() utilisée par les marqueurs de
+     * flotte (qui ont leur propre indicateur de cap superposé).
+     */
+    function replayCarIcon(direction) {
+        return {
+            path: 'M 0,-9 L 6,8 L 0,4.5 L -6,8 Z',
+            fillColor: '#2563eb',
+            fillOpacity: 1,
+            strokeColor: '#ffffff',
+            strokeWeight: 1.4,
+            scale: 1.5,
+            rotation: Number.isFinite(direction) ? direction : 0,
+            anchor: new google.maps.Point(0, 0),
+        };
+    }
+
     function ensureSelectedVehicleIndicator() {
         if (!map || selectedVehicleIndicator) return;
 
@@ -3179,6 +3285,22 @@ $defaultTab = $canFlotte ? 'flotte' : ($canTrajets ? 'trajets' : ($canAlertes ? 
         window.doSearch();
     }
 
+    /*
+     * Normalise les points bruts renvoyés par l'API (showTrajet OU replay
+     * libre, même forme) vers le format attendu par drawTrip()/replay —
+     * partagé pour ne pas dupliquer la même logique dans les deux flux.
+     */
+    function normalizeTrackPoints(pointsRaw) {
+        return (pointsRaw || []).map(p => ({
+            lat: parseFloat(p.lat ?? p.latitude ?? NaN),
+            lng: parseFloat(p.lng ?? p.longitude ?? p.lon ?? NaN),
+            ts: p.ts ?? p.time ?? p.created_at ?? '',
+            tsMs: Number.isFinite(Number(p.ts_ms)) ? Number(p.ts_ms) : null,
+            spd: parseFloat(p.speed ?? p.vitesse ?? 0),
+            dir: Number.isFinite(Number(p.direction)) ? Number(p.direction) : null,
+        })).filter(p => isFinite(p.lat) && isFinite(p.lng));
+    }
+
     async function openTrip(vehicleId, trajetId) {
         document.getElementById('tripModal')?.classList.remove('show');
 
@@ -3201,12 +3323,7 @@ $defaultTab = $canFlotte ? 'flotte' : ($canTrajets ? 'trajets' : ($canAlertes ? 
             const pointsRaw = Array.isArray(track?.points) ? track.points :
                 Array.isArray(data?.points) ? data.points : [];
 
-            const points = pointsRaw.map(p => ({
-                lat: parseFloat(p.lat ?? p.latitude ?? NaN),
-                lng: parseFloat(p.lng ?? p.longitude ?? p.lon ?? NaN),
-                ts: p.ts ?? p.time ?? p.created_at ?? '',
-                spd: parseFloat(p.speed ?? p.vitesse ?? 0),
-            })).filter(p => isFinite(p.lat) && isFinite(p.lng));
+            const points = normalizeTrackPoints(pointsRaw);
 
             if (points.length === 0) {
                 toast('Aucun point GPS pour ce trajet', false);
@@ -3272,6 +3389,147 @@ $defaultTab = $canFlotte ? 'flotte' : ($canTrajets ? 'trajets' : ($canAlertes ? 
         map.fitBounds(b);
     };
 
+    let replayVehiclesLoaded = false;
+
+    window.setTrajetsSubtab = (tab) => {
+        const listBtn = document.getElementById('subtab-trajets-list');
+        const replayBtn = document.getElementById('subtab-trajets-replay');
+        const listSection = document.getElementById('trajetsListSection');
+        const replaySection = document.getElementById('trajetsReplaySection');
+
+        listBtn?.classList.toggle('active', tab === 'list');
+        replayBtn?.classList.toggle('active', tab === 'replay');
+
+        if (listSection) listSection.style.display = tab === 'list' ? '' : 'none';
+        if (replaySection) replaySection.style.display = tab === 'replay' ? 'flex' : 'none';
+
+        if (tab === 'replay' && !replayVehiclesLoaded) {
+            populateReplayVehicleSelect();
+            replayVehiclesLoaded = true;
+        }
+    };
+
+    function populateReplayVehicleSelect() {
+        const select = document.getElementById('replayVehicleSelect');
+        if (!select) return;
+
+        const withGps = vehicles.filter(v => (v.mac_id_gps || '').toString().trim() !== '');
+
+        select.innerHTML = withGps.length
+            ? withGps
+                .slice()
+                .sort((a, b) => (a.immatriculation || '').localeCompare(b.immatriculation || ''))
+                .map(v => `<option value="${v.id}">${esc(v.immatriculation || `Véhicule #${v.id}`)}</option>`)
+                .join('')
+            : '<option value="">Aucun véhicule avec boîtier GPS</option>';
+
+        const dateInput = document.getElementById('replayDate');
+        if (dateInput && !dateInput.value) {
+            dateInput.value = new Date().toISOString().slice(0, 10);
+        }
+    }
+
+    window.loadFreeReplay = async () => {
+        const vehicleId = document.getElementById('replayVehicleSelect')?.value;
+        const date = document.getElementById('replayDate')?.value;
+        const startTime = document.getElementById('replayStartTime')?.value || '00:00';
+        const endTime = document.getElementById('replayEndTime')?.value || '23:59';
+        const statusEl = document.getElementById('replayStatus');
+        const btn = document.getElementById('replayLoadBtn');
+
+        if (!vehicleId) {
+            if (statusEl) statusEl.textContent = 'Choisissez un véhicule.';
+            return;
+        }
+        if (!date) {
+            if (statusEl) statusEl.textContent = 'Choisissez une date.';
+            return;
+        }
+
+        const startAt = `${date} ${startTime}:00`;
+        const endAt = `${date} ${endTime}:00`;
+
+        if (endTime <= startTime) {
+            if (statusEl) statusEl.textContent = 'L’heure de fin doit être après l’heure de début.';
+            return;
+        }
+
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Chargement…'; }
+        if (statusEl) statusEl.textContent = 'Récupération des positions GPS puis collage sur la route…';
+
+        try {
+            const url = R.trajetReplay(vehicleId, startAt, endAt);
+            const res = await fetch(url, {
+                headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            });
+
+            const json = await res.json().catch(() => null);
+
+            if (!res.ok || json?.status !== 'success') {
+                throw new Error(json?.message || `HTTP ${res.status}`);
+            }
+
+            const data = json.data || {};
+            const trajet = data.trajet || {};
+            const track = data.track || {};
+            const points = normalizeTrackPoints(track.points);
+
+            if (points.length === 0) {
+                if (statusEl) statusEl.textContent = 'Aucun point GPS pour ce véhicule sur cette période.';
+                return;
+            }
+
+            const vehLabel = vehicles.find(v => String(v.id) === String(vehicleId))?.immatriculation || `#${vehicleId}`;
+
+            currentTrip = {
+                vehicle_id: Number(vehicleId),
+                id: null,
+                points,
+                bounds: null,
+            };
+
+            setTopTripsKpis({
+                count: 1,
+                dist: Number(trajet.stats?.distance ?? 0),
+                durMin: Number(trajet.stats?.duration ?? 0),
+                max: Number(trajet.stats?.max_speed ?? 0),
+            });
+
+            const tmTitle = document.getElementById('tmTitle');
+            const tmSub = document.getElementById('tmSub');
+            const tmDist = document.getElementById('tmDist');
+            const tmDur = document.getElementById('tmDur');
+            const tmMax = document.getElementById('tmMax');
+            const tmPts = document.getElementById('tmPts');
+            const tmStart = document.getElementById('tmStart');
+            const tmEnd = document.getElementById('tmEnd');
+
+            if (tmTitle) tmTitle.textContent = `Replay • ${esc(vehLabel)}`;
+            if (tmSub) tmSub.textContent = `${startAt} → ${endAt}`;
+            if (tmDist) tmDist.textContent = `${Number(trajet.stats?.distance ?? 0).toFixed(2)} km`;
+            if (tmDur) tmDur.textContent = fmtMin(Number(trajet.stats?.duration ?? 0));
+            if (tmMax) tmMax.textContent = `${Math.round(Number(trajet.stats?.max_speed ?? 0))} km/h`;
+            if (tmPts) tmPts.textContent = String(points.length);
+            if (tmStart) tmStart.textContent = startAt;
+            if (tmEnd) tmEnd.textContent = endAt;
+
+            document.getElementById('tripModal')?.classList.add('show');
+
+            drawTrip(points);
+
+            if (statusEl) {
+                statusEl.textContent = track.snap_enabled && track.snapped_count > 0
+                    ? `${points.length} points affichés, collés sur la route.`
+                    : `${points.length} points affichés (positions GPS brutes).`;
+            }
+        } catch (e) {
+            console.error('[loadFreeReplay]', e);
+            if (statusEl) statusEl.textContent = e.message || 'Erreur lors du chargement du trajet.';
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-route"></i> Charger le trajet'; }
+        }
+    };
+
     function drawTrip(points) {
         if (!map) return;
 
@@ -3286,7 +3544,7 @@ $defaultTab = $canFlotte ? 'flotte' : ($canTrajets ? 'trajets' : ($canAlertes ? 
             path,
             strokeColor: '#2563eb',
             strokeOpacity: 1,
-            strokeWeight: 4,
+            strokeWeight: 6,
         });
 
         const b = new google.maps.LatLngBounds();
@@ -3298,7 +3556,7 @@ $defaultTab = $canFlotte ? 'flotte' : ($canTrajets ? 'trajets' : ($canAlertes ? 
             map,
             position: path[0],
             title: 'Replay',
-            icon: carIcon(),
+            icon: replayCarIcon(points[0]?.dir),
             zIndex: 200,
         });
 
@@ -3338,6 +3596,10 @@ $defaultTab = $canFlotte ? 'flotte' : ($canTrajets ? 'trajets' : ($canAlertes ? 
         const pos = { lat: p.lat, lng: p.lng };
         tripCursor?.setPosition(pos);
 
+        if (Number.isFinite(p.dir)) {
+            tripCursor?.setIcon(replayCarIcon(p.dir));
+        }
+
         if (replayFollow && map && replayTimer) {
             map.panTo(pos);
         }
@@ -3346,6 +3608,46 @@ $defaultTab = $canFlotte ? 'flotte' : ($canTrajets ? 'trajets' : ($canAlertes ? 
         const meta = document.getElementById('rpMeta');
         if (range) range.value = replayIndex;
         if (meta) meta.textContent = `${replayIndex + 1}/${replayPoints.length}`;
+
+        updateReplayHud(p);
+    }
+
+    /*
+     * Affiche position/vitesse/heure/direction réelles du point courant
+     * pendant le replay — pas seulement un compteur "45/230".
+     */
+    function updateReplayHud(p) {
+        const timeEl = document.getElementById('rpHudTime');
+        const speedEl = document.getElementById('rpHudSpeed');
+        const posEl = document.getElementById('rpHudPos');
+        const dirEl = document.getElementById('rpHudDir');
+
+        if (timeEl) timeEl.textContent = fmtReplayTime(p.ts, p.tsMs);
+        if (speedEl) speedEl.textContent = Number.isFinite(p.spd) ? `${Math.round(p.spd)} km/h` : '— km/h';
+        if (posEl) posEl.textContent = `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`;
+        if (dirEl) dirEl.textContent = Number.isFinite(p.dir) ? `${Math.round(p.dir)}° ${compassLabel(p.dir)}` : '—';
+    }
+
+    function fmtReplayTime(ts, tsMs) {
+        let d = null;
+
+        if (tsMs) {
+            d = new Date(tsMs);
+        } else if (ts) {
+            d = new Date(String(ts).replace(' ', 'T'));
+        }
+
+        if (!d || isNaN(d.getTime())) return ts ? String(ts) : '—';
+
+        return d.toLocaleString('fr-FR', {
+            day: '2-digit', month: '2-digit', year: 'numeric',
+            hour: '2-digit', minute: '2-digit', second: '2-digit',
+        });
+    }
+
+    function compassLabel(deg) {
+        const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
+        return dirs[Math.round(((deg % 360) + 360) % 360 / 45) % 8];
     }
 
     window.replayPlay = () => {
