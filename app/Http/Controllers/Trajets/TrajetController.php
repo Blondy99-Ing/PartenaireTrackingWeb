@@ -5,8 +5,8 @@ namespace App\Http\Controllers\Trajets;
 use App\Http\Controllers\Controller;
 use App\Models\Trajet;
 use App\Models\Voiture;
-use App\Services\GoogleRoadsService;
 use App\Services\GpsControlService;
+use App\Services\ManualRoadSnapService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -15,7 +15,7 @@ class TrajetController extends Controller
 {
     public function __construct(
         private GpsControlService $gpsControlService,
-        private GoogleRoadsService $googleRoadsService
+        private ManualRoadSnapService $roadSnapService
     ) {
     }
 
@@ -162,24 +162,11 @@ class TrajetController extends Controller
                 $displayPoints = $rawPoints;
 
                 if ($snapEnabled && $rawPoints->count() >= 2) {
-                    $snapped = $this->googleRoadsService->snapTrack($rawPoints->all(), true);
-                    $snappedCount = count($snapped);
+                    $displayPoints = $this->snapAndEnrich($rawPoints);
+                    $snappedCount = $displayPoints->count();
 
-                    if ($snappedCount > 0) {
-                        $displayPoints = collect($snapped)
-                            ->map(function ($p) {
-                                return [
-                                    'lat'       => isset($p['lat']) ? (float) $p['lat'] : null,
-                                    'lng'       => isset($p['lng']) ? (float) $p['lng'] : null,
-                                    'ts'        => null,
-                                    'ts_ms'     => null,
-                                    'speed'     => 0.0,
-                                    'direction' => null,
-                                    'place_id'  => $p['place_id'] ?? null,
-                                ];
-                            })
-                            ->filter(fn ($p) => $p['lat'] !== null && $p['lng'] !== null)
-                            ->values();
+                    if ($snappedCount === 0) {
+                        $displayPoints = $rawPoints;
                     }
                 }
             }
@@ -336,41 +323,11 @@ class TrajetController extends Controller
             $displayPoints = $rawPoints;
 
             if ($snapEnabled && $rawPoints->count() >= 2) {
-                /**
-                 * snapTrack() ne renvoie que des coordonnées collées à la
-                 * route (vitesse/heure/direction perdues). On garde donc
-                 * notre propre passage par cleanRawTrack() — pur, sans effet
-                 * de bord, produit exactement la même liste que celle que
-                 * snapTrack() nettoie en interne — pour retrouver, via
-                 * original_index, la vitesse/heure/direction réelles du
-                 * point d'origine et les reporter sur le point collé.
-                 * Sans ça, le replay affiche des positions correctes mais
-                 * "vitesse/heure" toujours vides — inutile pour ce qu'on
-                 * veut ici (voir l'état exact à chaque instant).
-                 */
-                $cleaned = $this->googleRoadsService->cleanRawTrack($rawPoints->all());
-                $snapped = $this->googleRoadsService->snapTrack($rawPoints->all(), true);
-                $snappedCount = count($snapped);
+                $displayPoints = $this->snapAndEnrich($rawPoints);
+                $snappedCount = $displayPoints->count();
 
-                if ($snappedCount > 0) {
-                    $displayPoints = collect($snapped)
-                        ->map(function ($p) use ($cleaned) {
-                            $origin = isset($p['original_index'])
-                                ? ($cleaned[(int) $p['original_index']] ?? null)
-                                : null;
-
-                            return [
-                                'lat'       => isset($p['lat']) ? (float) $p['lat'] : null,
-                                'lng'       => isset($p['lng']) ? (float) $p['lng'] : null,
-                                'ts'        => $origin['ts'] ?? null,
-                                'ts_ms'     => $origin['ts_ms'] ?? null,
-                                'speed'     => $origin['speed'] ?? 0.0,
-                                'direction' => $origin['direction'] ?? null,
-                                'place_id'  => $p['place_id'] ?? null,
-                            ];
-                        })
-                        ->filter(fn ($p) => $p['lat'] !== null && $p['lng'] !== null)
-                        ->values();
+                if ($snappedCount === 0) {
+                    $displayPoints = $rawPoints;
                 }
             }
         }
@@ -405,6 +362,45 @@ class TrajetController extends Controller
      * Statistiques calculées à la volée à partir des points bruts (pas de
      * ligne `trips` pré-calculée pour une période choisie librement).
      */
+    /**
+     * Colle les points bruts sur la route réelle (ManualRoadSnapService) et
+     * reporte la vitesse/heure/direction du point d'origine sur chaque point
+     * collé — snapTrack() ne renvoie que des coordonnées, pas ces valeurs, on
+     * les retrouve via original_index sur notre propre passage par
+     * cleanRawTrack() (pur, sans effet de bord : produit exactement la même
+     * liste que celle nettoyée en interne par snapTrack()). Sans ça, le
+     * replay aurait des positions correctes mais un HUD vitesse/heure vide.
+     * Retourne une collection vide si aucune route locale n'a pu être
+     * chargée pour cette zone (l'appelant retombe alors sur les points bruts).
+     */
+    private function snapAndEnrich(Collection $rawPoints): Collection
+    {
+        $cleaned = $this->roadSnapService->cleanRawTrack($rawPoints->all());
+        $snapped = $this->roadSnapService->snapTrack($rawPoints->all());
+
+        if (empty($snapped)) {
+            return collect();
+        }
+
+        return collect($snapped)
+            ->map(function ($p) use ($cleaned) {
+                $origin = isset($p['original_index'])
+                    ? ($cleaned[(int) $p['original_index']] ?? null)
+                    : null;
+
+                return [
+                    'lat'       => isset($p['lat']) ? (float) $p['lat'] : null,
+                    'lng'       => isset($p['lng']) ? (float) $p['lng'] : null,
+                    'ts'        => $origin['ts'] ?? null,
+                    'ts_ms'     => $origin['ts_ms'] ?? null,
+                    'speed'     => $origin['speed'] ?? 0.0,
+                    'direction' => $origin['direction'] ?? null,
+                ];
+            })
+            ->filter(fn ($p) => $p['lat'] !== null && $p['lng'] !== null)
+            ->values();
+    }
+
     private function computeTrackStats(Collection $rawPoints): array
     {
         if ($rawPoints->count() < 2) {
