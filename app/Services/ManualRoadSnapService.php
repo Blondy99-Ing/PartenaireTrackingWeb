@@ -190,7 +190,21 @@ class ManualRoadSnapService
         );
 
         try {
-            $response = Http::timeout(30)->asForm()->post(self::OVERPASS_URL, ['data' => $query]);
+            /**
+             * Overpass rejette (406) les requêtes portant le User-Agent
+             * générique par défaut de Guzzle/Laravel — mesure anti-abus
+             * classique des API publiques. Un User-Agent identifiable et
+             * contactable suffit à passer.
+             *
+             * L'instance publique gratuite répond parfois "503/504 serveur
+             * trop chargé" de façon transitoire : 2 nouvelles tentatives
+             * avec un court délai suffisent presque toujours.
+             */
+            $response = Http::timeout(30)
+                ->withUserAgent('FleetraTrajetReplay/1.0 (+it_management@proxymgroup.com)')
+                ->retry(2, 1500, throw: false)
+                ->asForm()
+                ->post(self::OVERPASS_URL, ['data' => $query]);
         } catch (\Throwable $e) {
             Log::warning('[MANUAL_ROAD_SNAP] Overpass injoignable.', [
                 'bbox' => compact('south', 'west', 'north', 'east'),
