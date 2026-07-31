@@ -169,15 +169,35 @@ class ManualRoadSnapService
         return $segments;
     }
 
+    /**
+     * Ne met en cache QUE les réponses effectivement obtenues d'Overpass —
+     * jamais un échec réseau/serveur, même si le résultat est un tableau
+     * vide dans les deux cas. Sans cette distinction, un simple aléa
+     * temporaire (503, timeout) aurait figé "aucune route ici" pendant
+     * 30 jours pour toute la zone, y compris pour de vraies routes.
+     */
     private function fetchTile(float $south, float $west): array
     {
         $cacheKey = sprintf('osm_road_tile_%.3f_%.3f', $south, $west);
 
-        return Cache::remember($cacheKey, now()->addDays(self::CACHE_TTL_DAYS), function () use ($south, $west) {
-            return $this->queryOverpassTile($south, $west, $south + self::TILE_SIZE_DEG, $west + self::TILE_SIZE_DEG);
-        });
+        $cached = Cache::get($cacheKey);
+
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        $result = $this->queryOverpassTile($south, $west, $south + self::TILE_SIZE_DEG, $west + self::TILE_SIZE_DEG);
+
+        if ($result['ok']) {
+            Cache::put($cacheKey, $result['segments'], now()->addDays(self::CACHE_TTL_DAYS));
+        }
+
+        return $result['segments'];
     }
 
+    /**
+     * @return array{ok: bool, segments: array}
+     */
     private function queryOverpassTile(float $south, float $west, float $north, float $east): array
     {
         $query = sprintf(
@@ -211,7 +231,7 @@ class ManualRoadSnapService
                 'error' => $e->getMessage(),
             ]);
 
-            return [];
+            return ['ok' => false, 'segments' => []];
         }
 
         if (! $response->successful()) {
@@ -220,7 +240,7 @@ class ManualRoadSnapService
                 'status' => $response->status(),
             ]);
 
-            return [];
+            return ['ok' => false, 'segments' => []];
         }
 
         $elements = $response->json('elements') ?? [];
@@ -247,7 +267,7 @@ class ManualRoadSnapService
             }
         }
 
-        return $segments;
+        return ['ok' => true, 'segments' => $segments];
     }
 
     /**
