@@ -254,10 +254,13 @@ class LeaseController extends Controller
         $data = $request->validate([
             'lease_id' => ['required', 'integer'],
             'montant' => ['required', 'numeric', 'min:1'],
+            'password' => ['required', 'string', 'current_password:web'],
         ], [
             'lease_id.required' => 'La ligne de lease à payer est introuvable.',
             'montant.required' => 'Le montant du paiement est obligatoire.',
             'montant.min' => 'Le montant du paiement doit être supérieur à zéro.',
+            'password.required' => 'Veuillez saisir votre mot de passe pour confirmer.',
+            'password.current_password' => 'Mot de passe incorrect.',
         ]);
 
         try {
@@ -328,6 +331,10 @@ class LeaseController extends Controller
             'lignes' => ['required', 'array', 'min:1'],
             'lignes.*.lease_id' => ['required', 'integer'],
             'lignes.*.montant' => ['required', 'numeric', 'min:1'],
+            'password' => ['required', 'string', 'current_password:web'],
+        ], [
+            'password.required' => 'Veuillez saisir votre mot de passe pour confirmer.',
+            'password.current_password' => 'Mot de passe incorrect.',
         ]);
 
         try {
@@ -379,6 +386,10 @@ public function forgive(
     $data = $request->validate([
         'reason' => ['nullable', 'string', 'max:255'],
         'cascade' => ['nullable', 'boolean'],
+        'password' => ['required', 'string', 'current_password:web'],
+    ], [
+        'password.required' => 'Veuillez saisir votre mot de passe pour confirmer.',
+        'password.current_password' => 'Mot de passe incorrect.',
     ]);
 
     try {
@@ -435,6 +446,10 @@ public function forgiveBulk(
         'lease_ids.*' => ['integer', 'min:1'],
         'reason' => ['nullable', 'string', 'max:255'],
         'cascade' => ['nullable', 'boolean'],
+        'password' => ['required', 'string', 'current_password:web'],
+    ], [
+        'password.required' => 'Veuillez saisir votre mot de passe pour confirmer.',
+        'password.current_password' => 'Mot de passe incorrect.',
     ]);
 
     $leaseIds = collect($data['lease_ids'])->map(fn ($id) => (int) $id)->unique()->values();

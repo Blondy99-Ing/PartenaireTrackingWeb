@@ -14,12 +14,30 @@ use Illuminate\Validation\ValidationException;
 class AffectationChauffeurVoitureController extends Controller
 {
     /**
+     * Bug corrigé : ce contrôleur utilisait $request->user() directement
+     * comme "le partenaire" partout, au lieu de résoudre le VRAI partenaire
+     * propriétaire des données (un membre du staff a partner_id = l'id du
+     * partenaire réel, pas de partner_id vide comme le partenaire lui-même).
+     * Résultat pour tout staff ayant la permission affectations.manage :
+     * véhicules/chauffeurs/historique systématiquement vides, et toute
+     * affectation échouait avec un 404 — confirmé en base sur le staff réel
+     * de plusieurs partenaires (ex. ROYAL HOLDING, 6 comptes staff touchés).
+     * Même résolution que ControlGpsController::tenantPartner().
+     */
+    private function tenantPartner(User $user): User
+    {
+        return $user->partner_id
+            ? (User::find($user->partner_id) ?? $user)
+            : $user;
+    }
+
+    /**
      * PAGE: Liste des associations actives du partner
      */
     public function index(Request $request)
     {
         /** @var User $partner */
-        $partner = $request->user();
+        $partner = $this->tenantPartner($request->user());
 
         $items = AssociationChauffeurVoiturePartner::query()
             ->whereHas('voiture.partenaires', fn($q) => $q->where('users.id', $partner->id))
@@ -38,7 +56,7 @@ class AffectationChauffeurVoitureController extends Controller
     public function vehicles(Request $request)
     {
         /** @var User $partner */
-        $partner = $request->user();
+        $partner = $this->tenantPartner($request->user());
         $q = trim((string) $request->query('q', ''));
 
         $query = Voiture::query()
@@ -78,7 +96,7 @@ class AffectationChauffeurVoitureController extends Controller
     public function drivers(Request $request)
     {
         /** @var User $partner */
-        $partner = $request->user();
+        $partner = $this->tenantPartner($request->user());
         $q = trim((string) $request->query('q', ''));
 
         $query = User::query()
@@ -120,7 +138,7 @@ class AffectationChauffeurVoitureController extends Controller
     public function assign(Request $request)
     {
         /** @var User $partner */
-        $partner = $request->user();
+        $partner = $this->tenantPartner($request->user());
 
         $data = $request->validate([
             'chauffeur_id' => ['required', 'integer'],
@@ -215,7 +233,7 @@ class AffectationChauffeurVoitureController extends Controller
     public function unassign(Request $request)
     {
         /** @var User $partner */
-        $partner = $request->user();
+        $partner = $this->tenantPartner($request->user());
 
         $data = $request->validate([
             'voiture_id'   => ['nullable', 'integer'],
@@ -260,7 +278,7 @@ class AffectationChauffeurVoitureController extends Controller
     public function history(Request $request)
     {
         /** @var User $partner */
-        $partner = $request->user();
+        $partner = $this->tenantPartner($request->user());
 
         $items = HistoriqueAssociationChauffeurVoiturePartner::query()
             ->where('partner_id', $partner->id)

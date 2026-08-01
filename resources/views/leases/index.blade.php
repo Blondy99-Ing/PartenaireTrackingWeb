@@ -1673,6 +1673,16 @@ input:checked + .fl-slider:before {
                 <label class="fl-form-label">Montant payé (XAF) <span style="color:var(--color-error);">*</span></label>
                 <input type="number" id="payAmount" class="ui-input-style" placeholder="2500" min="1" step="100">
             </div>
+
+            <div class="fl-form-group">
+                <label class="fl-form-label">Votre mot de passe (confirmation) <span style="color:var(--color-error);">*</span></label>
+                <input type="password"
+                       id="payPassword"
+                       class="ui-input-style"
+                       placeholder="••••••••"
+                       autocomplete="current-password">
+                <p class="fl-form-error" id="payPasswordError" style="display:none;color:var(--color-error);font-size:.75rem;margin-top:.25rem;"></p>
+            </div>
         </div>
 
         <div class="fl-modal-footer">
@@ -1728,6 +1738,16 @@ input:checked + .fl-slider:before {
                           placeholder="Ex: paiement en retard, arrangement validé, problème technique, pardon préventif..."
                           style="resize:vertical;"></textarea>
             </div>
+
+            <div style="margin-top:.75rem;">
+                <label class="fl-form-label" style="text-align:left;display:block;">Votre mot de passe (confirmation)</label>
+                <input type="password"
+                       id="forgivePassword"
+                       class="ui-input-style"
+                       placeholder="••••••••"
+                       autocomplete="current-password">
+                <p class="fl-form-error" id="forgivePasswordError" style="display:none;color:var(--color-error);font-size:.75rem;margin-top:.25rem;"></p>
+            </div>
         </div>
 
         <div class="fl-modal-footer">
@@ -1778,6 +1798,16 @@ input:checked + .fl-slider:before {
                           rows="3"
                           placeholder="Ex: régularisation groupée, arrangement validé..."
                           style="resize:vertical;"></textarea>
+            </div>
+
+            <div style="margin-top:.75rem;">
+                <label class="fl-form-label" style="text-align:left;display:block;">Votre mot de passe (confirmation)</label>
+                <input type="password"
+                       id="bulkForgivePassword"
+                       class="ui-input-style"
+                       placeholder="••••••••"
+                       autocomplete="current-password">
+                <p class="fl-form-error" id="bulkForgivePasswordError" style="display:none;color:var(--color-error);font-size:.75rem;margin-top:.25rem;"></p>
             </div>
 
             <div id="bulkForgiveResults" style="display:none;margin-top:.75rem;max-height:220px;overflow-y:auto;text-align:left;font-size:.78rem;border:1px solid var(--color-border,#e5e7eb);border-radius:8px;padding:.5rem .65rem;"></div>
@@ -2771,6 +2801,11 @@ input:checked + .fl-slider:before {
             confirmBtn.innerHTML = '<i class="fas fa-hand-holding-heart"></i> Confirmer le pardon';
         }
 
+        const bulkPwd = document.getElementById('bulkForgivePassword');
+        const bulkPwdError = document.getElementById('bulkForgivePasswordError');
+        if (bulkPwd) bulkPwd.value = '';
+        if (bulkPwdError) bulkPwdError.style.display = 'none';
+
         window.openModal('modalBulkForgive');
     };
 
@@ -2785,6 +2820,16 @@ input:checked + .fl-slider:before {
         const cancelBtn = document.getElementById('bulkForgiveCancelBtn');
         const reason = document.getElementById('bulkForgiveReason')?.value || '';
         const cascade = document.getElementById('bulkForgiveCascade')?.checked ?? true;
+        const pwdInput = document.getElementById('bulkForgivePassword');
+        const pwdError = document.getElementById('bulkForgivePasswordError');
+
+        const password = pwdInput?.value ?? '';
+        if (!password) {
+            if (pwdError) { pwdError.textContent = 'Veuillez saisir votre mot de passe pour confirmer.'; pwdError.style.display = 'block'; }
+            pwdInput?.focus();
+            return;
+        }
+        if (pwdError) pwdError.style.display = 'none';
 
         if (confirmBtn) {
             confirmBtn.disabled = true;
@@ -2806,10 +2851,17 @@ input:checked + .fl-slider:before {
                     lease_ids: leaseIds,
                     reason: reason,
                     cascade: !!cascade,
+                    password,
                 }),
             });
 
             const payload = await response.json().catch(() => null);
+
+            if (response.status === 422 && payload?.errors?.password) {
+                if (pwdError) { pwdError.textContent = payload.errors.password[0] || 'Mot de passe incorrect.'; pwdError.style.display = 'block'; }
+                pwdInput?.select();
+                return;
+            }
 
             if (!response.ok && !payload) {
                 throw new Error("Impossible d'enregistrer le pardon en masse.");
@@ -2839,6 +2891,7 @@ input:checked + .fl-slider:before {
             await refreshLeaseData();
 
             if (payload?.ok) {
+                if (pwdInput) pwdInput.value = '';
                 window.closeModal('modalBulkForgive');
             }
         } catch (e) {
@@ -3307,6 +3360,11 @@ input:checked + .fl-slider:before {
         const requis = document.getElementById('pms-requis');
         const amount = document.getElementById('payAmount');
         const recordedBy = document.getElementById('paymentRecordedBy');
+        const pwdInput = document.getElementById('payPassword');
+        const pwdError = document.getElementById('payPasswordError');
+
+        if (pwdInput) pwdInput.value = '';
+        if (pwdError) pwdError.style.display = 'none';
 
         if (sub) sub.textContent = `${row.vehicule} — ${row.chauffeur}`;
         if (vehicule) vehicule.textContent = row.vehicule || '—';
@@ -3322,11 +3380,21 @@ input:checked + .fl-slider:before {
     window.confirmPayment = async function () {
         const amount = parseInt(document.getElementById('payAmount')?.value, 10);
         const btn = document.getElementById('confirmPaymentBtn');
+        const pwdInput = document.getElementById('payPassword');
+        const pwdError = document.getElementById('payPasswordError');
 
         if (!amount || amount <= 0) {
             alert('Veuillez saisir un montant valide.');
             return;
         }
+
+        const password = pwdInput?.value ?? '';
+        if (!password) {
+            if (pwdError) { pwdError.textContent = 'Veuillez saisir votre mot de passe pour confirmer.'; pwdError.style.display = 'block'; }
+            pwdInput?.focus();
+            return;
+        }
+        if (pwdError) pwdError.style.display = 'none';
 
         const row = RAW_DATA.find(r => Number(r.id) === Number(pendingRowId));
 
@@ -3354,15 +3422,23 @@ input:checked + .fl-slider:before {
                     lease_id: Number(leaseId),
                     montant: amount,
                     recorded_by_name: CONNECTED_USER_NAME,
+                    password,
                 }),
             });
 
             const payload = await response.json();
 
+            if (response.status === 422 && payload?.errors?.password) {
+                if (pwdError) { pwdError.textContent = payload.errors.password[0] || 'Mot de passe incorrect.'; pwdError.style.display = 'block'; }
+                pwdInput?.select();
+                return;
+            }
+
             if (!response.ok || !payload.ok) {
                 throw new Error(payload.message || "Impossible d'enregistrer le paiement.");
             }
 
+            if (pwdInput) pwdInput.value = '';
             window.closeModal('modalPayment');
 
             if (window.showToast) {
@@ -3401,6 +3477,11 @@ input:checked + .fl-slider:before {
 
         const forgiveBy = document.getElementById('forgiveBy');
         const forgiveReason = document.getElementById('forgiveReason');
+        const forgivePwd = document.getElementById('forgivePassword');
+        const forgivePwdError = document.getElementById('forgivePasswordError');
+
+        if (forgivePwd) forgivePwd.value = '';
+        if (forgivePwdError) forgivePwdError.style.display = 'none';
 
         if (forgiveBy) {
             forgiveBy.value = CONNECTED_USER_NAME;
@@ -3479,6 +3560,16 @@ input:checked + .fl-slider:before {
         const reason = document.getElementById('forgiveReason')?.value || '';
         const blockedBox = document.getElementById('forgiveBlockedBox');
         const cascadeBtn = document.getElementById('forgiveCascadeBtn');
+        const pwdInput = document.getElementById('forgivePassword');
+        const pwdError = document.getElementById('forgivePasswordError');
+
+        const password = pwdInput?.value ?? '';
+        if (!password) {
+            if (pwdError) { pwdError.textContent = 'Veuillez saisir votre mot de passe pour confirmer.'; pwdError.style.display = 'block'; }
+            pwdInput?.focus();
+            return;
+        }
+        if (pwdError) pwdError.style.display = 'none';
 
         if (cascadeBtn && cascade) {
             cascadeBtn.disabled = true;
@@ -3496,10 +3587,17 @@ input:checked + .fl-slider:before {
                 body: JSON.stringify({
                     reason: reason,
                     cascade: !!cascade,
+                    password,
                 }),
             });
 
             const payload = await response.json();
+
+            if (response.status === 422 && payload?.errors?.password) {
+                if (pwdError) { pwdError.textContent = payload.errors.password[0] || 'Mot de passe incorrect.'; pwdError.style.display = 'block'; }
+                pwdInput?.select();
+                return;
+            }
 
             if (!response.ok || !payload.ok) {
                 throw new Error(payload.message || "Impossible d'enregistrer le pardon.");
@@ -3537,6 +3635,7 @@ input:checked + .fl-slider:before {
                 return;
             }
 
+            if (pwdInput) pwdInput.value = '';
             window.closeModal('modalForgive');
 
             if (window.showToast) {
