@@ -77,6 +77,7 @@
           <th>Type</th>
           <th>Status</th>
           <th>CmdNo</th>
+          <th>Notes</th>
         </tr>
       </thead>
       <tbody>
@@ -117,10 +118,20 @@
             </td>
 
             <td class="font-mono text-xs">{{ $cmd->CmdNo }}</td>
+
+            <td class="text-xs max-w-xs">
+              @if($cmd->notes)
+                <span class="dash-badge warning" title="{{ $cmd->notes }}">
+                  <i class="fas fa-triangle-exclamation mr-1"></i> {{ \Illuminate\Support\Str::limit($cmd->notes, 70) }}
+                </span>
+              @else
+                <span class="text-secondary">—</span>
+              @endif
+            </td>
           </tr>
         @empty
           <tr>
-            <td colspan="6" class="text-center text-secondary py-6">Aucune commande</td>
+            <td colspan="7" class="text-center text-secondary py-6">Aucune commande</td>
           </tr>
         @endforelse
       </tbody>

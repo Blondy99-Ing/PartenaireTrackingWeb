@@ -1578,6 +1578,7 @@ protected function getCutoffStatusMetaByLeaseId(): array
         'REACTIVATION_REQUESTED_AFTER_FORGIVENESS',
         'REACTIVATED_AFTER_FORGIVENESS',
         'REACTIVATION_FAILED_AFTER_FORGIVENESS',
+        'CANCELLED_DAY_EXPIRED',
     ];
 
     $historyRows = LeaseCutoffHistory::query()
@@ -1677,6 +1678,8 @@ protected function cutoffStatusLabel(?string $status): string
         'REACTIVATED_AFTER_FORGIVENESS' => 'Rallumé après pardon',
         'REACTIVATION_FAILED_AFTER_FORGIVENESS' => 'Échec rallumage',
 
+        'CANCELLED_DAY_EXPIRED' => 'Échéance expirée (jour suivant)',
+
         default => 'Aucune coupure',
     };
 }
@@ -1702,6 +1705,8 @@ protected function cutoffStatusUiType(?string $status): string
         'CANCELLED_PAID',
         'CANCELLED_FORGIVEN_BEFORE_CUT',
         'REACTIVATED_AFTER_FORGIVENESS' => 'success',
+
+        'CANCELLED_DAY_EXPIRED' => 'muted',
 
         default => 'muted',
     };

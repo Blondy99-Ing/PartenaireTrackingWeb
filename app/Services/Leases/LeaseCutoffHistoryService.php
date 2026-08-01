@@ -87,6 +87,10 @@ class LeaseCutoffHistoryService
                 ->where('status', 'REACTIVATION_FAILED_AFTER_FORGIVENESS')
                 ->count(),
 
+            'cancelled_day_expired' => (clone $filteredQuery)
+                ->where('status', 'CANCELLED_DAY_EXPIRED')
+                ->count(),
+
             'failed' => (clone $filteredQuery)->where('status', 'FAILED')->count(),
         ];
     }
@@ -114,6 +118,8 @@ class LeaseCutoffHistoryService
             'REACTIVATED_AFTER_FORGIVENESS' => 'Rallumé après pardon',
             'REACTIVATION_FAILED_AFTER_FORGIVENESS' => 'Échec rallumage après pardon',
 
+            'CANCELLED_DAY_EXPIRED' => 'Échéance expirée (jour suivant, aucune coupure rétroactive)',
+
             'FAILED' => 'Échec final',
         ];
     }
@@ -139,6 +145,8 @@ class LeaseCutoffHistoryService
             'REACTIVATED_AFTER_FORGIVENESS' => 'Rallumé après pardon',
             'REACTIVATION_FAILED_AFTER_FORGIVENESS' => 'Échec rallumage après pardon',
 
+            'CANCELLED_DAY_EXPIRED' => 'Échéance expirée (jour suivant)',
+
             'FAILED' => 'Échec final',
 
             default => (string) ($status ?: 'Inconnu'),
@@ -160,7 +168,8 @@ class LeaseCutoffHistoryService
             'CANCELLED_UNVERIFIED',
             'CANCELLED_RULE_MISSING',
             'CANCELLED_RULE_DISABLED',
-            'CANCELLED_FORGIVEN_BEFORE_CUT' => 'cancelled',
+            'CANCELLED_FORGIVEN_BEFORE_CUT',
+            'CANCELLED_DAY_EXPIRED' => 'cancelled',
 
             'REACTIVATION_REQUESTED_AFTER_FORGIVENESS' => 'sent',
             'REACTIVATED_AFTER_FORGIVENESS' => 'success',

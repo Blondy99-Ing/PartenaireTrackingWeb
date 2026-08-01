@@ -39,6 +39,27 @@ class LeaseCutoffQueueProcessorService
 
     public function process(?string $dateEcheance = null): array
     {
+        /**
+         * Règle stricte demandée : chaque échéance est traitée indépendamment
+         * de celles des jours précédents, sans exception. Sans ce nettoyage,
+         * une ligne encore active (véhicule jamais à l'arrêt, commande jamais
+         * confirmée) au moment où le jour change reste bloquée en silence
+         * pour toujours — invisible au traitement (la requête ci-dessous ne
+         * sélectionne que la date du jour), mais jamais marquée comme
+         * abandonnée non plus. On l'expire donc explicitement ici, avec une
+         * trace claire, dès que le cron réel (pas une reprise --date=)
+         * détecte qu'elle appartient à une date déjà passée.
+         */
+        if ($dateEcheance === null) {
+            $expiredCount = $this->expireStaleQueueItems();
+
+            if ($expiredCount > 0) {
+                Log::warning('[LEASE_CUTOFF_PROCESS] Lignes d’échéances passées expirées (aucune coupure rétroactive).', [
+                    'count' => $expiredCount,
+                ]);
+            }
+        }
+
         $targetDate = $this->resolveProcessingDueDate($dateEcheance);
 
         Log::info('[LEASE_CUTOFF_PROCESS] Début du traitement de queue du jour', [
@@ -472,6 +493,71 @@ class LeaseCutoffQueueProcessorService
             'cancelled' => $cancelled,
             'failed' => $failed,
         ];
+    }
+
+    /**
+     * Abandonne définitivement toute ligne de queue encore active
+     * (PENDING/WAITING_STOP/COMMAND_SENT) dont l'échéance n'est plus celle
+     * d'aujourd'hui — jamais de coupure rétroactive pour une échéance
+     * passée, jamais de ligne orpheline qui reste bloquée en silence.
+     * Verrouillée ligne par ligne (comme le reste du service) pour éviter
+     * toute course avec le pardon ou une autre exécution du cron.
+     */
+    public function expireStaleQueueItems(): int
+    {
+        $timezone = config('app.timezone', 'Africa/Douala');
+        $today = Carbon::now($timezone)->toDateString();
+
+        $staleIds = LeaseCutoffQueue::query()
+            ->whereIn('status', ['PENDING', 'WAITING_STOP', 'COMMAND_SENT'])
+            ->whereDate('lease_date_echeance', '<', $today)
+            ->pluck('id');
+
+        $expired = 0;
+
+        foreach ($staleIds as $queueId) {
+            DB::transaction(function () use ($queueId, &$expired) {
+                $queue = LeaseCutoffQueue::query()->lockForUpdate()->find($queueId);
+
+                if (! $queue || ! in_array($queue->status, ['PENDING', 'WAITING_STOP', 'COMMAND_SENT'], true)) {
+                    return;
+                }
+
+                $previousStatus = $queue->status;
+
+                $queue->update([
+                    'status' => 'CANCELLED',
+                    'last_checked_at' => now(),
+                    'next_check_at' => null,
+                ]);
+
+                $history = $queue->history_id
+                    ? LeaseCutoffHistory::query()->lockForUpdate()->find($queue->history_id)
+                    : null;
+
+                if ($history && ! in_array($history->status, ['CUT_OFF', 'CANCELLED_DAY_EXPIRED'], true)) {
+                    $history->update([
+                        'status' => 'CANCELLED_DAY_EXPIRED',
+                        'notes' => trim(($history->notes ? $history->notes . ' | ' : ''))
+                            . "Échéance du {$queue->lease_date_echeance->toDateString()} expirée sans coupure confirmée avant le changement de jour. "
+                            . 'Aucune coupure rétroactive : le jour suivant est traité indépendamment de celui-ci.',
+                    ]);
+                }
+
+                $expired++;
+
+                Log::warning('[LEASE_CUTOFF_PROCESS] Échéance expirée sans coupure confirmée.', [
+                    'queue_id' => $queue->id,
+                    'history_id' => $history?->id,
+                    'lease_id' => $queue->lease_id,
+                    'vehicle_id' => $queue->vehicle_id,
+                    'lease_date_echeance' => $queue->lease_date_echeance?->toDateString(),
+                    'previous_status' => $previousStatus,
+                ]);
+            });
+        }
+
+        return $expired;
     }
 
     private function resolveProcessingDueDate(?string $dateEcheance): string

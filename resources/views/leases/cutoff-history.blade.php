@@ -1117,6 +1117,7 @@
                         'FAILED',
                         'REACTIVATION_FAILED_AFTER_FORGIVENESS' => 'ch-badge-failed',
                         'REACTIVATION_REQUESTED_AFTER_FORGIVENESS' => 'ch-badge-sent',
+                        'CANCELLED_DAY_EXPIRED' => 'ch-badge-cancelled',
                         default          => 'ch-badge-pending',
                     };
 
@@ -1134,6 +1135,7 @@
                         'REACTIVATED_AFTER_FORGIVENESS' => 'Rallumé après pardon — dette ouverte',
                         'REACTIVATION_FAILED_AFTER_FORGIVENESS' => 'Échec rallumage',
                         'FAILED'         => 'Échec final',
+                        'CANCELLED_DAY_EXPIRED' => 'Échéance expirée (jour suivant)',
                         default          => $history->status ?? '—',
                     };
 
@@ -1151,6 +1153,7 @@
                         'REACTIVATED_AFTER_FORGIVENESS' => 'fa-bolt',
                         'FAILED',
                         'REACTIVATION_FAILED_AFTER_FORGIVENESS' => 'fa-xmark',
+                        'CANCELLED_DAY_EXPIRED' => 'fa-hourglass-end',
                         default          => 'fa-circle',
                     };
 
@@ -1251,6 +1254,7 @@
                         'REACTIVATED_AFTER_FORGIVENESS' => 'Véhicule rallumé après pardon',
                         'REACTIVATION_FAILED_AFTER_FORGIVENESS' => 'Échec du rallumage après pardon',
                         'FAILED' => 'Coupure non effectuée',
+                        'CANCELLED_DAY_EXPIRED' => 'Échéance expirée sans coupure confirmée : aucune coupure rétroactive',
                         default => $statusLabel,
                     };
 

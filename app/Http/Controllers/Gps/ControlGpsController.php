@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Gps;
 
 use App\Http\Controllers\Controller;
 use App\Models\Commande;
+use App\Models\LeaseCutoffHistory;
 use App\Models\Location;
 use App\Models\SimGps;
 use App\Models\User;
@@ -351,6 +352,20 @@ class ControlGpsController extends Controller
         $typeCommande = $action === 'cut' ? 'COUPURE' : 'ALLUMAGE';
         $commandStatus = $parsed['queued'] ? 'QUEUED_OFFLINE' : 'SEND_OK';
 
+        /**
+         * Traçabilité : un rallumage manuel envoyé pendant qu'une dette de
+         * lease reste ouverte AUJOURD'HUI (non payée, non pardonnée) doit
+         * être visible dans l'historique des commandes — pas seulement dans
+         * les logs applicatifs — pour que le partenaire sache que ce
+         * chauffeur roule sans pardon officiel. Portée strictement au jour
+         * courant : une dette d'un jour précédent ne compte plus (chaque
+         * jour est traité indépendamment).
+         */
+        $notes = null;
+        if ($action === 'restore') {
+            $notes = $this->buildRestoreWithoutForgivenessNote($voiture->id);
+        }
+
         if ($cmdNo !== '') {
             Commande::updateOrCreate(
                 ['CmdNo' => $cmdNo],
@@ -360,6 +375,7 @@ class ControlGpsController extends Controller
                     'vehicule_id' => $voiture->id,
                     'status' => $commandStatus,
                     'type_commande' => $typeCommande,
+                    'notes' => $notes,
                 ]
             );
         }
@@ -392,22 +408,69 @@ class ControlGpsController extends Controller
         /** @var \App\Models\User $user */
         $user = auth('web')->user();
 
-        $voitureIds = $this->tenantPartner($user)->voitures()->pluck('voitures.id')->all();
+        $voitures = $this->tenantPartner($user)->voitures()
+            ->select(['voitures.id', 'voitures.immatriculation'])
+            ->orderBy('voitures.immatriculation', 'asc')
+            ->get();
 
-        $items = Commande::query()
+        $voitureIds = $voitures->pluck('id')->all();
+
+        $vehiculeId = (int) $request->query('vehicule_id', 0);
+        $type = trim((string) $request->query('type', ''));
+
+        $commandes = Commande::query()
             ->with([
                 'vehicule:id,immatriculation,marque,model',
+                'vehicule.chauffeurActuelPartner.chauffeur:id,nom,prenom,phone',
                 'user:id,nom,prenom,phone',
             ])
             ->whereIn('vehicule_id', $voitureIds)
             ->where('user_id', $user->id)
+            ->when($vehiculeId > 0, fn ($q) => $q->where('vehicule_id', $vehiculeId))
+            ->when(in_array($type, ['COUPURE', 'ALLUMAGE'], true), fn ($q) => $q->where('type_commande', $type))
             ->orderByDesc('created_at')
-            ->paginate(30);
+            ->paginate(30)
+            ->withQueryString();
 
-        return view('coupure_moteur.history', compact('items'));
+        return view('coupure_moteur.historique', compact('voitures', 'commandes'));
     }
 
     /* ====================== Helpers ====================== */
+
+    /**
+     * Si ce véhicule a encore, AUJOURD'HUI, une dette de lease ouverte
+     * (planifiée, en attente, commande envoyée ou confirmée coupée — jamais
+     * payée ni pardonnée), on le dit explicitement dans la note de la
+     * commande de rallumage : ce chauffeur vient d'être rallumé sans pardon
+     * officiel. Une dette d'un jour précédent n'est jamais prise en compte
+     * ici (chaque jour est traité strictement indépendamment).
+     */
+    private function buildRestoreWithoutForgivenessNote(int $vehicleId): ?string
+    {
+        $today = now(config('app.timezone', 'Africa/Douala'))->toDateString();
+
+        $openHistories = LeaseCutoffHistory::query()
+            ->where('vehicle_id', $vehicleId)
+            ->whereDate('lease_date_echeance', $today)
+            ->whereIn('status', ['PENDING', 'WAITING_STOP', 'COMMAND_SENT', 'CUT_OFF'])
+            ->get();
+
+        if ($openHistories->isEmpty()) {
+            return null;
+        }
+
+        $leaseIds = $openHistories->pluck('lease_id')->filter()->unique()->implode(', ');
+
+        $totalDue = $openHistories->sum(
+            fn (LeaseCutoffHistory $h) => (float) (data_get($h->payment_status_snapshot, 'reste_a_payer') ?? 0)
+        );
+
+        return sprintf(
+            "Le chauffeur vient d'être allumé sans être pardonné. Dette toujours ouverte aujourd'hui sur le(s) lease(s) #%s (reste à payer estimé : %s FCFA).",
+            $leaseIds !== '' ? $leaseIds : '?',
+            number_format($totalDue, 0, ',', ' ')
+        );
+    }
 
     private function parseSendCommandResponse(array $resp): array
     {

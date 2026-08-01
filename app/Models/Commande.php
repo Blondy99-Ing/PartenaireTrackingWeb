@@ -18,6 +18,7 @@ class Commande extends Model
         'CmdNo',
         'status',
         'type_commande',
+        'notes',
     ];
 
     public function user()

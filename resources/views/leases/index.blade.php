@@ -1965,6 +1965,7 @@ input:checked + .fl-slider:before {
     const CUT_CANCELLED_STATUSES = [
         'CANCELLED_PAID',
         'CANCELLED_FORGIVEN_BEFORE_CUT',
+        'CANCELLED_DAY_EXPIRED',
     ];
 
     const CUT_FORGIVEN_STATUSES = [
@@ -2206,6 +2207,7 @@ input:checked + .fl-slider:before {
         if (status === 'FAILED') return 'Échec de coupure';
         if (status === 'CANCELLED_PAID') return 'Coupure annulée : paiement régularisé';
         if (status === 'CANCELLED_FORGIVEN_BEFORE_CUT') return 'Coupure annulée : pardon accordé';
+        if (status === 'CANCELLED_DAY_EXPIRED') return 'Échéance expirée sans coupure confirmée : aucune coupure rétroactive';
         if (row.coupure_auto) return row.heure_coupure ? `Règle active à ${row.heure_coupure} — aucune queue réelle tant que le cron n'a pas planifié` : 'Règle active sans queue réelle';
         if (row.cutoff_eligibility_reason) return row.cutoff_eligibility_reason;
         return 'Aucune règle active';
@@ -2251,6 +2253,7 @@ input:checked + .fl-slider:before {
             REACTIVATION_REQUESTED_AFTER_FORGIVENESS: 'fa-rotate',
             REACTIVATED_AFTER_FORGIVENESS: 'fa-bolt',
             REACTIVATION_FAILED_AFTER_FORGIVENESS: 'fa-triangle-exclamation',
+            CANCELLED_DAY_EXPIRED: 'fa-hourglass-end',
         }[status] || (row.coupure_auto ? 'fa-shield-alt' : 'fa-minus-circle');
 
         const detail = row.coupure_executed_at

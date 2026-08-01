@@ -1047,6 +1047,7 @@ class LeaseForgivenessService
     {
         $excludeContractLinkId = $contractLink?->id ?? 0;
         $driverId = $contractLink?->driver_id;
+        $today = now(config('app.timezone', 'Africa/Douala'))->toDateString();
 
         $siblings = LeaseContractLink::query()
             ->where('partner_id', $partnerId)
@@ -1061,9 +1062,18 @@ class LeaseForgivenessService
         $blocking = collect();
 
         foreach ($siblings as $sibling) {
+            /**
+             * Chaque jour est traité strictement indépendamment des jours
+             * précédents : une échéance frère de la veille — même jamais
+             * pardonnée, même confirmée CUT_OFF — ne peut plus justifier de
+             * bloquer aujourd'hui. On ne regarde donc que la dernière
+             * décision du jour courant pour ce contrat frère, jamais une
+             * décision antérieure.
+             */
             $latestHistory = LeaseCutoffHistory::query()
                 ->where('partner_id', $partnerId)
                 ->where('contract_link_id', $sibling->id)
+                ->whereDate('lease_date_echeance', $today)
                 ->orderByDesc('id')
                 ->first();
 
