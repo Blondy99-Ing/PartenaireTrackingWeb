@@ -282,17 +282,33 @@ class LeaseForgivenessService
          */
         $blockingSiblings = $this->findBlockingSiblingContracts($partnerId, $vehicle, $contractLink);
 
-        if ($blockingSiblings->isNotEmpty() && ! $cascade) {
+        /**
+         * Bug corrigé : un contrat frère dont l'heure de coupure n'est pas
+         * encore passée aujourd'hui n'a AUCUNE ligne locale (le planificateur
+         * ne le voit qu'à l'heure dite) — $blockingSiblings (local uniquement)
+         * le rendait donc invisible : ni le bouton "Pardonner tout" ne
+         * s'affichait, ni un simple "Pardonner" n'était bloqué, alors que ce
+         * frère allait couper le véhicule plus tard dans la journée. On
+         * vérifie donc aussi, en direct auprès de Recouvrement, les frères
+         * pas encore planifiés mais déjà impayés aujourd'hui — la même
+         * vérification que suppressUnplannedSiblingsBeforeCut() effectue déjà
+         * au moment d'exécuter la cascade, mais ici en lecture seule, pour
+         * décider s'il FAUT proposer/exiger la cascade.
+         */
+        $unplannedSiblings = $this->findUnplannedNonPaidSiblingsToday($partnerId, $vehicle, $contractLink);
+        $allBlockingSiblings = $blockingSiblings->concat($unplannedSiblings);
+
+        if ($allBlockingSiblings->isNotEmpty() && ! $cascade) {
             return $this->recordForgiveBeforeCutBlockedBySiblings(
                 actor: $actor,
                 forgivenByName: $forgivenByName,
                 vehicle: $vehicle,
                 reason: $reason,
-                blockingSiblings: $blockingSiblings
+                blockingSiblings: $allBlockingSiblings
             );
         }
 
-        if ($blockingSiblings->isNotEmpty() && $cascade) {
+        if ($allBlockingSiblings->isNotEmpty() && $cascade) {
             $needsGpsAction = $blockingSiblings->contains(
                 fn (array $b) => in_array($b['history_status'], ['COMMAND_SENT', 'CUT_OFF'], true)
             );
@@ -1087,6 +1103,94 @@ class LeaseForgivenessService
         }
 
         return $blocking;
+    }
+
+    /**
+     * Contrats/sous-contrats frères (même chauffeur, même véhicule) qui n'ont
+     * ENCORE aucune ligne locale aujourd'hui — donc invisibles pour
+     * findBlockingSiblingContracts() — mais qui ont bien une échéance
+     * impayée aujourd'hui côté Recouvrement : leur heure de coupure n'est
+     * simplement pas encore passée. Sans cette vérification en direct, un
+     * pardon "avant coupure" pouvait sembler réussir alors qu'un autre
+     * contrat sur le même véhicule allait le recouper plus tard le même jour
+     * — sans jamais proposer ni exiger "Pardonner tout".
+     *
+     * Lecture seule : ne pose rien en base. L'exécution réelle de la
+     * suppression reste dans suppressUnplannedSiblingsBeforeCut(), appelée
+     * uniquement une fois la cascade confirmée par l'employé.
+     */
+    private function findUnplannedNonPaidSiblingsToday(int $partnerId, Voiture $vehicle, ?LeaseContractLink $contractLink): Collection
+    {
+        $excludeContractLinkId = $contractLink?->id ?? 0;
+        $driverId = $contractLink?->driver_id;
+
+        if (! $driverId) {
+            return collect();
+        }
+
+        $today = now(config('app.timezone', 'Africa/Douala'))->toDateString();
+
+        $candidateLinks = LeaseContractLink::query()
+            ->where('partner_id', $partnerId)
+            ->where('vehicle_id', $vehicle->id)
+            ->where('driver_id', $driverId)
+            ->where('id', '!=', $excludeContractLinkId)
+            ->where(function ($query) {
+                $query->whereNull('status')->orWhere('status', '!=', 'DELETED');
+            })
+            ->get();
+
+        if ($candidateLinks->isEmpty()) {
+            return collect();
+        }
+
+        $alreadyPlannedTodayLinkIds = LeaseCutoffHistory::query()
+            ->where('partner_id', $partnerId)
+            ->whereIn('contract_link_id', $candidateLinks->pluck('id'))
+            ->whereDate('lease_date_echeance', $today)
+            ->pluck('contract_link_id')
+            ->all();
+
+        $unplannedLinks = $candidateLinks->reject(
+            fn (LeaseContractLink $link) => in_array($link->id, $alreadyPlannedTodayLinkIds, true)
+        );
+
+        if ($unplannedLinks->isEmpty()) {
+            return collect();
+        }
+
+        try {
+            $todaysNonPaidLeases = $this->leaseApi->fetchNonPaidLeasesForDate($today);
+        } catch (\Throwable $e) {
+            Log::warning('[LEASE_FORGIVENESS] Vérification des frères non planifiés impossible : API Recouvrement indisponible.', [
+                'partner_id' => $partnerId,
+                'vehicle_id' => $vehicle->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return collect();
+        }
+
+        $contractIdsWithNonPaidLeaseToday = collect($todaysNonPaidLeases)
+            ->map(fn (array $lease) => $this->leaseApi->extractLeaseContractId($lease))
+            ->filter(fn (int $id) => $id > 0)
+            ->unique();
+
+        $unplanned = collect();
+
+        foreach ($unplannedLinks as $link) {
+            if (! $contractIdsWithNonPaidLeaseToday->contains((int) $link->source_contract_id)) {
+                continue;
+            }
+
+            $unplanned->push([
+                'contract_link' => $link,
+                'label' => $this->safeSiblingContractLabel($link),
+                'history_status' => 'UNPLANNED_NON_PAYE_TODAY',
+            ]);
+        }
+
+        return $unplanned;
     }
 
     /**
