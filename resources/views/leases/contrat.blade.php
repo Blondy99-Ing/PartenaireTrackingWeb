@@ -2109,7 +2109,10 @@
 
                     <div class="lc-field">
                         <label>Immatriculation</label>
-                        <input class="lc-input" name="immatriculation" id="editImmatriculation" readonly required>
+                        <input class="lc-input" name="immatriculation" id="editImmatriculation" required>
+                        <small style="display:block; margin-top:4px; font-size:.72rem; color: var(--color-text-muted, #888);">
+                            Corrige la plaque enregistrée sur ce contrat (ex. erreur de saisie ou changement de plaque). Ne change pas le véhicule Tracking associé.
+                        </small>
                     </div>
 
                     <div class="lc-field">
