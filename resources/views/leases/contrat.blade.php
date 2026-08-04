@@ -2117,7 +2117,10 @@
 
                     <div class="lc-field">
                         <label>VIN</label>
-                        <input class="lc-input" name="vin" id="editVin" readonly>
+                        <input class="lc-input" name="vin" id="editVin">
+                        <small style="display:block; margin-top:4px; font-size:.72rem; color: var(--color-text-muted, #888);">
+                            Corrige le VIN enregistré sur ce contrat. Ne change pas le véhicule Tracking associé.
+                        </small>
                     </div>
 
                     <div class="lc-field">
