@@ -3017,6 +3017,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         Modifier
                     </button>
 
+                    <button type="button" class="lc-btn" id="suspendMainContractBtn">
+                        <i class="fas fa-pause"></i>
+                        ${contract.statut === 'suspendu' ? 'Réactiver' : 'Suspendre'}
+                    </button>
+
                     <button type="button" class="lc-btn danger" id="closeMainContractBtn">
                         <i class="fas fa-ban"></i>
                         Clôturer
@@ -3064,6 +3069,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         $('#editMainContractBtn')?.addEventListener('click', () => openEditDrawer(contract));
         $('#closeMainContractBtn')?.addEventListener('click', () => closeContractByStatus(contract, null, 'SOLDE'));
+        $('#suspendMainContractBtn')?.addEventListener('click', () => closeContractByStatus(contract, null, contract.statut === 'suspendu' ? 'ACTIF' : 'SUSPENDU'));
         $('#addSubBtn')?.addEventListener('click', () => openAddSubDrawer(contract));
         $('#editPolicyBtn')?.addEventListener('click', () => openPolicyDrawer(contract));
 
@@ -3080,6 +3086,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 const subId = Number(button.dataset.closeSub);
                 const found = findSub(subId);
                 if (found) closeContractByStatus(found.sub, found.contract, 'SOLDE');
+            });
+        });
+
+        $$('[data-suspend-sub]').forEach(button => {
+            button.addEventListener('click', () => {
+                const subId = Number(button.dataset.suspendSub);
+                const found = findSub(subId);
+                if (found) closeContractByStatus(found.sub, found.contract, found.sub.statut === 'suspendu' ? 'ACTIF' : 'SUSPENDU');
             });
         });
 
@@ -3157,6 +3171,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     <button type="button" class="lc-sub-action" data-policy-sub="${sub.id}">
                         <i class="fas fa-bolt"></i>
                         Coupure
+                    </button>
+
+                    <button type="button" class="lc-sub-action" data-suspend-sub="${sub.id}">
+                        <i class="fas fa-pause"></i>
+                        ${sub.statut === 'suspendu' ? 'Réactiver' : 'Suspendre'}
                     </button>
 
                     <button type="button" class="lc-sub-action" data-close-sub="${sub.id}">
