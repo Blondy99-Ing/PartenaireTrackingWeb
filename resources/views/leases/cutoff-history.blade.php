@@ -806,6 +806,98 @@
 .dark-mode .ch-code-block { background: rgba(0,0,0,.25); }
 
 /* ══════════════════════════════════════════════════════════════
+   FULL CYCLE JOURNAL (lease_cutoff_events)
+══════════════════════════════════════════════════════════════ */
+.ch-detail-section-full { flex: 1 1 100%; }
+
+.ch-journal {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+.ch-journal-item {
+    display: flex;
+    gap: .65rem;
+    padding: .55rem 0;
+    border-bottom: 1px dashed var(--color-border-subtle);
+}
+
+.ch-journal-item:last-child { border-bottom: none; }
+
+.ch-journal-icon {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: .62rem;
+    flex-shrink: 0;
+    background: var(--ch-journal-color, #6b7280);
+    color: #fff;
+    opacity: .9;
+    margin-top: .1rem;
+}
+
+.ch-journal-body { min-width: 0; flex: 1; }
+
+.ch-journal-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: .5rem;
+    flex-wrap: wrap;
+}
+
+.ch-journal-label {
+    font-size: .76rem;
+    font-weight: 700;
+    color: var(--color-text);
+}
+
+.ch-journal-time {
+    font-size: .66rem;
+    color: var(--color-text-muted);
+    font-family: var(--ch-mono);
+    white-space: nowrap;
+}
+
+.ch-journal-msg {
+    font-size: .74rem;
+    color: var(--color-text-muted);
+    line-height: 1.5;
+    margin-top: .15rem;
+}
+
+.ch-journal-meta {
+    display: flex;
+    gap: .6rem;
+    margin-top: .3rem;
+    flex-wrap: wrap;
+}
+
+.ch-journal-chip {
+    font-size: .63rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    background: var(--color-bg-subtle, #f3f4f6);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--ch-radius-pill);
+    padding: .1rem .5rem;
+}
+
+.dark-mode .ch-journal-chip { background: rgba(255,255,255,.04); }
+
+.ch-journal-empty {
+    font-size: .76rem;
+    color: var(--color-text-muted);
+    font-style: italic;
+    padding: .4rem 0;
+}
+
+/* ══════════════════════════════════════════════════════════════
    EMPTY STATE
 ══════════════════════════════════════════════════════════════ */
 .ch-empty {
@@ -880,6 +972,29 @@
     // Les timestamps sont stockés en UTC (APP_TIMEZONE=UTC). On affiche en heure
     // locale (Africa/Douala / WAT) pour rester cohérent avec les heures de coupure.
     $tz           = config('app.display_timezone', 'Africa/Douala');
+
+    /**
+     * Métadonnées d'affichage pour le journal complet du cycle
+     * (lease_cutoff_events) : une ligne par vérification réelle, jamais
+     * écrasée, contrairement au statut final ci-dessus.
+     */
+    $eventTypeMeta = [
+        'WAITING_STATE_UNKNOWN'          => ['label' => 'État boîtier illisible',        'icon' => 'fa-question',        'color' => '#6b7280'],
+        'WAITING_OFFLINE'                => ['label' => 'Boîtier hors-ligne',            'icon' => 'fa-plug-circle-xmark', 'color' => '#c2410c'],
+        'WAITING_MOVEMENT_UNCERTAIN'     => ['label' => 'Mouvement incertain',           'icon' => 'fa-circle-question', 'color' => '#c2410c'],
+        'WAITING_MOVING'                 => ['label' => 'Véhicule en mouvement',         'icon' => 'fa-gauge-high',      'color' => '#c2410c'],
+        'COMMAND_SENT'                   => ['label' => 'Commande de coupure envoyée',   'icon' => 'fa-paper-plane',     'color' => '#6d28d9'],
+        'COMMAND_PENDING_CONFIRMATION'   => ['label' => 'Attente confirmation moteur',   'icon' => 'fa-hourglass-half',  'color' => '#6d28d9'],
+        'CUT_OFF_CONFIRMED'              => ['label' => 'Coupure moteur confirmée',      'icon' => 'fa-check',           'color' => '#047857'],
+        'CANCELLED_PAID'                 => ['label' => 'Annulée : paiement confirmé',   'icon' => 'fa-ban',             'color' => '#4b5563'],
+        'CANCELLED_UNVERIFIED'           => ['label' => 'Annulée : sans preuve paiement', 'icon' => 'fa-circle-question', 'color' => '#b45309'],
+        'CANCELLED_RULE_MISSING'         => ['label' => 'Annulée : règle absente',       'icon' => 'fa-link-slash',      'color' => '#4b5563'],
+        'CANCELLED_RULE_DISABLED'        => ['label' => 'Annulée : règle inactive',      'icon' => 'fa-toggle-off',      'color' => '#4b5563'],
+        'REACTIVATION_CONFIRMED'         => ['label' => 'Rallumage confirmé',            'icon' => 'fa-bolt',            'color' => '#15803d'],
+        'REACTIVATION_PENDING_CONFIRMATION' => ['label' => 'Attente confirmation rallumage', 'icon' => 'fa-hourglass-half', 'color' => '#6d28d9'],
+        'REACTIVATION_FAILED'            => ['label' => 'Échec du rallumage',            'icon' => 'fa-xmark',           'color' => '#b91c1c'],
+        'FAILED'                         => ['label' => 'Échec final',                   'icon' => 'fa-xmark',           'color' => '#b91c1c'],
+    ];
 @endphp
 
 <div class="ch">
@@ -1520,6 +1635,51 @@
                                     @endif
                                 </div>
                             @endif
+
+                            {{-- Journal complet du cycle (lease_cutoff_events) --}}
+                            <div class="ch-detail-section ch-detail-section-full">
+                                <div class="ch-detail-section-title">
+                                    <i class="fas fa-timeline"></i>
+                                    Journal complet du cycle
+                                </div>
+
+                                @if($history->events->isEmpty())
+                                    <div class="ch-journal-empty">
+                                        Aucune vérification intermédiaire enregistrée pour cet événement.
+                                    </div>
+                                @else
+                                    <div class="ch-journal">
+                                        @foreach($history->events as $event)
+                                            @php
+                                                $meta = $eventTypeMeta[$event->event_type] ?? ['label' => $event->event_type, 'icon' => 'fa-circle', 'color' => '#6b7280'];
+                                            @endphp
+                                            <div class="ch-journal-item">
+                                                <div class="ch-journal-icon" style="--ch-journal-color: {{ $meta['color'] }};">
+                                                    <i class="fas {{ $meta['icon'] }}"></i>
+                                                </div>
+                                                <div class="ch-journal-body">
+                                                    <div class="ch-journal-top">
+                                                        <span class="ch-journal-label">{{ $meta['label'] }}</span>
+                                                        <span class="ch-journal-time">{{ $event->occurred_at?->copy()->setTimezone($tz)->format('d/m/Y H:i:s') }}</span>
+                                                    </div>
+                                                    <div class="ch-journal-msg">{{ $event->message }}</div>
+                                                    <div class="ch-journal-meta">
+                                                        @if($event->speed_at_check !== null)
+                                                            <span class="ch-journal-chip"><i class="fas fa-gauge" style="font-size:.6rem;"></i> {{ $event->speed_at_check }} km/h</span>
+                                                        @endif
+                                                        @if(!empty($event->ignition_state))
+                                                            <span class="ch-journal-chip"><i class="fas fa-key" style="font-size:.6rem;"></i> {{ $event->ignition_state }}</span>
+                                                        @endif
+                                                        @if($event->retry_count !== null)
+                                                            <span class="ch-journal-chip">Vérif. #{{ $event->retry_count }}</span>
+                                                        @endif
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        @endforeach
+                                    </div>
+                                @endif
+                            </div>
 
                         </div>
                     </td>

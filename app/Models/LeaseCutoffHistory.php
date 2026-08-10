@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * Historique complet des décisions de coupure lease.
@@ -91,5 +92,11 @@ class LeaseCutoffHistory extends Model
     public function contractLink(): BelongsTo
     {
         return $this->belongsTo(LeaseContractLink::class, 'contract_link_id');
+    }
+
+    /** Journal chronologique complet du cycle (jamais écrasé, contrairement à reason/notes ci-dessus). */
+    public function events(): HasMany
+    {
+        return $this->hasMany(LeaseCutoffEvent::class, 'history_id')->orderBy('occurred_at');
     }
 }

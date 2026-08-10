@@ -3,6 +3,7 @@
 namespace App\Services\Leases;
 
 use App\Models\LeaseCutoffContractRule;
+use App\Models\LeaseCutoffEvent;
 use App\Models\LeaseCutoffHistory;
 use App\Models\LeaseCutoffQueue;
 use App\Services\Gps\GpsCommandDispatcherService;
@@ -25,8 +26,15 @@ use Illuminate\Support\Facades\Log;
  */
 class LeaseCutoffQueueProcessorService
 {
-    private const DEFAULT_CONFIRM_MAX_CHECKS = 6;
-    private const DEFAULT_CONFIRM_DELAY_SECONDS = 20;
+    /**
+     * Fenêtre de confirmation (commande envoyée -> confirmation moteur réelle) :
+     * ~20 minutes. Le cron lease:cutoff:process tourne une fois par minute
+     * (withoutOverlapping), donc le vrai intervalle entre deux vérifications
+     * est borné par cette cadence, pas par CONFIRM_DELAY_SECONDS lui-même —
+     * DEFAULT_CONFIRM_MAX_CHECKS * ~1 passage/minute ≈ 20 minutes réelles.
+     */
+    private const DEFAULT_CONFIRM_MAX_CHECKS = 20;
+    private const DEFAULT_CONFIRM_DELAY_SECONDS = 60;
     private const DEFAULT_WAITING_DELAY_MINUTES = 1;
 
     public function __construct(
@@ -294,7 +302,7 @@ class LeaseCutoffQueueProcessorService
                 $vehicleState = $this->gps->getVehicleStateByMacId($macId, $movingThreshold);
 
                 if (! ($vehicleState['success'] ?? false)) {
-                    $this->markWaiting($item, 'Commande EN ATTENTE : impossible de lire l’état du boîtier GPS (état inconnu). Aucune commande n’a été envoyée — la coupure sera tentée automatiquement dès que le boîtier répondra.', null, null);
+                    $this->markWaiting($item, 'WAITING_STATE_UNKNOWN', 'Commande EN ATTENTE : impossible de lire l’état du boîtier GPS (état inconnu). Aucune commande n’a été envoyée — la coupure sera tentée automatiquement dès que le boîtier répondra.', null, null);
                     $waiting++;
                     Log::warning('[LEASE_CUTOFF_PROCESS] Attente : état véhicule indisponible', array_merge($ctx, [
                         'vehicle_state' => $vehicleState,
@@ -419,21 +427,21 @@ class LeaseCutoffQueueProcessorService
                 }
 
                 if ($isOnline === false) {
-                    $this->markWaiting($item, sprintf('Commande EN ATTENTE : boîtier HORS-LIGNE (%s). Aucune commande envoyée — la coupure sera tentée dès le retour en ligne du boîtier.', $uiStatus), $speed, $uiStatus);
+                    $this->markWaiting($item, 'WAITING_OFFLINE', sprintf('Commande EN ATTENTE : boîtier HORS-LIGNE (%s). Aucune commande envoyée — la coupure sera tentée dès le retour en ligne du boîtier.', $uiStatus), $speed, $uiStatus);
                     $waiting++;
                     Log::info('[LEASE_CUTOFF_PROCESS] Attente : véhicule offline', $ctx);
                     continue;
                 }
 
                 if ($isMoving === null) {
-                    $this->markWaiting($item, 'Commande EN ATTENTE : état de mouvement INCERTAIN (donnée GPS ambiguë). Coupure différée par sécurité jusqu’à un état fiable.', $speed, $uiStatus);
+                    $this->markWaiting($item, 'WAITING_MOVEMENT_UNCERTAIN', 'Commande EN ATTENTE : état de mouvement INCERTAIN (donnée GPS ambiguë). Coupure différée par sécurité jusqu’à un état fiable.', $speed, $uiStatus);
                     $waiting++;
                     Log::info('[LEASE_CUTOFF_PROCESS] Attente : mouvement incertain', $ctx);
                     continue;
                 }
 
                 if ($isMoving === true) {
-                    $this->markWaiting($item, sprintf('Commande EN ATTENTE : véhicule EN MOUVEMENT (%s km/h). Par sécurité, la coupure n’est envoyée qu’à l’arrêt du véhicule.', $speed !== null ? $speed : '?'), $speed, $uiStatus);
+                    $this->markWaiting($item, 'WAITING_MOVING', sprintf('Commande EN ATTENTE : véhicule EN MOUVEMENT (%s km/h). Par sécurité, la coupure n’est envoyée qu’à l’arrêt du véhicule.', $speed !== null ? $speed : '?'), $speed, $uiStatus);
                     $waiting++;
                     Log::info('[LEASE_CUTOFF_PROCESS] Attente : véhicule en mouvement', $ctx);
                     continue;
@@ -592,6 +600,36 @@ class LeaseCutoffQueueProcessorService
         return null;
     }
 
+    /**
+     * Ajoute une ligne au journal chronologique du cycle (lease_cutoff_events),
+     * SANS jamais rien écraser — contrairement à lease_cutoff_histories.reason
+     * /notes, qui ne reflètent que le dernier état. C'est cette table qui
+     * permet de retracer après coup pourquoi une coupure prévue à 12h n'a été
+     * confirmée qu'à 16h (offline ? en mouvement ? commande en attente ?).
+     */
+    private function recordEvent(
+        LeaseCutoffQueue $item,
+        string $eventType,
+        string $message,
+        ?float $speed = null,
+        ?string $uiStatus = null
+    ): void {
+        if (! $item->history_id) {
+            return;
+        }
+
+        LeaseCutoffEvent::create([
+            'history_id' => $item->history_id,
+            'queue_id' => $item->id,
+            'event_type' => $eventType,
+            'message' => $message,
+            'speed_at_check' => $speed,
+            'ignition_state' => $uiStatus,
+            'retry_count' => $item->retry_count,
+            'occurred_at' => now(),
+        ]);
+    }
+
     private function markCancelledPaid(LeaseCutoffQueue $item, string $reason, ?array $payment = null): void
     {
         DB::transaction(function () use ($item, $reason, $payment) {
@@ -616,6 +654,8 @@ class LeaseCutoffQueueProcessorService
                         : 'Coupure annulée après confirmation que le lease n’est plus dû.',
                 ]);
             }
+
+            $this->recordEvent($item, 'CANCELLED_PAID', $reason);
         });
     }
 
@@ -642,6 +682,8 @@ class LeaseCutoffQueueProcessorService
                     'notes' => 'Coupure annulée sans preuve de paiement : à vérifier manuellement. Le lease peut être encore dû (échéance modifiée côté recouvrement).',
                 ]);
             }
+
+            $this->recordEvent($item, 'CANCELLED_UNVERIFIED', $reason);
         });
     }
 
@@ -661,14 +703,16 @@ class LeaseCutoffQueueProcessorService
                     'notes' => 'Événement clôturé sans commande GPS : la règle spécifique du contrat/sous-contrat n’autorise plus la coupure.',
                 ]);
             }
+
+            $this->recordEvent($item, $historyStatus, $reason);
         });
     }
 
-    private function markWaiting(LeaseCutoffQueue $item, string $reason, ?float $speed, ?string $uiStatus): void
+    private function markWaiting(LeaseCutoffQueue $item, string $eventType, string $reason, ?float $speed, ?string $uiStatus): void
     {
         $delayMinutes = (int) env('LEASE_CUTOFF_WAITING_DELAY_MINUTES', self::DEFAULT_WAITING_DELAY_MINUTES);
 
-        DB::transaction(function () use ($item, $reason, $speed, $uiStatus, $delayMinutes) {
+        DB::transaction(function () use ($item, $eventType, $reason, $speed, $uiStatus, $delayMinutes) {
             $item->update([
                 'status' => 'WAITING_STOP',
                 'last_checked_at' => now(),
@@ -685,6 +729,8 @@ class LeaseCutoffQueueProcessorService
                     'notes' => 'Traitement maintenu en attente ; aucune commande de coupure n’a été envoyée à ce stade.',
                 ]);
             }
+
+            $this->recordEvent($item, $eventType, $reason, $speed, $uiStatus);
         });
     }
 
@@ -711,6 +757,8 @@ class LeaseCutoffQueueProcessorService
                     'notes' => 'Commande de coupure transmise ; attente d’une confirmation moteur réelle avant clôture.',
                 ]);
             }
+
+            $this->recordEvent($item, 'COMMAND_SENT', $reason, $speed, $uiStatus);
         });
     }
 
@@ -735,6 +783,8 @@ class LeaseCutoffQueueProcessorService
                     'notes' => 'Aucun renvoi de commande effectué ; le système attend encore une confirmation live du moteur.',
                 ]);
             }
+
+            $this->recordEvent($item, 'COMMAND_PENDING_CONFIRMATION', $reason, $speed, $uiStatus);
         });
     }
 
@@ -758,6 +808,8 @@ class LeaseCutoffQueueProcessorService
                     'notes' => 'Coupure moteur confirmée ; événement clôturé avec succès.',
                 ]);
             }
+
+            $this->recordEvent($item, 'CUT_OFF_CONFIRMED', $reason, $speed, $uiStatus);
         });
     }
 
@@ -785,6 +837,8 @@ class LeaseCutoffQueueProcessorService
                     'ignition_state' => $uiStatus,
                     'notes' => 'Rallumage confirmé par l’état moteur live après pardon ; événement clôturé avec succès.',
                 ]);
+
+                $this->recordEvent($item, 'REACTIVATION_CONFIRMED', $reason, $speed, $uiStatus);
             }
 
             $this->finalizeCascadedSiblings($item, 'REACTIVATED_AFTER_FORGIVENESS', 'Rallumage confirmé conjointement avec le contrat principal du pardon.');
@@ -804,15 +858,19 @@ class LeaseCutoffQueueProcessorService
             ]);
 
             if ($item->history) {
+                $reason = sprintf(
+                    'Rallumage transmis après pardon, en attente de confirmation moteur — vérification %d/%d. Le boîtier rapporte pour l’instant le moteur « %s » (pas encore confirmé rallumé).',
+                    (int) $item->retry_count,
+                    $maxChecks,
+                    $engineState
+                );
+
                 $item->history->update([
-                    'reason' => sprintf(
-                        'Rallumage transmis après pardon, en attente de confirmation moteur — vérification %d/%d. Le boîtier rapporte pour l’instant le moteur « %s » (pas encore confirmé rallumé).',
-                        (int) $item->retry_count,
-                        $maxChecks,
-                        $engineState
-                    ),
+                    'reason' => $reason,
                     'notes' => 'Aucun renvoi de commande effectué ; le système attend encore une confirmation live du moteur après pardon.',
                 ]);
+
+                $this->recordEvent($item, 'REACTIVATION_PENDING_CONFIRMATION', $reason);
             }
         });
     }
@@ -840,6 +898,8 @@ class LeaseCutoffQueueProcessorService
                     'reason' => $reason,
                     'notes' => 'Échec final de la confirmation de rallumage après pardon ; aucune nouvelle tentative automatique ne sera lancée par cette queue.',
                 ]);
+
+                $this->recordEvent($item, 'REACTIVATION_FAILED', $reason);
             }
 
             $this->finalizeCascadedSiblings($item, 'REACTIVATION_FAILED_AFTER_FORGIVENESS', 'Échec du rallumage clôturé conjointement avec le contrat principal du pardon.');
@@ -927,6 +987,8 @@ class LeaseCutoffQueueProcessorService
                     'reason' => $reason,
                     'notes' => 'Échec final du traitement automatique de coupure ; aucune nouvelle tentative automatique ne sera lancée par cette queue.',
                 ]);
+
+                $this->recordEvent($item, 'FAILED', $reason);
             }
         });
     }
