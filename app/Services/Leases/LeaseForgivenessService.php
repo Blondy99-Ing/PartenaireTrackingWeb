@@ -665,7 +665,7 @@ class LeaseForgivenessService
             queueStatus: 'COMMAND_SENT',
             queueNextCheckAt: now()->addSeconds($delay),
             businessReason: $businessReason,
-            notes: 'Pardon après coupure : commande de rallumage transmise au provider. En attente de la confirmation réelle du moteur avant de conclure.',
+            notes: 'Pardon après coupure : le rallumage a été demandé. En attente de la confirmation que le moteur est bien remis en marche.',
             commandResponse: $command,
             uiStatus: 'forgiven_reactivation_pending',
             message: 'Pardon enregistré. Commande de rallumage envoyée, en attente de confirmation du moteur.',
@@ -1314,7 +1314,7 @@ class LeaseForgivenessService
 
         return [
             'status' => 'forgiven_before_cut_blocked_by_siblings',
-            'message' => 'Ce véhicule a un autre contrat toujours en cours de coupure : pardonner ce lease seul ne suffira pas à éviter la coupure du véhicule.',
+            'message' => 'Ce véhicule a un autre contrat toujours en cours de coupure : pardonner seulement celui-ci ne suffira pas à éviter la coupure du véhicule.',
             'blocking_siblings' => $blockingSiblings->map(fn (array $b) => [
                 'contract_link_id' => $b['contract_link']->id,
                 'label' => $b['label'],
@@ -1814,7 +1814,7 @@ class LeaseForgivenessService
 
     private function vehicleLabel(Voiture $vehicle): string
     {
-        return $vehicle->immatriculation ?: ('véhicule #' . $vehicle->id);
+        return $vehicle->immatriculation ?: 'un véhicule sans plaque enregistrée';
     }
 
     private function vehicleDriverLabel(?LeaseContractLink $contractLink): string
@@ -1830,9 +1830,13 @@ class LeaseForgivenessService
         return $name !== '' ? $name : (string) ($driver->email ?? 'chauffeur non renseigné');
     }
 
+    /**
+     * Ne jamais afficher "Type #4" / "Contrat #40" — on réutilise le même
+     * repli propre que safeSiblingContractLabel() ci-dessus.
+     */
     private function contractTypeLabel(?LeaseContractLink $contractLink): string
     {
-        return $contractLink ? strtolower($contractLink->displayTypeLabel()) : 'contrat';
+        return $contractLink ? strtolower($this->safeSiblingContractLabel($contractLink)) : 'contrat';
     }
 
     private function reasonBeforeCut(Voiture $vehicle, ?LeaseContractLink $contractLink, string $forgivenByName): string
@@ -1848,7 +1852,7 @@ class LeaseForgivenessService
     private function reasonAfterCutPending(Voiture $vehicle, ?LeaseContractLink $contractLink, string $forgivenByName, int $attempt, int $maxChecks): string
     {
         return sprintf(
-            'Le véhicule %s assigné au chauffeur %s a été pardonné pour son lease %s par %s : commande de rallumage envoyée, en attente de confirmation moteur (vérification %d/%d).',
+            'Le véhicule %s assigné au chauffeur %s a été pardonné (contrat %s) par %s : le rallumage a été demandé, le système attend la confirmation que le moteur est bien remis en marche (tentative %d sur %d).',
             $this->vehicleLabel($vehicle),
             $this->vehicleDriverLabel($contractLink),
             $this->contractTypeLabel($contractLink),
@@ -1887,29 +1891,22 @@ class LeaseForgivenessService
     private function reasonAfterCutRejectedByGps(Voiture $vehicle, ?LeaseContractLink $contractLink, string $forgivenByName, string $providerMessage): string
     {
         return sprintf(
-            'Le véhicule %s assigné au chauffeur %s a été pardonné pour son lease %s par %s, mais le rallumage a échoué : le GPS n’a pas accepté la commande (%s).',
+            'Le véhicule %s assigné au chauffeur %s a été pardonné (contrat %s) par %s, mais le rallumage a échoué : le système GPS n’a pas accepté la demande. Une vérification manuelle est recommandée.',
             $this->vehicleLabel($vehicle),
             $this->vehicleDriverLabel($contractLink),
             $this->contractTypeLabel($contractLink),
-            $forgivenByName,
-            $providerMessage
+            $forgivenByName
         );
     }
 
     private function reasonAfterCutNotConfirmed(Voiture $vehicle, ?LeaseContractLink $contractLink, string $forgivenByName, int $maxChecks, ?string $deviceDiagnostic): string
     {
-        $diagnosticText = $deviceDiagnostic
-            ? sprintf(' Diagnostic renvoyé par le boîtier lui-même : « %s ».', $deviceDiagnostic)
-            : '';
-
         return sprintf(
-            'Le véhicule %s assigné au chauffeur %s a été pardonné pour son lease %s par %s, mais le rallumage n’a jamais été confirmé après %d vérifications : le boîtier rapporte toujours le moteur coupé.%s',
+            'Le véhicule %s assigné au chauffeur %s a été pardonné (contrat %s) par %s, mais le rallumage n’a jamais pu être confirmé malgré plusieurs tentatives : le moteur semble toujours coupé. Une vérification manuelle du véhicule est recommandée.',
             $this->vehicleLabel($vehicle),
             $this->vehicleDriverLabel($contractLink),
             $this->contractTypeLabel($contractLink),
-            $forgivenByName,
-            $maxChecks,
-            $diagnosticText
+            $forgivenByName
         );
     }
 

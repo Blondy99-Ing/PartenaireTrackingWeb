@@ -122,14 +122,14 @@ class LeaseCutoffQueueProcessorService
                 $dueDate = $this->extractDueDateFromQueue($item);
 
                 if ($leaseId <= 0) {
-                    $this->markFailed($item, 'Impossible de revalider le paiement : lease_id manquant dans la queue de coupure.');
+                    $this->markFailed($item, 'Impossible de vérifier le paiement : le dossier de ce véhicule est incomplet.');
                     $failed++;
                     Log::warning('[LEASE_CUTOFF_PROCESS] Échec : lease_id manquant', $ctx);
                     continue;
                 }
 
                 if (! $dueDate) {
-                    $this->markFailed($item, 'Impossible de revalider le paiement : date_echeance manquante dans la queue de coupure.');
+                    $this->markFailed($item, 'Impossible de vérifier le paiement : la date d’échéance de ce dossier est manquante.');
                     $failed++;
                     Log::warning('[LEASE_CUTOFF_PROCESS] Échec : date_echeance manquante', $ctx);
                     continue;
@@ -180,7 +180,7 @@ class LeaseCutoffQueueProcessorService
                     if ($leaseNow === null) {
                         $this->markCancelledUnverified(
                             $item,
-                            sprintf('Le lease #%d est introuvable côté recouvrement au moment de l’exécution. Coupure annulée par prudence, SANS confirmation de paiement.', $leaseId)
+                            'Le dossier de paiement de ce contrat est introuvable au moment de la vérification. La coupure est annulée par précaution, sans confirmation de paiement.'
                         );
                         $cancelled++;
                         Log::warning('[LEASE_CUTOFF_PROCESS] Queue annulée : lease introuvable côté recouvrement (aucune preuve de paiement)', $ctx);
@@ -198,9 +198,7 @@ class LeaseCutoffQueueProcessorService
                         if ($payment) {
                             $this->markCancelledPaid(
                                 $item,
-                                sprintf('Le lease #%d est réglé (paiement #%s, montant %s). Coupure automatique annulée.',
-                                    $leaseId,
-                                    (string) ($payment['id'] ?? '?'),
+                                sprintf('Le paiement de ce contrat a été reçu (montant : %s). La coupure automatique est annulée.',
                                     (string) ($payment['montant'] ?? '?')
                                 ),
                                 $payment
@@ -212,7 +210,7 @@ class LeaseCutoffQueueProcessorService
                         } else {
                             $this->markCancelledUnverified(
                                 $item,
-                                sprintf('Le lease #%d n’est plus retourné comme NON_PAYE, mais AUCUN paiement n’a été trouvé (échéance probablement modifiée côté recouvrement). Coupure annulée à vérifier — non confirmée comme payée.', $leaseId)
+                                'Ce contrat n’est plus marqué comme impayé, mais aucun paiement n’a pu être retrouvé. La coupure est annulée par précaution — à vérifier manuellement.'
                             );
                             Log::warning('[LEASE_CUTOFF_PROCESS] Queue annulée : plus NON_PAYE mais sans paiement trouvé (à vérifier)', array_merge($ctx, [
                                 'lease_statut' => $leaseNow['statut'] ?? null,
@@ -251,7 +249,7 @@ class LeaseCutoffQueueProcessorService
                             $this->markCancelledRule(
                                 $item,
                                 'CANCELLED_RULE_MISSING',
-                                'La coupure est annulée : aucune règle active n’est plus configurée sur ce contrat/sous-contrat spécifique au moment de l’exécution.'
+                                'La coupure est annulée : aucune règle de coupure n’est configurée pour ce contrat.'
                             );
                             $cancelled++;
                             Log::warning('[LEASE_CUTOFF_PROCESS] Queue annulée : règle spécifique absente ou désactivée', $ctx);
@@ -262,7 +260,7 @@ class LeaseCutoffQueueProcessorService
                             $this->markCancelledRule(
                                 $item,
                                 'CANCELLED_RULE_DISABLED',
-                                'La coupure est annulée : la règle spécifique du contrat/sous-contrat n’a plus d’heure de coupure valide.'
+                                'La coupure est annulée : aucune heure de coupure n’est définie pour ce contrat.'
                             );
                             $cancelled++;
                             Log::warning('[LEASE_CUTOFF_PROCESS] Queue annulée : règle spécifique sans heure', array_merge($ctx, [
@@ -279,14 +277,14 @@ class LeaseCutoffQueueProcessorService
 
                 $vehicle = $item->vehicle;
                 if (! $vehicle) {
-                    $this->markFailed($item, 'Le véhicule lié à cette queue est introuvable localement ; traitement impossible.');
+                    $this->markFailed($item, 'Ce véhicule n’a pas été retrouvé dans le système ; le traitement est impossible.');
                     $failed++;
                     Log::warning('[LEASE_CUTOFF_PROCESS] Échec : véhicule local introuvable', $ctx);
                     continue;
                 }
 
                 if (empty($vehicle->mac_id_gps)) {
-                    $this->markFailed($item, 'Impossible d’envoyer la commande : aucun identifiant GPS n’est associé au véhicule.');
+                    $this->markFailed($item, 'Impossible d’envoyer l’ordre de coupure : ce véhicule n’a pas de boîtier GPS associé.');
                     $failed++;
                     Log::warning('[LEASE_CUTOFF_PROCESS] Échec : mac_id_gps manquant', array_merge($ctx, [
                         'immatriculation' => $vehicle->immatriculation ?? null,
@@ -302,7 +300,7 @@ class LeaseCutoffQueueProcessorService
                 $vehicleState = $this->gps->getVehicleStateByMacId($macId, $movingThreshold);
 
                 if (! ($vehicleState['success'] ?? false)) {
-                    $this->markWaiting($item, 'WAITING_STATE_UNKNOWN', 'Commande EN ATTENTE : impossible de lire l’état du boîtier GPS (état inconnu). Aucune commande n’a été envoyée — la coupure sera tentée automatiquement dès que le boîtier répondra.', null, null);
+                    $this->markWaiting($item, 'WAITING_STATE_UNKNOWN', 'En attente : l’état du véhicule n’a pas pu être vérifié pour le moment. La coupure sera retentée automatiquement dès que l’information sera disponible.', null, null);
                     $waiting++;
                     Log::warning('[LEASE_CUTOFF_PROCESS] Attente : état véhicule indisponible', array_merge($ctx, [
                         'vehicle_state' => $vehicleState,
@@ -368,10 +366,10 @@ class LeaseCutoffQueueProcessorService
                     if ($engineState === 'CUT') {
                         $this->markProcessedCutOff(
                             $item,
-                            ['source' => 'post_send_verification', 'message' => 'La commande précédemment envoyée est confirmée par l’état moteur live.'],
+                            ['source' => 'post_send_verification', 'message' => 'La commande précédemment envoyée est confirmée par l’état actuel du moteur.'],
                             $speed,
                             $uiStatus,
-                            sprintf('Coupure CONFIRMÉE : le boîtier rapporte le moteur coupé (relais ouvert), après %d vérification(s). La commande a bien pris effet.', (int) $item->retry_count)
+                            'Coupure confirmée : le moteur du véhicule est bien coupé. La commande a été appliquée avec succès.'
                         );
                         $processed++;
                         Log::info('[LEASE_CUTOFF_PROCESS] Succès : commande confirmée après vérification différée', $ctx);
@@ -381,20 +379,7 @@ class LeaseCutoffQueueProcessorService
                     if ($item->retry_count >= $maxChecks) {
                         $deviceDiagnostic = $this->describeDeviceDiagnostic($item, $macId);
 
-                        $reason = $deviceDiagnostic
-                            ? sprintf(
-                                'Commande ENVOYÉE mais NON CONFIRMÉE après %d vérifications : le boîtier rapporte toujours le moteur « %s » (relais non coupé). Diagnostic renvoyé par le boîtier lui-même : « %s ». Aucune preuve que le véhicule soit réellement coupé.',
-                                $maxChecks,
-                                $engineState,
-                                $deviceDiagnostic
-                            )
-                            : sprintf(
-                                'Commande ENVOYÉE mais NON CONFIRMÉE après %d vérifications : le boîtier rapporte toujours le moteur « %s » (relais non coupé). Le boîtier n’a pas exécuté la coupure — causes probables : mot de passe commande du boîtier incorrect, mot-clé de commande inadapté au modèle, ou boîtier injoignable. Aucune preuve que le véhicule soit réellement coupé.',
-                                $maxChecks,
-                                $engineState
-                            );
-
-                        $this->markFailed($item, $reason);
+                        $this->markFailed($item, 'La coupure n’a pas pu être confirmée après plusieurs tentatives : le moteur semble toujours en marche. Une vérification manuelle du véhicule est recommandée.');
                         $failed++;
                         Log::warning('[LEASE_CUTOFF_PROCESS] Échec : commande non confirmée après plusieurs vérifications', array_merge($ctx, [
                             'device_diagnostic' => $deviceDiagnostic,
@@ -404,7 +389,7 @@ class LeaseCutoffQueueProcessorService
 
                     $this->markCommandStillPending(
                         $item,
-                        sprintf('Commande ENVOYÉE, en attente de confirmation moteur — vérification %d/%d. Le boîtier rapporte pour l’instant le moteur « %s » (pas encore confirmé coupé).', (int) $item->retry_count, $maxChecks, $engineState),
+                        sprintf('L’ordre de coupure a été envoyé. Le système attend la confirmation que le moteur est bien coupé (tentative %d sur %d).', (int) $item->retry_count, $maxChecks),
                         $speed,
                         $uiStatus
                     );
@@ -416,10 +401,10 @@ class LeaseCutoffQueueProcessorService
                 if ($engineState === 'CUT') {
                     $this->markProcessedCutOff(
                         $item,
-                        ['source' => 'live_engine_state_before_send', 'message' => 'Le moteur apparaît déjà coupé dans l’état live du provider GPS avant tout nouvel envoi.'],
+                        ['source' => 'engine_state_before_send', 'message' => 'Le moteur apparaissait déjà coupé au moment de la vérification, avant tout nouvel envoi.'],
                         $speed,
                         $uiStatus,
-                        'Le moteur est déjà confirmé coupé lors de la vérification live ; aucune nouvelle commande n’a été nécessaire.'
+                        'Le moteur était déjà coupé au moment de la vérification ; aucune nouvelle commande n’a été nécessaire.'
                     );
                     $processed++;
                     Log::info('[LEASE_CUTOFF_PROCESS] Succès : véhicule déjà coupé avant envoi', $ctx);
@@ -427,21 +412,21 @@ class LeaseCutoffQueueProcessorService
                 }
 
                 if ($isOnline === false) {
-                    $this->markWaiting($item, 'WAITING_OFFLINE', sprintf('Commande EN ATTENTE : boîtier HORS-LIGNE (%s). Aucune commande envoyée — la coupure sera tentée dès le retour en ligne du boîtier.', $uiStatus), $speed, $uiStatus);
+                    $this->markWaiting($item, 'WAITING_OFFLINE', 'En attente : le véhicule est injoignable pour le moment (GPS hors ligne). La coupure sera effectuée automatiquement dès qu’il sera de nouveau joignable.', $speed, $uiStatus);
                     $waiting++;
                     Log::info('[LEASE_CUTOFF_PROCESS] Attente : véhicule offline', $ctx);
                     continue;
                 }
 
                 if ($isMoving === null) {
-                    $this->markWaiting($item, 'WAITING_MOVEMENT_UNCERTAIN', 'Commande EN ATTENTE : état de mouvement INCERTAIN (donnée GPS ambiguë). Coupure différée par sécurité jusqu’à un état fiable.', $speed, $uiStatus);
+                    $this->markWaiting($item, 'WAITING_MOVEMENT_UNCERTAIN', 'En attente : impossible de confirmer si le véhicule est à l’arrêt. Par sécurité, la coupure est reportée jusqu’à ce que l’information soit fiable.', $speed, $uiStatus);
                     $waiting++;
                     Log::info('[LEASE_CUTOFF_PROCESS] Attente : mouvement incertain', $ctx);
                     continue;
                 }
 
                 if ($isMoving === true) {
-                    $this->markWaiting($item, 'WAITING_MOVING', sprintf('Commande EN ATTENTE : véhicule EN MOUVEMENT (%s km/h). Par sécurité, la coupure n’est envoyée qu’à l’arrêt du véhicule.', $speed !== null ? $speed : '?'), $speed, $uiStatus);
+                    $this->markWaiting($item, 'WAITING_MOVING', sprintf('En attente : le véhicule est actuellement en circulation (%s km/h). Par sécurité, la coupure n’est effectuée qu’à l’arrêt complet du véhicule.', $speed !== null ? $speed : '?'), $speed, $uiStatus);
                     $waiting++;
                     Log::info('[LEASE_CUTOFF_PROCESS] Attente : véhicule en mouvement', $ctx);
                     continue;
@@ -454,7 +439,7 @@ class LeaseCutoffQueueProcessorService
 
                 $commandStatus = (string) ($command['status'] ?? 'FAILED');
                 if ($commandStatus === 'FAILED') {
-                    $this->markFailed($item, sprintf('Commande REFUSÉE par le provider GPS : %s. La coupure n’a pas été transmise au boîtier.', (string) ($command['message'] ?? $command['return_msg'] ?? 'raison non précisée par le provider')));
+                    $this->markFailed($item, 'La commande de coupure a été refusée par le système GPS. Elle n’a pas pu être transmise au véhicule.');
                     $failed++;
                     Log::warning('[LEASE_CUTOFF_PROCESS] Échec : provider a rejeté la commande', array_merge($ctx, [
                         'command_result' => $command,
@@ -462,27 +447,21 @@ class LeaseCutoffQueueProcessorService
                     continue;
                 }
 
-                $cmdNo = $command['cmd_no'] ?? null;
-                $providerMsg = (string) ($command['message'] ?? 'commande acceptée');
-                $cmdRef = $cmdNo
-                    ? 'réf. commande ' . $cmdNo
-                    : 'AUCUN numéro de commande renvoyé par le provider — la délivrance réelle au boîtier n’est pas garantie';
-
                 $this->markCommandSent(
                     $item,
                     $command,
                     $speed,
                     $uiStatus,
                     $commandStatus === 'PENDING_VERIFICATION'
-                        ? sprintf('Commande de coupure TRANSMISE au provider (%s ; %s), mais le provider demande une vérification différée avant confirmation. En attente de la confirmation moteur.', $providerMsg, $cmdRef)
-                        : sprintf('Commande de coupure ENVOYÉE et acceptée par le provider (%s ; %s). En attente de la confirmation réelle du moteur (relais coupé) avant de conclure.', $providerMsg, $cmdRef)
+                        ? 'L’ordre de coupure a été transmis. Une vérification supplémentaire est nécessaire avant confirmation. Le système attend la confirmation que le moteur est bien coupé.'
+                        : 'L’ordre de coupure a été envoyé et accepté. Le système attend la confirmation que le moteur est bien coupé avant de conclure.'
                 );
                 $waiting++;
                 Log::info('[LEASE_CUTOFF_PROCESS] Commande envoyée, passage en COMMAND_SENT', array_merge($ctx, [
                     'command_status' => $commandStatus,
                 ]));
             } catch (\Throwable $e) {
-                $this->markFailed($item, 'Une exception technique est survenue pendant le traitement de la queue : ' . $e->getMessage());
+                $this->markFailed($item, 'Une erreur inattendue est survenue pendant le traitement de ce véhicule. L’équipe technique a été notifiée.');
                 $failed++;
                 Log::error('[LEASE_CUTOFF_PROCESS] Exception pendant le traitement', array_merge($ctx, [
                     'error' => $e->getMessage(),
@@ -650,8 +629,8 @@ class LeaseCutoffQueueProcessorService
                         'date_paiement' => $payment['date_paiement'] ?? $payment['created_at'] ?? null,
                     ] : null,
                     'notes' => $payment
-                        ? 'Coupure annulée : paiement réel confirmé côté recouvrement.'
-                        : 'Coupure annulée après confirmation que le lease n’est plus dû.',
+                        ? 'Coupure annulée : le paiement a été confirmé.'
+                        : 'Coupure annulée : ce contrat n’est plus dû.',
                 ]);
             }
 
@@ -679,7 +658,7 @@ class LeaseCutoffQueueProcessorService
                 $item->history->update([
                     'status' => 'CANCELLED_UNVERIFIED',
                     'reason' => $reason,
-                    'notes' => 'Coupure annulée sans preuve de paiement : à vérifier manuellement. Le lease peut être encore dû (échéance modifiée côté recouvrement).',
+                    'notes' => 'Coupure annulée sans preuve de paiement : à vérifier manuellement. Ce contrat pourrait être encore dû.',
                 ]);
             }
 
@@ -700,7 +679,7 @@ class LeaseCutoffQueueProcessorService
                 $item->history->update([
                     'status' => $historyStatus,
                     'reason' => $reason,
-                    'notes' => 'Événement clôturé sans commande GPS : la règle spécifique du contrat/sous-contrat n’autorise plus la coupure.',
+                    'notes' => 'Aucune commande n’a été envoyée : la règle de coupure ne l’autorise plus pour ce contrat.',
                 ]);
             }
 
@@ -754,7 +733,7 @@ class LeaseCutoffQueueProcessorService
                     'speed_at_check' => $speed,
                     'ignition_state' => $uiStatus,
                     'command_response' => $commandResponse,
-                    'notes' => 'Commande de coupure transmise ; attente d’une confirmation moteur réelle avant clôture.',
+                    'notes' => 'La commande de coupure a été envoyée ; en attente de confirmation que le moteur est bien coupé.',
                 ]);
             }
 
@@ -780,7 +759,7 @@ class LeaseCutoffQueueProcessorService
                     'reason' => $reason,
                     'speed_at_check' => $speed,
                     'ignition_state' => $uiStatus,
-                    'notes' => 'Aucun renvoi de commande effectué ; le système attend encore une confirmation live du moteur.',
+                    'notes' => 'Aucune nouvelle commande n’a été envoyée ; le système attend encore la confirmation que le moteur est bien coupé.',
                 ]);
             }
 
@@ -805,7 +784,7 @@ class LeaseCutoffQueueProcessorService
                     'speed_at_check' => $speed,
                     'ignition_state' => $uiStatus,
                     'command_response' => $commandResponse,
-                    'notes' => 'Coupure moteur confirmée ; événement clôturé avec succès.',
+                    'notes' => 'La coupure du moteur a été confirmée avec succès.',
                 ]);
             }
 
@@ -835,7 +814,7 @@ class LeaseCutoffQueueProcessorService
                     'reason' => $reason,
                     'speed_at_check' => $speed,
                     'ignition_state' => $uiStatus,
-                    'notes' => 'Rallumage confirmé par l’état moteur live après pardon ; événement clôturé avec succès.',
+                    'notes' => 'Le rallumage après pardon a été confirmé avec succès.',
                 ]);
 
                 $this->recordEvent($item, 'REACTIVATION_CONFIRMED', $reason, $speed, $uiStatus);
@@ -859,15 +838,14 @@ class LeaseCutoffQueueProcessorService
 
             if ($item->history) {
                 $reason = sprintf(
-                    'Rallumage transmis après pardon, en attente de confirmation moteur — vérification %d/%d. Le boîtier rapporte pour l’instant le moteur « %s » (pas encore confirmé rallumé).',
+                    'Le rallumage a été transmis. Le système attend la confirmation que le moteur est bien remis en marche (tentative %d sur %d).',
                     (int) $item->retry_count,
-                    $maxChecks,
-                    $engineState
+                    $maxChecks
                 );
 
                 $item->history->update([
                     'reason' => $reason,
-                    'notes' => 'Aucun renvoi de commande effectué ; le système attend encore une confirmation live du moteur après pardon.',
+                    'notes' => 'Aucune nouvelle commande n’a été envoyée ; le système attend encore la confirmation que le moteur est bien remis en marche.',
                 ]);
 
                 $this->recordEvent($item, 'REACTIVATION_PENDING_CONFIRMATION', $reason);
@@ -891,12 +869,12 @@ class LeaseCutoffQueueProcessorService
 
                 $reason = $vehicle
                     ? $this->forgiveness->describeReactivationNotConfirmed($vehicle, $item->contractLink, $forgivenByName, $maxChecks, $deviceDiagnostic)
-                    : 'Rallumage après pardon jamais confirmé par le boîtier.';
+                    : 'Le rallumage après pardon n’a jamais pu être confirmé.';
 
                 $item->history->update([
                     'status' => 'REACTIVATION_FAILED_AFTER_FORGIVENESS',
                     'reason' => $reason,
-                    'notes' => 'Échec final de la confirmation de rallumage après pardon ; aucune nouvelle tentative automatique ne sera lancée par cette queue.',
+                    'notes' => 'Le rallumage n’a pas pu être confirmé ; aucune nouvelle tentative automatique ne sera lancée pour ce contrat.',
                 ]);
 
                 $this->recordEvent($item, 'REACTIVATION_FAILED', $reason);
@@ -985,7 +963,7 @@ class LeaseCutoffQueueProcessorService
                 $item->history->update([
                     'status' => 'FAILED',
                     'reason' => $reason,
-                    'notes' => 'Échec final du traitement automatique de coupure ; aucune nouvelle tentative automatique ne sera lancée par cette queue.',
+                    'notes' => 'La coupure automatique a échoué ; aucune nouvelle tentative automatique ne sera lancée pour ce véhicule.',
                 ]);
 
                 $this->recordEvent($item, 'FAILED', $reason);
