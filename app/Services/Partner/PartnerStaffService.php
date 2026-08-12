@@ -52,6 +52,7 @@ class PartnerStaffService
         return User::query()
             ->with(['role', 'permissions'])
             ->where('partner_id', $partner->id)
+            ->where('is_hidden', false)
             ->whereHas('role', fn ($q) => $q->where('slug', self::STAFF_LOCAL_ROLE_SLUG))
             ->latest()
             ->get();
@@ -424,6 +425,7 @@ class PartnerStaffService
             ->with('role')
             ->where('id', $staffId)
             ->where('partner_id', $partner->id)
+            ->where('is_hidden', false)
             ->whereHas('role', fn ($q) => $q->where('slug', self::STAFF_LOCAL_ROLE_SLUG))
             ->firstOrFail();
     }

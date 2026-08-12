@@ -57,6 +57,7 @@ protected $fillable = [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'last_synced_at' => 'datetime',
+            'is_hidden' => 'boolean',
         ];
     }
 
