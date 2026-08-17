@@ -29,6 +29,30 @@ class UnifiedCutoffHistoryService
         private readonly LeaseCutoffHistoryService $leaseHistoryService,
     ) {}
 
+    public function getAvailableDirections(): array
+    {
+        return [
+            '' => 'Tous les types',
+            'COUPURE' => 'Coupure',
+            'ALLUMAGE' => 'Rallumage',
+        ];
+    }
+
+    /**
+     * Statuts unifiés (dénominateur commun entre l'automatique et le
+     * manuel) — voir "tone" dans fetchAutomaticRows()/fetchManualRows().
+     */
+    public function getAvailableStatuses(): array
+    {
+        return [
+            '' => 'Tous les statuts',
+            'success' => 'Confirmé / Réussi',
+            'pending' => 'En attente / en cours',
+            'failed' => 'Échec',
+            'cancelled' => 'Annulé',
+        ];
+    }
+
     private function resolveTenantPartner(User $user): User
     {
         return $user->partner_id
@@ -58,7 +82,7 @@ class UnifiedCutoffHistoryService
             $rows = $rows->concat($this->fetchManualRows($vehicleIds, $filters));
         }
 
-        $rows = $this->applySourceFilter($rows, $filters)
+        $rows = $this->applyRowFilters($rows, $filters)
             ->sortByDesc('timestamp')
             ->values();
 
@@ -84,7 +108,9 @@ class UnifiedCutoffHistoryService
             ? $this->fetchManualRows($vehicleIds, $filters)
             : collect();
 
-        $all = $autoRows->concat($manualRows);
+        $all = $this->applyRowFilters($autoRows->concat($manualRows), $filters);
+        $autoRows = $all->where('source', 'AUTOMATIQUE');
+        $manualRows = $all->where('source', 'MANUEL');
 
         return [
             'total' => $all->count(),
@@ -170,15 +196,32 @@ class UnifiedCutoffHistoryService
             });
     }
 
-    private function applySourceFilter(Collection $rows, array $filters): Collection
+    /**
+     * Filtres appliqués APRÈS normalisation, sur la collection fusionnée :
+     * source (origine), direction (type de coupure) et tone (statut unifié
+     * — les deux sources ont des vocabulaires de statut différents, "tone"
+     * est le dénominateur commun déjà calculé pour chaque ligne).
+     */
+    private function applyRowFilters(Collection $rows, array $filters): Collection
     {
         $source = trim((string) ($filters['source'] ?? ''));
-
-        if (! in_array($source, ['AUTOMATIQUE', 'MANUEL'], true)) {
-            return $rows;
+        if (in_array($source, ['AUTOMATIQUE', 'MANUEL'], true)) {
+            $rows = $rows->where('source', $source);
         }
 
-        return $rows->where('source', $source);
+        $direction = trim((string) ($filters['direction'] ?? ''));
+        if (in_array($direction, ['COUPURE', 'ALLUMAGE'], true)) {
+            $rows = $rows->where('direction', $direction);
+        }
+
+        $status = trim((string) ($filters['status'] ?? ''));
+        if (in_array($status, ['success', 'failed', 'pending', 'cancelled'], true)) {
+            $rows = $status === 'pending'
+                ? $rows->whereIn('tone', ['pending', 'waiting', 'sent'])
+                : $rows->where('tone', $status);
+        }
+
+        return $rows;
     }
 
     private function applyPeriodFilter($query, array $filters, string $column): void

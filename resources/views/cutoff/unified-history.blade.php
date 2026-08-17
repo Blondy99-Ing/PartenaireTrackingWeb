@@ -50,13 +50,31 @@
 
 {{-- Filtres --}}
 <div class="ui-card p-4">
-    <form method="GET" class="grid grid-cols-1 md:grid-cols-4 gap-3">
+    <form method="GET" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <div>
             <label class="text-xs text-secondary">Origine</label>
             <select name="source" class="ui-input w-full">
                 <option value="">Toutes</option>
                 <option value="AUTOMATIQUE" @selected($source === 'AUTOMATIQUE')>Automatique (lease)</option>
                 <option value="MANUEL" @selected($source === 'MANUEL')>Manuel</option>
+            </select>
+        </div>
+
+        <div>
+            <label class="text-xs text-secondary">Type de coupure</label>
+            <select name="direction" class="ui-input w-full">
+                @foreach($availableDirections as $value => $label)
+                    <option value="{{ $value }}" @selected(($filters['direction'] ?? '') === $value)>{{ $label }}</option>
+                @endforeach
+            </select>
+        </div>
+
+        <div>
+            <label class="text-xs text-secondary">Statut</label>
+            <select name="status" class="ui-input w-full">
+                @foreach($availableStatuses as $value => $label)
+                    <option value="{{ $value }}" @selected(($filters['status'] ?? '') === $value)>{{ $label }}</option>
+                @endforeach
             </select>
         </div>
 
