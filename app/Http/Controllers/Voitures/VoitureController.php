@@ -18,19 +18,25 @@ class VoitureController extends Controller
     }
 
     /**
-     * Liste des véhicules appartenant à l'utilisateur connecté
+     * Liste des véhicules du partenaire (flotte complète du tenant).
+     *
+     * Bug corrigé : utilisait Auth::id() directement, qui n'est le
+     * propriétaire réel des véhicules (côté association_user_voitures) que
+     * pour le partenaire principal lui-même. Un membre du staff a
+     * partner_id = l'id du partenaire réel, pas de véhicules associés à son
+     * propre id — résultat : la page "Véhicules" était vide pour tout le
+     * staff (confirmé sur ROYAL HOLDING). Même résolution que
+     * AffectationChauffeurVoitureController::tenantPartner().
      */
     public function index()
     {
-        $userId = Auth::id();
+        $tenantPartnerId = Auth::user()->tenantPartnerId();
 
         // Récupérer les voitures via la table pivot association_user_voitures
         $voitures = Voiture::with('simGps')
-            ->whereHas('utilisateur', function ($q) use ($userId) {
-                $q->where('user_id', $userId);
+            ->whereHas('utilisateur', function ($q) use ($tenantPartnerId) {
+                $q->where('user_id', $tenantPartnerId);
             })->get();
-
-      
 
         return view('voitures.index', compact('voitures'));
     }
