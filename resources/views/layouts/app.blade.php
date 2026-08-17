@@ -1861,6 +1861,18 @@
                                 Historique Coupure
                             </a>
                         </li>
+                        @can('cutoff.history.unified.view')
+                        <li role="none">
+                            <a href="{{ route('cutoff.history.unified') }}" role="menuitem"
+                                class="{{ request()->routeIs('cutoff.history.unified') ? 'active' : '' }}"
+                                aria-current="{{ request()->routeIs('cutoff.history.unified') ? 'page' : 'false' }}">
+                                <span class="nav-icon" aria-hidden="true">
+                                    <i class="fa-solid fa-layer-group"></i>
+                                </span>
+                                Historique global (Auto + Manuel)
+                            </a>
+                        </li>
+                        @endcan
                         <li role="none">
                             <a href="{{ route('leases.dashboard') }}"
                             role="menuitem"

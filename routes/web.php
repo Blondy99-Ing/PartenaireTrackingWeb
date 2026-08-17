@@ -20,6 +20,7 @@ use App\Http\Controllers\Leases\LeaseController;
 use App\Http\Controllers\Leases\ContratLeaseController;
 use App\Http\Controllers\Leases\LeaseCutoffRuleController;
 use App\Http\Controllers\Leases\LeaseCutoffHistoryController;
+use App\Http\Controllers\Leases\UnifiedCutoffHistoryController;
 use App\Http\Controllers\Leases\DashbaordLeaseController;
 use App\Http\Controllers\Partner\PartnerDriverController;use App\Http\Controllers\Settings\LeaseSettingsController;
 use App\Http\Controllers\Api\Internal\Lease\SubContractTypeController;
@@ -213,6 +214,10 @@ Route::middleware('can:lease.contracts.manage')->group(function () {
 // histirique de coupure automatique
 Route::get('lease/cutoff-history', [LeaseCutoffHistoryController::class, 'index'])
     ->middleware('can:lease.view')->name('lease.cutoff-history.index');
+
+// Historique global (fusion coupure automatique lease + coupure/allumage manuel)
+Route::get('cutoff/historique-globale', [UnifiedCutoffHistoryController::class, 'index'])
+    ->middleware('can:cutoff.history.unified.view')->name('cutoff.history.unified');
 //dashbaord lease
 Route::get('/leases/dashboard', [DashbaordLeaseController::class, 'index'])
         ->middleware('can:lease.view')->name('leases.dashboard');

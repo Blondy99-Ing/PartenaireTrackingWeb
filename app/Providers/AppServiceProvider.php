@@ -61,5 +61,15 @@ class AppServiceProvider extends ServiceProvider
         // Reserved: managing staff & their permissions is never delegable.
         // Gate::before lets the main partner through; staff fall here → denied.
         Gate::define('manage-staff', fn (User $user) => false);
+
+        /**
+         * Historique global coupure/allumage : fusionne l'historique
+         * automatique (leases) et manuel (commandes moteur). Accessible dès
+         * qu'un staff a l'un ou l'autre des deux domaines — la vue se limite
+         * naturellement à ce qu'il a le droit de voir.
+         */
+        Gate::define('cutoff.history.unified.view', function (User $user) {
+            return $user->hasPermission('lease.view') || $user->hasPermission('engine.control');
+        });
     }
 }
