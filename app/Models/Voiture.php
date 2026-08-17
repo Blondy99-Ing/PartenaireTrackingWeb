@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Support\Str;
 
@@ -144,6 +145,11 @@ class Voiture extends Model
     {
         return $this->hasOne(Location::class, 'mac_id_gps', 'mac_id_gps')
             ->orderByDesc('datetime');
+    }
+
+    public function simGps(): BelongsTo
+    {
+        return $this->belongsTo(SimGps::class, 'mac_id_gps', 'mac_id');
     }
 
     public function alerts(): HasMany

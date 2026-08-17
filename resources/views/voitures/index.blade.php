@@ -434,6 +434,7 @@ table.dataTable {
                         <th>Marque</th>
                         <th>Modèle</th>
                         <th>Couleur</th>
+                        <th>SIM</th>
                         <th style="text-align:right;">Actions</th>
                     </tr>
                 </thead>
@@ -465,6 +466,11 @@ table.dataTable {
                                       style="background-color:{{ $voiture->couleur ?? '#e5e7eb' }};"
                                       title="{{ $voiture->couleur ?? 'N/A' }}"></span>
                             </div>
+                        </td>
+
+                        {{-- SIM associée au boîtier GPS --}}
+                        <td style="color:var(--color-secondary-text);font-family:monospace;font-size:0.82rem;">
+                            {{ !empty($voiture->simGps->sim_number) ? $voiture->simGps->sim_number : '—' }}
                         </td>
 
                         {{-- Actions --}}

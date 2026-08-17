@@ -25,9 +25,10 @@ class VoitureController extends Controller
         $userId = Auth::id();
 
         // Récupérer les voitures via la table pivot association_user_voitures
-        $voitures = Voiture::whereHas('utilisateur', function ($q) use ($userId) {
-            $q->where('user_id', $userId);
-        })->get();
+        $voitures = Voiture::with('simGps')
+            ->whereHas('utilisateur', function ($q) use ($userId) {
+                $q->where('user_id', $userId);
+            })->get();
 
       
 
