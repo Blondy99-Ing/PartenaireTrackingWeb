@@ -37,6 +37,15 @@ class LeaseCutoffQueueProcessorService
     private const DEFAULT_CONFIRM_DELAY_SECONDS = 60;
     private const DEFAULT_WAITING_DELAY_MINUTES = 1;
 
+    /**
+     * Garde-fou : plafonne le nombre de véhicules traités en un seul passage.
+     * Sans ça, un pic d'activité (ex. 200+ véhicules dus le même jour) peut
+     * faire durer un passage bien au-delà de la minute suivante — les items
+     * les plus anciens (triés par scheduled_for) restent prioritaires, le
+     * reste attend simplement le passage suivant au lieu de tout retarder.
+     */
+    private const MAX_ITEMS_PER_RUN = 300;
+
     public function __construct(
         private readonly LeaseApiClientService $leaseApi,
         private readonly GpsControlService $gps,
@@ -85,6 +94,7 @@ class LeaseCutoffQueueProcessorService
                     ->orWhere('next_check_at', '<=', now());
             })
             ->orderBy('scheduled_for')
+            ->limit(self::MAX_ITEMS_PER_RUN)
             ->get();
 
         Log::info('[LEASE_CUTOFF_PROCESS] Queues sélectionnées pour la date du jour', [
@@ -92,6 +102,19 @@ class LeaseCutoffQueueProcessorService
             'items_count' => $items->count(),
             'queue_ids' => $items->pluck('id')->values()->all(),
         ]);
+
+        if ($items->count() >= self::MAX_ITEMS_PER_RUN) {
+            Log::warning('[LEASE_CUTOFF_PROCESS] Plafond MAX_ITEMS_PER_RUN atteint : des véhicules dus restent en attente du passage suivant.', [
+                'target_date_echeance' => $targetDate,
+                'limit' => self::MAX_ITEMS_PER_RUN,
+            ]);
+        }
+
+        /**
+         * Préchargé UNE FOIS pour tout le passage (pas par véhicule) : voir
+         * GpsControlService::preloadDeviceLists() pour la raison exacte.
+         */
+        $deviceLists = $items->isNotEmpty() ? $this->gps->preloadDeviceLists() : [];
 
         $processed = 0;
         $waiting = 0;
@@ -297,7 +320,7 @@ class LeaseCutoffQueueProcessorService
                 $ctx['immatriculation'] = $vehicle->immatriculation ?? null;
 
                 $movingThreshold = (float) config('gps.moving_threshold', 5.0);
-                $vehicleState = $this->gps->getVehicleStateByMacId($macId, $movingThreshold);
+                $vehicleState = $this->gps->getVehicleStateByMacId($macId, $movingThreshold, $deviceLists);
 
                 if (! ($vehicleState['success'] ?? false)) {
                     $this->markWaiting($item, 'WAITING_STATE_UNKNOWN', 'En attente : l’état du véhicule n’a pas pu être vérifié pour le moment. La coupure sera retentée automatiquement dès que l’information sera disponible.', null, null);

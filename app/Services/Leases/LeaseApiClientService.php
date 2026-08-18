@@ -33,7 +33,7 @@ class LeaseApiClientService
         $this->timeout = (int) (
             config('services.partner_lease_api.timeout')
             ?: env('PARTNER_LEASE_API_TIMEOUT')
-            ?: 20
+            ?: 10
         );
 
         /*

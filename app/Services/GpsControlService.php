@@ -958,6 +958,39 @@ class GpsControlService
     }
 
     /**
+     * Précharge les device lists de tous les comptes GPS, UNE SEULE FOIS, pour
+     * un lot de vérifications (ex. le cron lease:cutoff:process qui vérifie
+     * potentiellement 100+ véhicules dans le même passage). getDeviceList est
+     * un appel lourd qui dépasse régulièrement 20s (voir getLiveOnlineMap) ;
+     * sans préchargement, getVehicleStateByMacId() le rappelle en entier pour
+     * CHAQUE véhicule alors que son contenu ne change pas entre deux appels
+     * de la même minute — c'est cette répétition, pas la cadence du cron,
+     * qui causait des écarts de 30 à 90 minutes entre deux vérifications
+     * réelles d'un même véhicule (trouvé et corrigé le 19/08/2026).
+     *
+     * @return array<string,array> device lists indexées par nom de compte
+     */
+    public function preloadDeviceLists(array $accounts = ['tracking', 'mobility']): array
+    {
+        $originalAccount = $this->account;
+        $lists = [];
+
+        foreach ($accounts as $acc) {
+            $acc = strtolower(trim($acc));
+            if (! in_array($acc, ['tracking', 'mobility'], true)) {
+                continue;
+            }
+
+            $this->setAccount($acc);
+            $lists[$acc] = $this->getAccountDeviceList();
+        }
+
+        $this->setAccount($originalAccount);
+
+        return $lists;
+    }
+
+    /**
      * ✅ Liste normalisée des devices du compte courant.
      */
     public function getAccountDeviceList(): array
@@ -1152,12 +1185,12 @@ class GpsControlService
         return null;
     }
 
-    public function getLatestLocationByMacId(string $macId, ?string $mapType = null, ?string $option = null): ?array
+    public function getLatestLocationByMacId(string $macId, ?string $mapType = null, ?string $option = null, ?array $preloadedDeviceLists = null): ?array
     {
         // ✅ AUTO-ACCOUNT
         $this->ensureAccountForMacId($macId);
 
-        $devices = $this->getAccountDeviceList();
+        $devices = $preloadedDeviceLists[$this->account] ?? $this->getAccountDeviceList();
         $userId = $this->resolveUserIdFromDeviceList($macId, $devices);
         if (!$userId) return null;
 
@@ -2036,7 +2069,7 @@ private function formatDurationHuman(?int $seconds): ?string
     return $secs . 's';
 }
 
-public function getVehicleStateByMacId(string $macId, float $movingThreshold = 5.0): array
+public function getVehicleStateByMacId(string $macId, float $movingThreshold = 5.0, ?array $preloadedDeviceLists = null): array
 {
     $macId = trim($macId);
 
@@ -2050,7 +2083,7 @@ public function getVehicleStateByMacId(string $macId, float $movingThreshold = 5
     // Se positionner automatiquement sur le bon compte
     $this->ensureAccountForMacId($macId);
 
-    $record = $this->getLatestLocationByMacId($macId);
+    $record = $this->getLatestLocationByMacId($macId, null, null, $preloadedDeviceLists);
 
     if (!$record || !is_array($record)) {
         return [

@@ -38,7 +38,13 @@ Schedule::command('lease:cutoff:plan')
 */
 Schedule::command('lease:cutoff:process')
     ->everyMinute()
-    ->withoutOverlapping();
+    /**
+     * Expiration explicite à 5 min (au lieu des 24h par défaut de Laravel) :
+     * si un passage plante sans libérer son verrou (crash, kill -9, exception
+     * fatale hors du try/catch), les passages suivants ne restent bloqués que
+     * 5 min max, pas une journée entière.
+     */
+    ->withoutOverlapping(5);
 
 // Confirmation des commandes moteur manuelles (coupure_moteur) sur l'état
 // moteur réel — même principe que lease:cutoff:process, pour le manuel.

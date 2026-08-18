@@ -67,7 +67,7 @@ return [
 
 'partner_lease_api' => [
     'base_url' => env('PARTNER_LEASE_API_BASE_URL'),
-    'timeout' => (int) env('PARTNER_LEASE_API_TIMEOUT', 20),
+    'timeout' => (int) env('PARTNER_LEASE_API_TIMEOUT', 10),
 
     /*
      | Identifiants du token technique recouvrement.
