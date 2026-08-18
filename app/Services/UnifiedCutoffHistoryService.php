@@ -182,7 +182,7 @@ class UnifiedCutoffHistoryService
             return collect();
         }
 
-        $query = $this->automaticBaseQuery($partner, $filters)->with(['vehicle', 'contractLink']);
+        $query = $this->automaticBaseQuery($partner, $filters)->with(['vehicle', 'contractLink', 'events']);
 
         return $query->orderByDesc('scheduled_for')
             ->limit(500)
@@ -217,6 +217,10 @@ class UnifiedCutoffHistoryService
                     'speed_at_check' => $h->speed_at_check,
                     'ignition_state' => $h->ignition_state,
                     'cmd_no' => null,
+                    // Journal complet du cycle (une ligne par vérification réelle : offline,
+                    // en mouvement, commande envoyée...) — pour expliquer un écart entre
+                    // l'heure planifiée et l'heure réelle de coupure sans changer de page.
+                    'events' => $h->events,
                 ];
             });
     }

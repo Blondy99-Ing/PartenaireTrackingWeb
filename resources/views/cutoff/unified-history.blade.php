@@ -19,6 +19,28 @@
             default => 'dash-badge muted',
         };
     };
+
+    /**
+     * Métadonnées d'affichage du journal complet du cycle (lease_cutoff_events)
+     * — même liste que leases/cutoff-history.blade.php.
+     */
+    $eventTypeMeta = [
+        'WAITING_STATE_UNKNOWN'          => ['label' => 'État boîtier illisible',         'icon' => 'fa-question',          'color' => '#6b7280'],
+        'WAITING_OFFLINE'                => ['label' => 'Boîtier hors-ligne',             'icon' => 'fa-plug-circle-xmark', 'color' => '#c2410c'],
+        'WAITING_MOVEMENT_UNCERTAIN'     => ['label' => 'Mouvement incertain',            'icon' => 'fa-circle-question',   'color' => '#c2410c'],
+        'WAITING_MOVING'                 => ['label' => 'Véhicule en mouvement',          'icon' => 'fa-gauge-high',        'color' => '#c2410c'],
+        'COMMAND_SENT'                   => ['label' => 'Commande de coupure envoyée',    'icon' => 'fa-paper-plane',       'color' => '#6d28d9'],
+        'COMMAND_PENDING_CONFIRMATION'   => ['label' => 'Attente confirmation moteur',    'icon' => 'fa-hourglass-half',    'color' => '#6d28d9'],
+        'CUT_OFF_CONFIRMED'              => ['label' => 'Coupure moteur confirmée',       'icon' => 'fa-check',             'color' => '#047857'],
+        'CANCELLED_PAID'                 => ['label' => 'Annulée : paiement confirmé',    'icon' => 'fa-ban',               'color' => '#4b5563'],
+        'CANCELLED_UNVERIFIED'           => ['label' => 'Annulée : sans preuve paiement', 'icon' => 'fa-circle-question',   'color' => '#b45309'],
+        'CANCELLED_RULE_MISSING'         => ['label' => 'Annulée : règle absente',        'icon' => 'fa-link-slash',        'color' => '#4b5563'],
+        'CANCELLED_RULE_DISABLED'        => ['label' => 'Annulée : règle inactive',       'icon' => 'fa-toggle-off',        'color' => '#4b5563'],
+        'REACTIVATION_CONFIRMED'         => ['label' => 'Rallumage confirmé',             'icon' => 'fa-bolt',              'color' => '#15803d'],
+        'REACTIVATION_PENDING_CONFIRMATION' => ['label' => 'Attente confirmation rallumage', 'icon' => 'fa-hourglass-half', 'color' => '#6d28d9'],
+        'REACTIVATION_FAILED'            => ['label' => 'Échec du rallumage',             'icon' => 'fa-xmark',             'color' => '#b91c1c'],
+        'FAILED'                         => ['label' => 'Échec final',                    'icon' => 'fa-xmark',             'color' => '#b91c1c'],
+    ];
 @endphp
 
 <div class="dash-top">
@@ -224,6 +246,36 @@
                                             <div class="font-semibold">{{ $row['ignition_state'] ?? '—' }}</div>
                                         </div>
                                     </div>
+
+                                    {{-- Journal complet du cycle : explique un écart entre l'heure planifiée
+                                         et l'heure réelle (véhicule offline, en mouvement, commande envoyée...). --}}
+                                    @if(!empty($row['events']) && $row['events']->isNotEmpty())
+                                        <div class="mt-3">
+                                            <div class="text-secondary uppercase tracking-wide mb-2" style="font-size:.65rem;">
+                                                <i class="fas fa-timeline mr-1"></i> Journal complet du cycle
+                                            </div>
+                                            <div class="space-y-2">
+                                                @foreach($row['events'] as $event)
+                                                    @php
+                                                        $meta = $eventTypeMeta[$event->event_type] ?? ['label' => $event->event_type, 'icon' => 'fa-circle', 'color' => '#6b7280'];
+                                                    @endphp
+                                                    <div class="flex items-start gap-2 text-xs">
+                                                        <i class="fas {{ $meta['icon'] }} mt-0.5" style="color: {{ $meta['color'] }}; width: 14px;"></i>
+                                                        <div class="flex-1">
+                                                            <div class="flex items-center gap-2 flex-wrap">
+                                                                <span class="font-semibold">{{ $meta['label'] }}</span>
+                                                                <span class="text-secondary">{{ $event->occurred_at?->copy()->setTimezone($tz)->format('d/m/Y H:i:s') }}</span>
+                                                                @if($event->speed_at_check !== null)
+                                                                    <span class="dash-badge muted"><i class="fas fa-gauge" style="font-size:.6rem;"></i> {{ $event->speed_at_check }} km/h</span>
+                                                                @endif
+                                                            </div>
+                                                            <div class="text-secondary">{{ $event->message }}</div>
+                                                        </div>
+                                                    </div>
+                                                @endforeach
+                                            </div>
+                                        </div>
+                                    @endif
                                 @else
                                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
                                         <div>
