@@ -55,19 +55,19 @@
 
 {{-- Filtres --}}
 <div class="ui-card p-4">
-    <form method="GET" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">
+    <form method="GET" id="unifiedFiltersForm" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <div class="md:col-span-3 lg:col-span-2">
             <label class="text-xs text-secondary">Recherche</label>
             <div style="position:relative;">
                 <i class="fas fa-search" style="position:absolute;left:.7rem;top:50%;transform:translateY(-50%);color:var(--color-secondary-text);font-size:.75rem;pointer-events:none;"></i>
-                <input type="text" name="search" value="{{ $filters['search'] ?? '' }}" class="ui-input w-full" style="padding-left:2rem;"
+                <input type="text" name="search" id="unifiedSearchInput" value="{{ $filters['search'] ?? '' }}" class="ui-input w-full" style="padding-left:2rem;" autocomplete="off"
                        placeholder="Immatriculation, chauffeur, contrat, lease, commande, motif…">
             </div>
         </div>
 
         <div>
             <label class="text-xs text-secondary">Origine</label>
-            <select name="source" class="ui-input w-full">
+            <select name="source" class="ui-input w-full" data-autosubmit>
                 <option value="">Toutes</option>
                 <option value="AUTOMATIQUE" @selected($source === 'AUTOMATIQUE')>Automatique (lease)</option>
                 <option value="MANUEL" @selected($source === 'MANUEL')>Manuel</option>
@@ -76,7 +76,7 @@
 
         <div>
             <label class="text-xs text-secondary">Type de coupure</label>
-            <select name="direction" class="ui-input w-full">
+            <select name="direction" class="ui-input w-full" data-autosubmit>
                 @foreach($availableDirections as $value => $label)
                     <option value="{{ $value }}" @selected(($filters['direction'] ?? '') === $value)>{{ $label }}</option>
                 @endforeach
@@ -85,7 +85,7 @@
 
         <div>
             <label class="text-xs text-secondary">Statut</label>
-            <select name="status" class="ui-input w-full">
+            <select name="status" class="ui-input w-full" data-autosubmit>
                 @foreach($availableStatuses as $value => $label)
                     <option value="{{ $value }}" @selected(($filters['status'] ?? '') === $value)>{{ $label }}</option>
                 @endforeach
@@ -94,7 +94,7 @@
 
         <div>
             <label class="text-xs text-secondary">Période</label>
-            <select name="period" class="ui-input w-full" id="unifiedPeriodSelect">
+            <select name="period" class="ui-input w-full" id="unifiedPeriodSelect" data-autosubmit>
                 <option value="">Toutes les dates</option>
                 <option value="today" @selected($period === 'today')>Aujourd'hui</option>
                 <option value="yesterday" @selected($period === 'yesterday')>Hier</option>
@@ -108,17 +108,17 @@
 
         <div id="unifiedSpecificDateWrap" class="{{ $period === 'specific_date' ? '' : 'hidden' }}">
             <label class="text-xs text-secondary">Date</label>
-            <input type="date" name="specific_date" value="{{ $filters['specific_date'] ?? '' }}" class="ui-input w-full">
+            <input type="date" name="specific_date" value="{{ $filters['specific_date'] ?? '' }}" class="ui-input w-full" data-autosubmit>
         </div>
 
         <div id="unifiedRangeFromWrap" class="{{ $period === 'range' ? '' : 'hidden' }}">
             <label class="text-xs text-secondary">Du</label>
-            <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" class="ui-input w-full">
+            <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" class="ui-input w-full" data-autosubmit>
         </div>
 
         <div id="unifiedRangeToWrap" class="{{ $period === 'range' ? '' : 'hidden' }}">
             <label class="text-xs text-secondary">Au</label>
-            <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" class="ui-input w-full">
+            <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" class="ui-input w-full" data-autosubmit>
         </div>
 
         <div class="flex items-end gap-2">
@@ -274,10 +274,12 @@ function uchToggle(rowId) {
 }
 
 (function () {
-    const periodSelect = document.getElementById('unifiedPeriodSelect');
+    const form          = document.getElementById('unifiedFiltersForm');
+    const periodSelect  = document.getElementById('unifiedPeriodSelect');
     const specificWrap  = document.getElementById('unifiedSpecificDateWrap');
     const fromWrap      = document.getElementById('unifiedRangeFromWrap');
     const toWrap        = document.getElementById('unifiedRangeToWrap');
+    const searchInput   = document.getElementById('unifiedSearchInput');
 
     function sync() {
         if (!periodSelect) return;
@@ -290,6 +292,22 @@ function uchToggle(rowId) {
     if (periodSelect) {
         periodSelect.addEventListener('change', sync);
         sync();
+    }
+
+    if (form) {
+        // Recherche : soumission automatique après une courte pause de frappe.
+        if (searchInput) {
+            let timer = null;
+            searchInput.addEventListener('input', function () {
+                clearTimeout(timer);
+                timer = setTimeout(function () { form.submit(); }, 600);
+            });
+        }
+
+        // Selects / dates : soumission immédiate au changement.
+        form.querySelectorAll('[data-autosubmit]').forEach(function (el) {
+            el.addEventListener('change', function () { form.submit(); });
+        });
     }
 })();
 </script>

@@ -777,9 +777,23 @@ class LeaseCutoffQueueProcessorService
             ]);
 
             if ($item->history) {
+                /**
+                 * Cohérence de la chronologie détecté -> envoyé -> confirmé :
+                 * quand le moteur est trouvé déjà coupé AVANT tout envoi de
+                 * commande par cette ligne (contrat frère qui a déjà coupé le
+                 * même véhicule, coupure manuelle antérieure...),
+                 * cutoff_requested_at n'était jamais renseigné — 64% des
+                 * coupures confirmées en production (2010/3131) avaient ce
+                 * trou. On le comble avec l'instant de confirmation lui-même
+                 * (aucune commande distincte n'a été nécessaire), sans jamais
+                 * écraser un horodatage d'envoi réel déjà enregistré —
+                 * idempotent : rejouer cette méthode sur la même ligne ne
+                 * change plus rien. Trouvé et corrigé le 18/08/2026.
+                 */
                 $item->history->update([
                     'status' => 'CUT_OFF',
                     'reason' => $reason,
+                    'cutoff_requested_at' => $item->history->cutoff_requested_at ?? now(),
                     'cutoff_executed_at' => now(),
                     'speed_at_check' => $speed,
                     'ignition_state' => $uiStatus,
