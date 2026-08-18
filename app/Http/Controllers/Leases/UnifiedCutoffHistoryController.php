@@ -19,7 +19,7 @@ class UnifiedCutoffHistoryController extends Controller
         /** @var User $actor */
         $actor = $request->user();
 
-        $filters = $request->only(['period', 'specific_date', 'date_from', 'date_to', 'source', 'direction', 'status', 'page']);
+        $filters = $request->only(['period', 'specific_date', 'date_from', 'date_to', 'source', 'direction', 'status', 'search', 'page']);
 
         $history = $this->service->getMergedHistory($actor, $filters);
         $summary = $this->service->getSummary($actor, $filters);

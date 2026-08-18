@@ -182,7 +182,7 @@ class UnifiedCutoffHistoryService
             return collect();
         }
 
-        $query = $this->automaticBaseQuery($partner, $filters)->with('vehicle');
+        $query = $this->automaticBaseQuery($partner, $filters)->with(['vehicle', 'contractLink']);
 
         return $query->orderByDesc('scheduled_for')
             ->limit(500)
@@ -190,6 +190,12 @@ class UnifiedCutoffHistoryService
             ->map(function (LeaseCutoffHistory $h) {
                 $timestamp = $h->cutoff_executed_at ?? $h->cutoff_requested_at ?? $h->scheduled_for ?? $h->detected_at;
                 $direction = in_array($h->status, self::AUTO_ALLUMAGE_STATUSES, true) ? 'ALLUMAGE' : 'COUPURE';
+
+                $snapshot = is_array($h->payment_status_snapshot) ? $h->payment_status_snapshot : [];
+                $contractTypeLabel = $this->cleanBusinessLabel(
+                    $h->type_contrat_label ?: optional($h->contractLink)->type_contrat_label,
+                    $h->contract_kind === 'SUB' ? 'Sous-contrat' : 'Contrat principal'
+                );
 
                 return [
                     'timestamp' => $timestamp,
@@ -202,6 +208,15 @@ class UnifiedCutoffHistoryService
                     'action_label' => $this->leaseHistoryService->getStatusLabel($h->status),
                     'tone' => $this->leaseHistoryService->getStatusTone($h->status),
                     'reason' => $h->reason,
+                    // Détail lease — pour ne pas devoir naviguer vers la page "Historique Coupure" pour ces infos.
+                    'contract_type_label' => $contractTypeLabel,
+                    'contract_kind_label' => $h->contract_kind === 'SUB' ? 'Sous-contrat' : 'Contrat principal',
+                    'lease_due_date' => $h->lease_date_echeance,
+                    'driver_name' => $snapshot['chauffeur_nom_complet'] ?? null,
+                    'montant_du' => $snapshot['reste_a_payer'] ?? null,
+                    'speed_at_check' => $h->speed_at_check,
+                    'ignition_state' => $h->ignition_state,
+                    'cmd_no' => null,
                 ];
             });
     }
@@ -217,7 +232,12 @@ class UnifiedCutoffHistoryService
         }
 
         $query = $this->manualBaseQuery($vehicleIds, $filters)
-            ->with(['vehicule', 'user:id,nom,prenom', 'employe:id,nom,prenom']);
+            ->with([
+                'vehicule',
+                'vehicule.chauffeurActuelPartner.chauffeur:id,nom,prenom',
+                'user:id,nom,prenom',
+                'employe:id,nom,prenom',
+            ]);
 
         return $query->orderByDesc('created_at')
             ->limit(500)
@@ -230,6 +250,8 @@ class UnifiedCutoffHistoryService
 
                 [$statusGroup, $tone, $actionLabel] = $this->manualStatusPresentation($c, $direction);
 
+                $chauffeur = $c->vehicule?->chauffeurActuelPartner?->chauffeur;
+
                 return [
                     'timestamp' => $c->created_at,
                     'source' => 'MANUEL',
@@ -241,8 +263,39 @@ class UnifiedCutoffHistoryService
                     'action_label' => $actionLabel,
                     'tone' => $tone,
                     'reason' => $c->notes,
+                    // Pas de lease pour une commande manuelle : seul le chauffeur actuel du véhicule est pertinent.
+                    'contract_type_label' => null,
+                    'contract_kind_label' => null,
+                    'lease_due_date' => null,
+                    'driver_name' => $chauffeur ? trim(($chauffeur->prenom ?? '') . ' ' . ($chauffeur->nom ?? '')) : null,
+                    'montant_du' => null,
+                    'speed_at_check' => null,
+                    'ignition_state' => null,
+                    'cmd_no' => $c->CmdNo,
                 ];
             });
+    }
+
+    /**
+     * Réservé aux courts libellés bruts venant de la base (ex. type de
+     * contrat "Type #3") : retire les identifiants internes avant affichage
+     * — mêmes règles que leases/cutoff-history.blade.php ($cleanBusinessText).
+     */
+    private function cleanBusinessLabel(?string $value, string $fallback): string
+    {
+        $value = trim((string) $value);
+
+        if ($value === '') {
+            return $fallback;
+        }
+
+        $value = preg_replace('/\bType\s*#?\d+\b/i', '', $value);
+        $value = preg_replace('/\b(?:contrat|sous-contrat|lien|règle|regle|lease)\s*#?\d+\b/i', '', $value);
+        $value = preg_replace('/#\d+/', '', $value);
+        $value = preg_replace('/\s*[·|,-]\s*(?=\s*[·|,-]|$)/', ' ', $value);
+        $value = preg_replace('/\s+/', ' ', trim($value, " ·|-\t\n\r\0\x0B"));
+
+        return $value !== '' ? $value : $fallback;
     }
 
     /**
@@ -306,6 +359,26 @@ class UnifiedCutoffHistoryService
             $query->whereIn('status', self::AUTO_STATUS_GROUPS[$status]);
         }
 
+        $search = trim((string) ($filters['search'] ?? ''));
+        if ($search !== '') {
+            $query->where(function (Builder $q) use ($search) {
+                $q->where('contract_id', 'like', "%{$search}%")
+                    ->orWhere('lease_id', 'like', "%{$search}%")
+                    ->orWhere('type_contrat_label', 'like', "%{$search}%")
+                    ->orWhere('reason', 'like', "%{$search}%")
+                    ->orWhere('notes', 'like', "%{$search}%")
+                    ->orWhereRaw("JSON_UNQUOTE(JSON_EXTRACT(payment_status_snapshot, '$.chauffeur_nom_complet')) like ?", ["%{$search}%"])
+                    ->orWhereRaw("JSON_UNQUOTE(JSON_EXTRACT(payment_status_snapshot, '$.date_echeance')) like ?", ["%{$search}%"])
+                    ->orWhereHas('vehicle', function (Builder $vq) use ($search) {
+                        $vq->where('immatriculation', 'like', "%{$search}%")
+                            ->orWhere('mac_id_gps', 'like', "%{$search}%");
+                    })
+                    ->orWhereHas('contractLink', function (Builder $cq) use ($search) {
+                        $cq->where('type_contrat_label', 'like', "%{$search}%");
+                    });
+            });
+        }
+
         return $query;
     }
 
@@ -346,6 +419,30 @@ class UnifiedCutoffHistoryService
         } elseif (in_array($status, ['failed', 'cancelled'], true)) {
             // Aucune commande manuelle échouée/annulée n'est journalisée aujourd'hui.
             $query->whereRaw('1 = 0');
+        }
+
+        $search = trim((string) ($filters['search'] ?? ''));
+        if ($search !== '') {
+            $query->where(function (Builder $q) use ($search) {
+                $q->where('notes', 'like', "%{$search}%")
+                    ->orWhere('CmdNo', 'like', "%{$search}%")
+                    ->orWhereHas('vehicule', function (Builder $vq) use ($search) {
+                        $vq->where('immatriculation', 'like', "%{$search}%")
+                            ->orWhere('mac_id_gps', 'like', "%{$search}%");
+                    })
+                    ->orWhereHas('vehicule.chauffeurActuelPartner.chauffeur', function (Builder $cq) use ($search) {
+                        $cq->where('nom', 'like', "%{$search}%")
+                            ->orWhere('prenom', 'like', "%{$search}%");
+                    })
+                    ->orWhereHas('user', function (Builder $uq) use ($search) {
+                        $uq->where('nom', 'like', "%{$search}%")
+                            ->orWhere('prenom', 'like', "%{$search}%");
+                    })
+                    ->orWhereHas('employe', function (Builder $eq) use ($search) {
+                        $eq->where('nom', 'like', "%{$search}%")
+                            ->orWhere('prenom', 'like', "%{$search}%");
+                    });
+            });
         }
 
         return $query;

@@ -56,6 +56,15 @@
 {{-- Filtres --}}
 <div class="ui-card p-4">
     <form method="GET" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div class="md:col-span-3 lg:col-span-2">
+            <label class="text-xs text-secondary">Recherche</label>
+            <div style="position:relative;">
+                <i class="fas fa-search" style="position:absolute;left:.7rem;top:50%;transform:translateY(-50%);color:var(--color-secondary-text);font-size:.75rem;pointer-events:none;"></i>
+                <input type="text" name="search" value="{{ $filters['search'] ?? '' }}" class="ui-input w-full" style="padding-left:2rem;"
+                       placeholder="Immatriculation, chauffeur, contrat, lease, commande, motif…">
+            </div>
+        </div>
+
         <div>
             <label class="text-xs text-secondary">Origine</label>
             <select name="source" class="ui-input w-full">
@@ -135,11 +144,13 @@
                     <th>Action</th>
                     <th>Statut</th>
                     <th>Déclenché par</th>
-                    <th>Détail</th>
+                    <th>Motif</th>
+                    <th class="text-center">Détail</th>
                 </tr>
             </thead>
             <tbody>
-                @forelse($history as $row)
+                @forelse($history as $index => $row)
+                    @php $rowId = 'uch-row-' . $index . '-' . ($row['cmd_no'] ?? $row['timestamp']?->timestamp); @endphp
                     <tr>
                         <td class="text-sm whitespace-nowrap">
                             {{ $row['timestamp'] ? \Illuminate\Support\Carbon::parse($row['timestamp'])->timezone($tz)->format('d/m/Y H:i') : '—' }}
@@ -175,10 +186,69 @@
                         <td class="text-xs text-secondary max-w-xs">
                             {{ $row['reason'] ? \Illuminate\Support\Str::limit($row['reason'], 100) : '—' }}
                         </td>
+
+                        <td class="text-center">
+                            <button type="button" class="btn-secondary text-xs px-2 py-1" onclick="uchToggle('{{ $rowId }}')" id="uch-btn-{{ $rowId }}">
+                                <i class="fas fa-chevron-down"></i>
+                            </button>
+                        </td>
+                    </tr>
+                    <tr id="{{ $rowId }}" class="hidden">
+                        <td colspan="8" class="p-0">
+                            <div class="p-4" style="background: var(--color-bg-subtle, #f9fafb);">
+                                @if($row['source'] === 'AUTOMATIQUE')
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                                        <div>
+                                            <div class="text-secondary uppercase tracking-wide" style="font-size:.65rem;">Type de contrat</div>
+                                            <div class="font-semibold">{{ $row['contract_type_label'] ?? '—' }}</div>
+                                            <div class="text-secondary">{{ $row['contract_kind_label'] ?? '' }}</div>
+                                        </div>
+                                        <div>
+                                            <div class="text-secondary uppercase tracking-wide" style="font-size:.65rem;">Échéance du lease</div>
+                                            <div class="font-semibold">{{ $row['lease_due_date'] ? \Illuminate\Support\Carbon::parse($row['lease_due_date'])->format('d/m/Y') : '—' }}</div>
+                                        </div>
+                                        <div>
+                                            <div class="text-secondary uppercase tracking-wide" style="font-size:.65rem;">Chauffeur</div>
+                                            <div class="font-semibold">{{ $row['driver_name'] ?? '—' }}</div>
+                                        </div>
+                                        <div>
+                                            <div class="text-secondary uppercase tracking-wide" style="font-size:.65rem;">Reste à payer</div>
+                                            <div class="font-semibold">{{ $row['montant_du'] !== null ? number_format((float) $row['montant_du'], 0, ',', ' ') . ' FCFA' : '—' }}</div>
+                                        </div>
+                                        <div>
+                                            <div class="text-secondary uppercase tracking-wide" style="font-size:.65rem;">Vitesse au contrôle</div>
+                                            <div class="font-semibold">{{ $row['speed_at_check'] !== null ? $row['speed_at_check'] . ' km/h' : '—' }}</div>
+                                        </div>
+                                        <div>
+                                            <div class="text-secondary uppercase tracking-wide" style="font-size:.65rem;">État moteur au contrôle</div>
+                                            <div class="font-semibold">{{ $row['ignition_state'] ?? '—' }}</div>
+                                        </div>
+                                    </div>
+                                @else
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                                        <div>
+                                            <div class="text-secondary uppercase tracking-wide" style="font-size:.65rem;">N° de commande</div>
+                                            <div class="font-semibold font-mono">{{ $row['cmd_no'] ?? '—' }}</div>
+                                        </div>
+                                        <div>
+                                            <div class="text-secondary uppercase tracking-wide" style="font-size:.65rem;">Chauffeur actuel du véhicule</div>
+                                            <div class="font-semibold">{{ $row['driver_name'] ?? '—' }}</div>
+                                        </div>
+                                    </div>
+                                @endif
+
+                                @if($row['reason'])
+                                    <div class="mt-3 text-xs">
+                                        <div class="text-secondary uppercase tracking-wide" style="font-size:.65rem;">Motif complet</div>
+                                        <div>{{ $row['reason'] }}</div>
+                                    </div>
+                                @endif
+                            </div>
+                        </td>
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="7" class="text-center text-secondary py-6">Aucun événement pour cette période.</td>
+                        <td colspan="8" class="text-center text-secondary py-6">Aucun événement pour cette période.</td>
                     </tr>
                 @endforelse
             </tbody>
@@ -193,6 +263,16 @@
 </div>
 
 <script>
+function uchToggle(rowId) {
+    const row = document.getElementById(rowId);
+    const btn = document.getElementById('uch-btn-' + rowId);
+    if (!row || !btn) return;
+    const isHidden = row.classList.contains('hidden');
+    row.classList.toggle('hidden', !isHidden);
+    btn.querySelector('i').classList.toggle('fa-chevron-down', !isHidden);
+    btn.querySelector('i').classList.toggle('fa-chevron-up', isHidden);
+}
+
 (function () {
     const periodSelect = document.getElementById('unifiedPeriodSelect');
     const specificWrap  = document.getElementById('unifiedSpecificDateWrap');
