@@ -586,26 +586,32 @@ class LeaseCutoffPlannerService
         $parentId = $contractLink->source_parent_contract_id;
         $isSub = $contractLink->contract_kind === LeaseContractLink::KIND_SUB;
         $typeLabel = $contractLink->displayTypeLabel();
-        $vehicleLabel = trim((string) ($contractLink->vehicle?->immatriculation ?: $contractLink->immatriculation ?: ('véhicule #' . $contractLink->vehicle_id)));
+        $cleanTypeLabel = $this->cleanContractTypeLabel($contractLink);
+        $vehicleLabel = trim((string) ($contractLink->vehicle?->immatriculation ?: $contractLink->immatriculation ?: 'ce véhicule'));
         $triggerName = $isSub ? 'sous-contrat' : 'contrat principal';
-        $parentText = $isSub && $parentId ? ' rattaché au contrat principal #' . $parentId : '';
+        $parentText = $isSub && $parentId ? ' (rattaché à son contrat principal)' : '';
         $reste = $lease['reste_a_payer'] ?? $lease['montant_attendu'] ?? null;
         $amountText = $reste !== null && $reste !== '' ? ' avec un reste à payer de ' . $reste . ' FCFA' : '';
 
-        $triggerLabel = sprintf('%s %s #%d%s', $triggerName, $typeLabel, $contractId, $parentText);
+        $triggerLabel = sprintf('%s %s', $triggerName, $cleanTypeLabel);
 
+        /**
+         * Jamais d'identifiant interne (lease #, contrat #...) dans un texte
+         * lu par le partenaire, et l'heure affichée doit toujours être
+         * l'heure locale (Africa/Douala) : scheduledFor est stocké en UTC en
+         * base, jamais formaté brut. Trouvé et corrigé le 19/08/2026 — les
+         * deux bugs étaient visibles simultanément sur la page Historique
+         * Coupure ("Type #23" et "planifiée pour ... 11:00" au lieu de 12h).
+         */
         $reason = sprintf(
-            'Le %s "%s" a causé la planification de coupure de %s car le lease #%d du %s #%d%s, échéance du %s, est NON_PAYE%s. La règle applicable de cette entité contractuelle est active. Coupure planifiée pour %s.',
-            $isSub ? 'sous-contrat' : 'contrat principal',
-            $typeLabel,
-            $vehicleLabel,
-            $leaseId,
+            'Le %s "%s" a causé la planification de la coupure de %s : ce contrat%s, échéance du %s, n’est pas payé%s. La règle de coupure associée est active. Coupure planifiée pour le %s.',
             $triggerName,
-            $contractId,
+            $cleanTypeLabel,
+            $vehicleLabel,
             $parentText,
             $dueDate,
             $amountText,
-            $scheduledFor->format('Y-m-d H:i')
+            $scheduledFor->copy()->setTimezone(config('app.display_timezone', 'Africa/Douala'))->format('d/m/Y à H:i')
         );
 
         $payload = [
@@ -639,6 +645,33 @@ class LeaseCutoffPlannerService
             'payment_status_snapshot' => $payload,
             'reason' => $reason,
         ];
+    }
+
+    /**
+     * Ne jamais afficher "Type #23" / "Contrat #40" au partenaire : ce sont
+     * des replis techniques écrits par la synchronisation quand le vrai
+     * libellé n'était pas disponible côté Recouvrement au moment du sync.
+     * Même logique que LeaseForgivenessService::safeSiblingContractLabel().
+     */
+    private function cleanContractTypeLabel(LeaseContractLink $contractLink): string
+    {
+        $candidates = [
+            data_get($contractLink->last_snapshot, 'type_contrat_libelle'),
+            data_get($contractLink->last_snapshot, 'type_contrat_label'),
+            data_get($contractLink->last_snapshot, 'type_contrat.libelle'),
+            data_get($contractLink->last_snapshot, 'type_contrat.label'),
+            $contractLink->type_contrat_label,
+        ];
+
+        foreach ($candidates as $candidate) {
+            $label = trim((string) $candidate);
+
+            if ($label !== '' && ! preg_match('/^(type|contrat|sous-contrat)\s*#?\d+$/i', $label)) {
+                return $label;
+            }
+        }
+
+        return $contractLink->contract_kind === LeaseContractLink::KIND_SUB ? 'Sous-contrat' : 'Contrat principal';
     }
 
     private function buildContractContext(array $contract, array $contractsById, array $lease): array
