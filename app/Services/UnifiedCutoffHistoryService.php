@@ -271,9 +271,18 @@ class UnifiedCutoffHistoryService
 
         $this->applyPeriodFilter($query, $filters, 'created_at');
 
+        /**
+         * NULL-safe : quelques anciennes commandes ont type_commande/status
+         * NULL en base. "!= 'ALLUMAGE'" en SQL exclut silencieusement les
+         * NULL (ils ne matchent ni "= 'ALLUMAGE'" ni "!= 'ALLUMAGE'"), ce
+         * qui les faisait disparaître à la fois de "coupures" et
+         * "allumages" dans les KPI. On leur applique ici le même repli par
+         * défaut que le mapping ligne par ligne ci-dessus (NULL -> coupure,
+         * NULL -> succès) — trouvé et corrigé le 18/08/2026.
+         */
         $direction = trim((string) ($filters['direction'] ?? ''));
         if ($direction === 'COUPURE') {
-            $query->where('type_commande', '!=', 'ALLUMAGE');
+            $query->where(fn ($q) => $q->where('type_commande', '!=', 'ALLUMAGE')->orWhereNull('type_commande'));
         } elseif ($direction === 'ALLUMAGE') {
             $query->where('type_commande', 'ALLUMAGE');
         }
@@ -282,7 +291,7 @@ class UnifiedCutoffHistoryService
         if ($status === 'pending') {
             $query->where('status', 'QUEUED_OFFLINE');
         } elseif ($status === 'success') {
-            $query->where('status', '!=', 'QUEUED_OFFLINE');
+            $query->where(fn ($q) => $q->where('status', '!=', 'QUEUED_OFFLINE')->orWhereNull('status'));
         } elseif (in_array($status, ['failed', 'cancelled'], true)) {
             // Aucune commande manuelle échouée/annulée n'est journalisée aujourd'hui.
             $query->whereRaw('1 = 0');
