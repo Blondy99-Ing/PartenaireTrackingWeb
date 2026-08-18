@@ -75,7 +75,7 @@
           <th>Véhicule</th>
           <th>Chauffeur</th>
           <th>Type</th>
-          <th>Status</th>
+          <th>Confirmation</th>
           <th>CmdNo</th>
           <th>Notes</th>
         </tr>
@@ -85,6 +85,14 @@
           @php
             $veh = $cmd->vehicule;
             $chauffeur = $veh?->chauffeurActuelPartner?->chauffeur;
+
+            [$confirmationLabel, $confirmationTone] = match($cmd->confirmation_status) {
+                'CONFIRMED' => ['Confirmée', 'success'],
+                'UNCONFIRMED' => ['Non confirmée', 'warning'],
+                default => $cmd->status === 'QUEUED_OFFLINE'
+                    ? ['En file d’attente (véhicule hors-ligne)', 'muted']
+                    : ['En attente de confirmation', 'muted'],
+            };
           @endphp
           <tr>
             <td class="text-sm">{{ optional($cmd->created_at)->format('d/m/Y H:i') }}</td>
@@ -114,7 +122,7 @@
             </td>
 
             <td>
-              <span class="dash-badge muted">{{ $cmd->status ?? '—' }}</span>
+              <span class="dash-badge {{ $confirmationTone }}">{{ $confirmationLabel }}</span>
             </td>
 
             <td class="font-mono text-xs">{{ $cmd->CmdNo }}</td>

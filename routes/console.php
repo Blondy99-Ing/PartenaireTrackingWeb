@@ -40,6 +40,12 @@ Schedule::command('lease:cutoff:process')
     ->everyMinute()
     ->withoutOverlapping();
 
+// Confirmation des commandes moteur manuelles (coupure_moteur) sur l'état
+// moteur réel — même principe que lease:cutoff:process, pour le manuel.
+Schedule::command('engine:confirm-manual-commands')
+    ->everyMinute()
+    ->withoutOverlapping();
+
 /*
 |--------------------------------------------------------------------------
 | GPS - cache des statuts online

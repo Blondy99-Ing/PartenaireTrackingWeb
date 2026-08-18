@@ -117,10 +117,12 @@ class LeaseCutoffHistoryService
             'REACTIVATION_REQUESTED_AFTER_FORGIVENESS' => 'Rallumage demandé après pardon',
             'REACTIVATED_AFTER_FORGIVENESS' => 'Rallumé après pardon',
             'REACTIVATION_FAILED_AFTER_FORGIVENESS' => 'Échec rallumage après pardon',
+            'REACTIVATION_SENT_UNCONFIRMED' => 'Rallumage envoyé, non confirmé',
 
             'CANCELLED_DAY_EXPIRED' => 'Échéance expirée (jour suivant, aucune coupure rétroactive)',
 
             'FAILED' => 'Échec final',
+            'COMMAND_SENT_UNCONFIRMED' => 'Commande envoyée, non confirmée',
         ];
     }
 
@@ -144,10 +146,12 @@ class LeaseCutoffHistoryService
             'REACTIVATION_REQUESTED_AFTER_FORGIVENESS' => 'Rallumage demandé après pardon',
             'REACTIVATED_AFTER_FORGIVENESS' => 'Rallumé après pardon',
             'REACTIVATION_FAILED_AFTER_FORGIVENESS' => 'Échec rallumage après pardon',
+            'REACTIVATION_SENT_UNCONFIRMED' => 'Rallumage envoyé, non confirmé',
 
             'CANCELLED_DAY_EXPIRED' => 'Échéance expirée (jour suivant)',
 
             'FAILED' => 'Échec final',
+            'COMMAND_SENT_UNCONFIRMED' => 'Commande envoyée, non confirmée',
 
             default => (string) ($status ?: 'Inconnu'),
         };
@@ -173,9 +177,11 @@ class LeaseCutoffHistoryService
 
             'REACTIVATION_REQUESTED_AFTER_FORGIVENESS' => 'sent',
             'REACTIVATED_AFTER_FORGIVENESS' => 'success',
+            'REACTIVATION_SENT_UNCONFIRMED' => 'pending',
 
             'REACTIVATION_FAILED_AFTER_FORGIVENESS',
             'FAILED' => 'failed',
+            'COMMAND_SENT_UNCONFIRMED' => 'pending',
 
             default => 'pending',
         };

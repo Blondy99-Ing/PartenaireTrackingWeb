@@ -9,6 +9,7 @@ use App\Models\Location;
 use App\Models\SimGps;
 use App\Models\User;
 use App\Models\Voiture;
+use App\Services\Gps\ManualCommandConfirmationService;
 use App\Services\GpsControlService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -18,7 +19,10 @@ use App\Support\UserMessages;
 
 class ControlGpsController extends Controller
 {
-    public function __construct(private GpsControlService $gps) {}
+    public function __construct(
+        private GpsControlService $gps,
+        private ManualCommandConfirmationService $manualCommandConfirmation
+    ) {}
 
     /**
      * Resolve the tenant partner that owns the fleet.
@@ -366,8 +370,9 @@ class ControlGpsController extends Controller
             $notes = $this->buildRestoreWithoutForgivenessNote($voiture->id);
         }
 
+        $commande = null;
         if ($cmdNo !== '') {
-            Commande::updateOrCreate(
+            $commande = Commande::updateOrCreate(
                 ['CmdNo' => $cmdNo],
                 [
                     'user_id' => $user->id,
@@ -384,6 +389,16 @@ class ControlGpsController extends Controller
         Cache::forget("gps18gps:engine_status:mobility:{$mac}");
 
         $after = $this->getLiveEngineStatusWithAccountRetry($mac, true);
+
+        /**
+         * Confirmation par l'état moteur réel — pas seulement l'accusé de
+         * réception du provider. Premier contrôle immédiat ici (beaucoup de
+         * commandes confirment en quelques secondes) ; sinon, la boucle
+         * planifiée engine:confirm-manual-commands reprend pendant ~20 min.
+         */
+        if ($commande) {
+            $this->manualCommandConfirmation->recordInitialCheck($commande, $after);
+        }
 
         return response()->json([
             'success' => true,

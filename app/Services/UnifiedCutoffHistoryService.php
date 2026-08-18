@@ -39,7 +39,16 @@ class UnifiedCutoffHistoryService
     /** Statuts lease_cutoff_histories.status classés par status_group unifié. */
     private const AUTO_STATUS_GROUPS = [
         'success' => ['CUT_OFF', 'REACTIVATED_AFTER_FORGIVENESS'],
-        'pending' => ['PENDING', 'WAITING_STOP', 'COMMAND_SENT', 'REACTIVATION_REQUESTED_AFTER_FORGIVENESS'],
+        /**
+         * COMMAND_SENT_UNCONFIRMED / REACTIVATION_SENT_UNCONFIRMED : la
+         * commande a bien été envoyée au véhicule, seule sa confirmation
+         * manque après la fenêtre de vérification — volontairement classé
+         * "en attente", jamais "échec" (voir LeaseCutoffQueueProcessorService).
+         */
+        'pending' => [
+            'PENDING', 'WAITING_STOP', 'COMMAND_SENT', 'COMMAND_SENT_UNCONFIRMED',
+            'REACTIVATION_REQUESTED_AFTER_FORGIVENESS', 'REACTIVATION_SENT_UNCONFIRMED',
+        ],
         'failed' => ['FAILED', 'REACTIVATION_FAILED_AFTER_FORGIVENESS'],
         'cancelled' => [
             'CANCELLED_PAID', 'CANCELLED_UNVERIFIED', 'CANCELLED_RULE_MISSING',
@@ -52,6 +61,7 @@ class UnifiedCutoffHistoryService
         'REACTIVATION_REQUESTED_AFTER_FORGIVENESS',
         'REACTIVATED_AFTER_FORGIVENESS',
         'REACTIVATION_FAILED_AFTER_FORGIVENESS',
+        'REACTIVATION_SENT_UNCONFIRMED',
     ];
 
     public function __construct(
@@ -218,19 +228,53 @@ class UnifiedCutoffHistoryService
                     ? trim(($c->user->prenom ?? '') . ' ' . ($c->user->nom ?? ''))
                     : ($c->employe ? trim(($c->employe->prenom ?? '') . ' ' . ($c->employe->nom ?? '')) . ' (support)' : 'Utilisateur inconnu');
 
+                [$statusGroup, $tone, $actionLabel] = $this->manualStatusPresentation($c, $direction);
+
                 return [
                     'timestamp' => $c->created_at,
                     'source' => 'MANUEL',
                     'direction' => $direction,
-                    'status_group' => $c->status === 'QUEUED_OFFLINE' ? 'pending' : 'success',
+                    'status_group' => $statusGroup,
                     'vehicle_label' => $c->vehicule->immatriculation ?? '—',
                     'vehicle_sub' => trim(($c->vehicule->marque ?? '') . ' ' . ($c->vehicule->model ?? '')),
                     'actor' => $actor !== '' ? $actor : 'Utilisateur inconnu',
-                    'action_label' => $direction === 'COUPURE' ? 'Coupure manuelle envoyée' : 'Rallumage manuel envoyé',
-                    'tone' => $c->status === 'QUEUED_OFFLINE' ? 'waiting' : 'success',
+                    'action_label' => $actionLabel,
+                    'tone' => $tone,
                     'reason' => $c->notes,
                 ];
             });
+    }
+
+    /**
+     * Statut affiché d'une commande manuelle, basé sur la confirmation
+     * réelle par l'état moteur (ManualCommandConfirmationService), pas
+     * seulement l'accusé de réception du provider.
+     *
+     * @return array{0: string, 1: string, 2: string} [status_group, tone, action_label]
+     */
+    private function manualStatusPresentation(Commande $c, string $direction): array
+    {
+        $labels = $direction === 'COUPURE'
+            ? [
+                'CONFIRMED' => 'Coupure manuelle confirmée',
+                'UNCONFIRMED' => 'Coupure manuelle envoyée, non confirmée par le GPS',
+                'QUEUED_OFFLINE' => 'Coupure manuelle en file d’attente (véhicule hors-ligne)',
+                'SENT' => 'Coupure manuelle envoyée, en attente de confirmation',
+            ]
+            : [
+                'CONFIRMED' => 'Rallumage manuel confirmé',
+                'UNCONFIRMED' => 'Rallumage manuel envoyé, non confirmé par le GPS',
+                'QUEUED_OFFLINE' => 'Rallumage manuel en file d’attente (véhicule hors-ligne)',
+                'SENT' => 'Rallumage manuel envoyé, en attente de confirmation',
+            ];
+
+        return match ($c->confirmation_status) {
+            'CONFIRMED' => ['success', 'success', $labels['CONFIRMED']],
+            'UNCONFIRMED' => ['pending', 'pending', $labels['UNCONFIRMED']],
+            default => $c->status === 'QUEUED_OFFLINE'
+                ? ['pending', 'waiting', $labels['QUEUED_OFFLINE']]
+                : ['pending', 'sent', $labels['SENT']],
+        };
     }
 
     private function autoStatusGroup(?string $status): string
@@ -287,11 +331,18 @@ class UnifiedCutoffHistoryService
             $query->where('type_commande', 'ALLUMAGE');
         }
 
+        /**
+         * Statut basé sur confirmation_status (ManualCommandConfirmationService),
+         * pas sur l'accusé de réception provider seul : "success" = vraiment
+         * confirmé par l'état moteur ; "pending" couvre aussi bien "en cours
+         * de vérification" que "jamais confirmé" (UNCONFIRMED), puisque
+         * cette dernière n'est volontairement jamais un échec.
+         */
         $status = trim((string) ($filters['status'] ?? ''));
         if ($status === 'pending') {
-            $query->where('status', 'QUEUED_OFFLINE');
+            $query->where(fn ($q) => $q->whereNull('confirmation_status')->orWhere('confirmation_status', 'UNCONFIRMED'));
         } elseif ($status === 'success') {
-            $query->where(fn ($q) => $q->where('status', '!=', 'QUEUED_OFFLINE')->orWhereNull('status'));
+            $query->where('confirmation_status', 'CONFIRMED');
         } elseif (in_array($status, ['failed', 'cancelled'], true)) {
             // Aucune commande manuelle échouée/annulée n'est journalisée aujourd'hui.
             $query->whereRaw('1 = 0');

@@ -19,6 +19,16 @@ class Commande extends Model
         'status',
         'type_commande',
         'notes',
+        'confirmation_status',
+        'confirmed_at',
+        'retry_count',
+        'next_check_at',
+    ];
+
+    protected $casts = [
+        'confirmed_at' => 'datetime',
+        'retry_count' => 'integer',
+        'next_check_at' => 'datetime',
     ];
 
     public function user()

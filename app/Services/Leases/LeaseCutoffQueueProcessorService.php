@@ -349,9 +349,9 @@ class LeaseCutoffQueueProcessorService
 
                         if ($item->retry_count >= $maxChecks) {
                             $deviceDiagnostic = $this->describeDeviceDiagnostic($item, $macId);
-                            $this->markReactivationFailed($item, $deviceDiagnostic, $maxChecks);
+                            $this->markReactivationSentUnconfirmed($item, $deviceDiagnostic, $maxChecks);
                             $failed++;
-                            Log::warning('[LEASE_CUTOFF_PROCESS] Échec : rallumage après pardon non confirmé après plusieurs vérifications', array_merge($ctx, [
+                            Log::warning('[LEASE_CUTOFF_PROCESS] Rallumage envoyé mais non confirmé après plusieurs vérifications', array_merge($ctx, [
                                 'device_diagnostic' => $deviceDiagnostic,
                             ]));
                             continue;
@@ -379,9 +379,9 @@ class LeaseCutoffQueueProcessorService
                     if ($item->retry_count >= $maxChecks) {
                         $deviceDiagnostic = $this->describeDeviceDiagnostic($item, $macId);
 
-                        $this->markFailed($item, 'La coupure n’a pas pu être confirmée après plusieurs tentatives : le moteur semble toujours en marche. Une vérification manuelle du véhicule est recommandée.');
+                        $this->markCommandSentUnconfirmed($item, 'La commande de coupure a bien été envoyée au véhicule, mais elle n’a pas pu être confirmée après plusieurs tentatives : le moteur semble toujours en marche. Une vérification manuelle du véhicule est recommandée.');
                         $failed++;
-                        Log::warning('[LEASE_CUTOFF_PROCESS] Échec : commande non confirmée après plusieurs vérifications', array_merge($ctx, [
+                        Log::warning('[LEASE_CUTOFF_PROCESS] Commande envoyée mais non confirmée après plusieurs vérifications', array_merge($ctx, [
                             'device_diagnostic' => $deviceDiagnostic,
                         ]));
                         continue;
@@ -853,7 +853,14 @@ class LeaseCutoffQueueProcessorService
         });
     }
 
-    private function markReactivationFailed(LeaseCutoffQueue $item, ?string $deviceDiagnostic, int $maxChecks): void
+    /**
+     * Commande de rallumage bel et bien ENVOYÉE au boîtier, mais jamais
+     * confirmée par l'état moteur réel malgré la fenêtre complète de
+     * vérifications. Statut volontairement distinct de "FAILED" : "échec"
+     * donnerait l'impression que la commande n'est même pas partie, alors
+     * qu'elle a bien été transmise — seule sa confirmation manque.
+     */
+    private function markReactivationSentUnconfirmed(LeaseCutoffQueue $item, ?string $deviceDiagnostic, int $maxChecks): void
     {
         DB::transaction(function () use ($item, $deviceDiagnostic, $maxChecks) {
             $item->update([
@@ -869,18 +876,18 @@ class LeaseCutoffQueueProcessorService
 
                 $reason = $vehicle
                     ? $this->forgiveness->describeReactivationNotConfirmed($vehicle, $item->contractLink, $forgivenByName, $maxChecks, $deviceDiagnostic)
-                    : 'Le rallumage après pardon n’a jamais pu être confirmé.';
+                    : 'Le rallumage après pardon a été transmis mais n’a jamais pu être confirmé.';
 
                 $item->history->update([
-                    'status' => 'REACTIVATION_FAILED_AFTER_FORGIVENESS',
+                    'status' => 'REACTIVATION_SENT_UNCONFIRMED',
                     'reason' => $reason,
-                    'notes' => 'Le rallumage n’a pas pu être confirmé ; aucune nouvelle tentative automatique ne sera lancée pour ce contrat.',
+                    'notes' => 'Le rallumage a bien été transmis au boîtier, mais aucune confirmation n’a été reçue ; aucune nouvelle tentative automatique ne sera lancée pour ce contrat.',
                 ]);
 
-                $this->recordEvent($item, 'REACTIVATION_FAILED', $reason);
+                $this->recordEvent($item, 'REACTIVATION_SENT_UNCONFIRMED', $reason);
             }
 
-            $this->finalizeCascadedSiblings($item, 'REACTIVATION_FAILED_AFTER_FORGIVENESS', 'Échec du rallumage clôturé conjointement avec le contrat principal du pardon.');
+            $this->finalizeCascadedSiblings($item, 'REACTIVATION_SENT_UNCONFIRMED', 'Rallumage transmis mais non confirmé, clôturé conjointement avec le contrat principal du pardon.');
         });
     }
 
@@ -967,6 +974,35 @@ class LeaseCutoffQueueProcessorService
                 ]);
 
                 $this->recordEvent($item, 'FAILED', $reason);
+            }
+        });
+    }
+
+    /**
+     * Commande de coupure bel et bien ENVOYÉE au véhicule, mais jamais
+     * confirmée par l'état moteur réel malgré la fenêtre complète de
+     * vérifications (~20 min). Statut volontairement distinct de "FAILED" :
+     * "échec" donnerait l'impression que la commande n'est même pas partie,
+     * alors qu'elle a bien été transmise — seule sa confirmation manque.
+     */
+    private function markCommandSentUnconfirmed(LeaseCutoffQueue $item, string $reason): void
+    {
+        DB::transaction(function () use ($item, $reason) {
+            $item->update([
+                'status' => 'FAILED',
+                'last_checked_at' => now(),
+                'retry_count' => $item->retry_count + 1,
+                'next_check_at' => null,
+            ]);
+
+            if ($item->history) {
+                $item->history->update([
+                    'status' => 'COMMAND_SENT_UNCONFIRMED',
+                    'reason' => $reason,
+                    'notes' => 'La commande de coupure a bien été envoyée au véhicule, mais aucune confirmation n’a été reçue ; aucune nouvelle tentative automatique ne sera lancée pour ce véhicule.',
+                ]);
+
+                $this->recordEvent($item, 'COMMAND_SENT_UNCONFIRMED', $reason);
             }
         });
     }

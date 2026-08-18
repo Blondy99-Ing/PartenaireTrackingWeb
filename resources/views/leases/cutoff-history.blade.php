@@ -1231,6 +1231,8 @@
                         'REACTIVATED_AFTER_FORGIVENESS' => 'ch-badge-cancelled',
                         'FAILED',
                         'REACTIVATION_FAILED_AFTER_FORGIVENESS' => 'ch-badge-failed',
+                        'COMMAND_SENT_UNCONFIRMED',
+                        'REACTIVATION_SENT_UNCONFIRMED' => 'ch-badge-sent',
                         'REACTIVATION_REQUESTED_AFTER_FORGIVENESS' => 'ch-badge-sent',
                         'CANCELLED_DAY_EXPIRED' => 'ch-badge-cancelled',
                         default          => 'ch-badge-pending',
@@ -1249,7 +1251,9 @@
                         'REACTIVATION_REQUESTED_AFTER_FORGIVENESS' => 'Rallumage demandé',
                         'REACTIVATED_AFTER_FORGIVENESS' => 'Rallumé après pardon — dette ouverte',
                         'REACTIVATION_FAILED_AFTER_FORGIVENESS' => 'Échec rallumage',
+                        'REACTIVATION_SENT_UNCONFIRMED' => 'Rallumage envoyé, non confirmé',
                         'FAILED'         => 'Échec final',
+                        'COMMAND_SENT_UNCONFIRMED' => 'Cmd. envoyée, non confirmée',
                         'CANCELLED_DAY_EXPIRED' => 'Échéance expirée (jour suivant)',
                         default          => $history->status ?? '—',
                     };
@@ -1268,6 +1272,8 @@
                         'REACTIVATED_AFTER_FORGIVENESS' => 'fa-bolt',
                         'FAILED',
                         'REACTIVATION_FAILED_AFTER_FORGIVENESS' => 'fa-xmark',
+                        'COMMAND_SENT_UNCONFIRMED',
+                        'REACTIVATION_SENT_UNCONFIRMED' => 'fa-paper-plane',
                         'CANCELLED_DAY_EXPIRED' => 'fa-hourglass-end',
                         default          => 'fa-circle',
                     };
@@ -1368,7 +1374,9 @@
                         'REACTIVATION_REQUESTED_AFTER_FORGIVENESS' => 'Rallumage demandé après pardon',
                         'REACTIVATED_AFTER_FORGIVENESS' => 'Véhicule rallumé après pardon',
                         'REACTIVATION_FAILED_AFTER_FORGIVENESS' => 'Échec du rallumage après pardon',
+                        'REACTIVATION_SENT_UNCONFIRMED' => 'Rallumage envoyé, en attente de confirmation GPS',
                         'FAILED' => 'Coupure non effectuée',
+                        'COMMAND_SENT_UNCONFIRMED' => 'Commande de coupure envoyée, en attente de confirmation GPS',
                         'CANCELLED_DAY_EXPIRED' => 'Échéance expirée sans coupure confirmée : aucune coupure rétroactive',
                         default => $statusLabel,
                     };
