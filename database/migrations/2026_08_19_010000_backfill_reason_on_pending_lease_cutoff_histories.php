@@ -2,8 +2,8 @@
 
 use App\Models\LeaseContractLink;
 use App\Models\LeaseCutoffHistory;
+use App\Services\Leases\LeaseCutoffPlannerService;
 use Illuminate\Database\Migrations\Migration;
-use Illuminate\Support\Carbon;
 
 /**
  * LeaseCutoffPlannerService::buildTriggerContext() écrivait un texte de
@@ -55,9 +55,19 @@ return new class extends Migration
 
         $dueDate = optional($history->lease_date_echeance)->toDateString() ?? '—';
 
-        $scheduledForLocal = $history->scheduled_for
-            ? Carbon::parse($history->scheduled_for)->timezone(config('app.display_timezone', 'Africa/Douala'))->format('d/m/Y à H:i')
-            : '—';
+        /**
+         * On relit la valeur BRUTE (non castée par Eloquent) et on l'ancre
+         * explicitement sur UTC : le cast datetime standard étiquette la
+         * chaîne avec la timezone ambiante de l'environnement PHP qui
+         * exécute cette migration (APP_TIMEZONE), qui peut différer entre
+         * environnements partageant la même base (.env de test réglé sur
+         * Africa/Douala, contrairement à la prod en UTC) — ce qui rendrait
+         * une simple ->setTimezone() sans effet si les deux valent la même
+         * chose, ou faussée si elles diffèrent.
+         */
+        $scheduledForLocal = LeaseCutoffPlannerService::toLocalDisplayFromRaw(
+            $history->getRawOriginal('scheduled_for')
+        );
 
         return sprintf(
             'Le %s "%s" a causé la planification de la coupure de %s : ce contrat%s, échéance du %s, n’est pas payé%s. La règle de coupure associée est active. Coupure planifiée pour le %s.',

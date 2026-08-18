@@ -602,6 +602,12 @@ class LeaseCutoffPlannerService
          * base, jamais formaté brut. Trouvé et corrigé le 19/08/2026 — les
          * deux bugs étaient visibles simultanément sur la page Historique
          * Coupure ("Type #23" et "planifiée pour ... 11:00" au lieu de 12h).
+         * La conversion passe par self::toLocalDisplay() (ancrage explicite
+         * en UTC) et non par ->setTimezone() sur l'objet Carbon déjà casté :
+         * ce dernier hérite de la timezone ambiante de l'environnement PHP
+         * qui exécute le code (APP_TIMEZONE), qui peut différer entre test
+         * et prod même si la base est partagée — un ->setTimezone() vers la
+         * même timezone que l'ambiante ne fait alors rien.
          */
         $reason = sprintf(
             'Le %s "%s" a causé la planification de la coupure de %s : ce contrat%s, échéance du %s, n’est pas payé%s. La règle de coupure associée est active. Coupure planifiée pour le %s.',
@@ -611,7 +617,7 @@ class LeaseCutoffPlannerService
             $parentText,
             $dueDate,
             $amountText,
-            $scheduledFor->copy()->setTimezone(config('app.display_timezone', 'Africa/Douala'))->format('d/m/Y à H:i')
+            self::toLocalDisplay($scheduledFor)
         );
 
         $payload = [
@@ -645,6 +651,52 @@ class LeaseCutoffPlannerService
             'payment_status_snapshot' => $payload,
             'reason' => $reason,
         ];
+    }
+
+    /**
+     * Convertit un Carbon fraîchement calculé (même requête, jamais relu
+     * depuis la base) en heure locale d'affichage. L'instant absolu porté
+     * par $scheduledFor est fiable ici car il vient d'un calcul direct
+     * (resolveScheduledDateTimeFromLease), donc une simple conversion de
+     * timezone d'affichage suffit.
+     *
+     * Ne PAS utiliser cette méthode sur une valeur relue depuis la base
+     * (ex. $history->scheduled_for) : le cast datetime d'Eloquent étiquette
+     * la chaîne brute avec la timezone ambiante de l'environnement PHP qui
+     * exécute le code (APP_TIMEZONE), qui peut différer entre environnements
+     * partageant la même base (constaté : .env de test réglé sur
+     * Africa/Douala, contrairement à la prod en UTC) — utiliser plutôt
+     * toLocalDisplayFromRaw() avec la valeur brute non castée.
+     */
+    public static function toLocalDisplay($scheduledFor, string $format = 'd/m/Y à H:i'): string
+    {
+        if (! $scheduledFor) {
+            return '—';
+        }
+
+        return Carbon::parse($scheduledFor)
+            ->copy()
+            ->setTimezone(config('app.display_timezone', 'Africa/Douala'))
+            ->format($format);
+    }
+
+    /**
+     * Convertit une valeur DATETIME brute relue depuis la base (obtenue via
+     * $model->getRawOriginal('scheduled_for'), PAS $model->scheduled_for)
+     * en heure locale d'affichage. Les colonnes datetime sont toujours
+     * écrites en UTC en base ; ancrer explicitement l'interprétation sur UTC
+     * ici évite de dépendre de la timezone ambiante de l'environnement qui
+     * exécute le code.
+     */
+    public static function toLocalDisplayFromRaw(?string $rawUtcValue, string $format = 'd/m/Y à H:i'): string
+    {
+        if (! $rawUtcValue) {
+            return '—';
+        }
+
+        return Carbon::createFromFormat('Y-m-d H:i:s', $rawUtcValue, 'UTC')
+            ->setTimezone(config('app.display_timezone', 'Africa/Douala'))
+            ->format($format);
     }
 
     /**
