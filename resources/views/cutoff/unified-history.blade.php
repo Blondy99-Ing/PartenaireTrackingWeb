@@ -29,24 +29,29 @@
 </div>
 
 {{-- KPI --}}
-<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
     @php
         $kpis = [
             ['label' => 'Total', 'value' => $summary['total'] ?? 0, 'icon' => 'fa-list'],
             ['label' => 'Automatique', 'value' => $summary['automatique'] ?? 0, 'icon' => 'fa-robot'],
             ['label' => 'Manuel', 'value' => $summary['manuel'] ?? 0, 'icon' => 'fa-hand'],
             ['label' => 'Coupures', 'value' => $summary['coupures'] ?? 0, 'icon' => 'fa-plug-circle-xmark'],
+            ['label' => 'Rallumages', 'value' => $summary['allumages'] ?? 0, 'icon' => 'fa-bolt'],
             ['label' => 'Échecs', 'value' => $summary['echecs'] ?? 0, 'icon' => 'fa-triangle-exclamation'],
         ];
     @endphp
     @foreach($kpis as $kpi)
         <div class="ui-card p-3 text-center">
             <i class="fas {{ $kpi['icon'] }} text-secondary mb-1"></i>
-            <div class="text-2xl font-bold font-orbitron" style="color: var(--color-text);">{{ $kpi['value'] }}</div>
+            <div class="text-2xl font-bold font-orbitron" style="color: var(--color-text);">{{ number_format($kpi['value']) }}</div>
             <div class="text-[11px] text-secondary uppercase tracking-wide">{{ $kpi['label'] }}</div>
         </div>
     @endforeach
 </div>
+<p class="text-xs text-secondary">
+    <i class="fas fa-circle-info mr-1"></i>
+    Les chiffres ci-dessus comptent tous les événements correspondant aux filtres. La liste ci-dessous se limite aux 500 événements les plus récents par origine — filtrez par période pour consulter un historique plus ancien.
+</p>
 
 {{-- Filtres --}}
 <div class="ui-card p-4">

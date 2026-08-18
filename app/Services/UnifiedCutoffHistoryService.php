@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Services\Leases\LeaseCutoffHistoryService;
 use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator as Paginator;
 use Illuminate\Support\Collection;
 
@@ -22,9 +23,37 @@ use Illuminate\Support\Collection;
  * déclenché chaque commande — même correction que VoitureController::index()
  * et AffectationChauffeurVoitureController::tenantPartner() : un staff doit
  * voir tout l'historique de la flotte, pas seulement ses propres actions.
+ *
+ * Deux vocabulaires de statut coexistent volontairement :
+ * - "tone" (fin) : hérité de LeaseCutoffHistoryService::getStatusTone(),
+ *   utilisé uniquement pour la couleur du badge dans la vue.
+ * - "status_group" (grossier, 4 valeurs) : success/pending/failed/cancelled,
+ *   dénominateur commun entre l'automatique et le manuel, utilisé pour le
+ *   filtre "Statut" et pour les compteurs KPI. Ne JAMAIS filtrer sur "tone"
+ *   directement : CUT_OFF a pour tone "cut", pas "success" — filtrer sur
+ *   tone==='success' fait disparaître silencieusement toutes les coupures
+ *   automatiques confirmées (bug trouvé et corrigé le 18/08/2026).
  */
 class UnifiedCutoffHistoryService
 {
+    /** Statuts lease_cutoff_histories.status classés par status_group unifié. */
+    private const AUTO_STATUS_GROUPS = [
+        'success' => ['CUT_OFF', 'REACTIVATED_AFTER_FORGIVENESS'],
+        'pending' => ['PENDING', 'WAITING_STOP', 'COMMAND_SENT', 'REACTIVATION_REQUESTED_AFTER_FORGIVENESS'],
+        'failed' => ['FAILED', 'REACTIVATION_FAILED_AFTER_FORGIVENESS'],
+        'cancelled' => [
+            'CANCELLED_PAID', 'CANCELLED_UNVERIFIED', 'CANCELLED_RULE_MISSING',
+            'CANCELLED_RULE_DISABLED', 'CANCELLED_FORGIVEN_BEFORE_CUT', 'CANCELLED_DAY_EXPIRED',
+        ],
+    ];
+
+    /** Statuts lease_cutoff_histories.status considérés comme un rallumage (le reste = coupure). */
+    private const AUTO_ALLUMAGE_STATUSES = [
+        'REACTIVATION_REQUESTED_AFTER_FORGIVENESS',
+        'REACTIVATED_AFTER_FORGIVENESS',
+        'REACTIVATION_FAILED_AFTER_FORGIVENESS',
+    ];
+
     public function __construct(
         private readonly LeaseCutoffHistoryService $leaseHistoryService,
     ) {}
@@ -38,10 +67,6 @@ class UnifiedCutoffHistoryService
         ];
     }
 
-    /**
-     * Statuts unifiés (dénominateur commun entre l'automatique et le
-     * manuel) — voir "tone" dans fetchAutomaticRows()/fetchManualRows().
-     */
     public function getAvailableStatuses(): array
     {
         return [
@@ -82,9 +107,7 @@ class UnifiedCutoffHistoryService
             $rows = $rows->concat($this->fetchManualRows($vehicleIds, $filters));
         }
 
-        $rows = $this->applyRowFilters($rows, $filters)
-            ->sortByDesc('timestamp')
-            ->values();
+        $rows = $rows->sortByDesc('timestamp')->values();
 
         $total = $rows->count();
         $slice = $rows->slice(($page - 1) * $perPage, $perPage)->values();
@@ -95,30 +118,47 @@ class UnifiedCutoffHistoryService
         ]);
     }
 
+    /**
+     * Compteurs KPI — requêtes COUNT dédiées, indépendantes du plafond de
+     * 500 lignes par source utilisé pour la liste paginée. Sans ça, les KPI
+     * affichaient au mieux 1000 (500+500) alors que la flotte peut avoir des
+     * milliers d'événements réels (bug trouvé et corrigé le 18/08/2026).
+     */
     public function getSummary(User $actor, array $filters): array
     {
         $partner = $this->resolveTenantPartner($actor);
         $vehicleIds = $this->tenantVehicleIds($partner);
 
-        $autoRows = ($actor->hasPermission('lease.view') || is_null($actor->partner_id))
-            ? $this->fetchAutomaticRows($partner, $filters)
-            : collect();
+        $canAuto = $actor->hasPermission('lease.view') || is_null($actor->partner_id);
+        $canManual = $actor->hasPermission('engine.control') || is_null($actor->partner_id);
 
-        $manualRows = ($actor->hasPermission('engine.control') || is_null($actor->partner_id))
-            ? $this->fetchManualRows($vehicleIds, $filters)
-            : collect();
+        $source = trim((string) ($filters['source'] ?? ''));
+        $includeAuto = $canAuto && $source !== 'MANUEL';
+        $includeManual = $canManual && $source !== 'AUTOMATIQUE';
 
-        $all = $this->applyRowFilters($autoRows->concat($manualRows), $filters);
-        $autoRows = $all->where('source', 'AUTOMATIQUE');
-        $manualRows = $all->where('source', 'MANUEL');
+        $autoQuery = $includeAuto ? $this->automaticBaseQuery($partner, $filters) : null;
+        $manualQuery = $includeManual ? $this->manualBaseQuery($vehicleIds, $filters) : null;
+
+        $automatique = $autoQuery ? (clone $autoQuery)->count() : 0;
+        $manuel = $manualQuery ? (clone $manualQuery)->count() : 0;
+
+        $coupures = ($autoQuery ? (clone $autoQuery)->whereNotIn('status', self::AUTO_ALLUMAGE_STATUSES)->count() : 0)
+            + ($manualQuery ? (clone $manualQuery)->where('type_commande', '!=', 'ALLUMAGE')->count() : 0);
+
+        $allumages = ($autoQuery ? (clone $autoQuery)->whereIn('status', self::AUTO_ALLUMAGE_STATUSES)->count() : 0)
+            + ($manualQuery ? (clone $manualQuery)->where('type_commande', 'ALLUMAGE')->count() : 0);
+
+        $echecs = $autoQuery
+            ? (clone $autoQuery)->whereIn('status', self::AUTO_STATUS_GROUPS['failed'])->count()
+            : 0; // les commandes manuelles échouées ne sont pas journalisées côté "commands"
 
         return [
-            'total' => $all->count(),
-            'automatique' => $autoRows->count(),
-            'manuel' => $manualRows->count(),
-            'coupures' => $all->where('direction', 'COUPURE')->count(),
-            'allumages' => $all->where('direction', 'ALLUMAGE')->count(),
-            'echecs' => $all->where('tone', 'failed')->count(),
+            'total' => $automatique + $manuel,
+            'automatique' => $automatique,
+            'manuel' => $manuel,
+            'coupures' => $coupures,
+            'allumages' => $allumages,
+            'echecs' => $echecs,
         ];
     }
 
@@ -127,27 +167,25 @@ class UnifiedCutoffHistoryService
      */
     private function fetchAutomaticRows(User $partner, array $filters): Collection
     {
-        $query = LeaseCutoffHistory::query()
-            ->with('vehicle')
-            ->where('partner_id', $partner->id);
+        $source = trim((string) ($filters['source'] ?? ''));
+        if ($source === 'MANUEL') {
+            return collect();
+        }
 
-        $this->applyPeriodFilter($query, $filters, 'scheduled_for');
+        $query = $this->automaticBaseQuery($partner, $filters)->with('vehicle');
 
         return $query->orderByDesc('scheduled_for')
             ->limit(500)
             ->get()
             ->map(function (LeaseCutoffHistory $h) {
                 $timestamp = $h->cutoff_executed_at ?? $h->cutoff_requested_at ?? $h->scheduled_for ?? $h->detected_at;
-                $direction = in_array($h->status, [
-                    'REACTIVATION_REQUESTED_AFTER_FORGIVENESS',
-                    'REACTIVATED_AFTER_FORGIVENESS',
-                    'REACTIVATION_FAILED_AFTER_FORGIVENESS',
-                ], true) ? 'ALLUMAGE' : 'COUPURE';
+                $direction = in_array($h->status, self::AUTO_ALLUMAGE_STATUSES, true) ? 'ALLUMAGE' : 'COUPURE';
 
                 return [
                     'timestamp' => $timestamp,
                     'source' => 'AUTOMATIQUE',
                     'direction' => $direction,
+                    'status_group' => $this->autoStatusGroup($h->status),
                     'vehicle_label' => $h->vehicle->immatriculation ?? '—',
                     'vehicle_sub' => trim(($h->vehicle->marque ?? '') . ' ' . ($h->vehicle->model ?? '')),
                     'actor' => 'Système automatique',
@@ -163,15 +201,13 @@ class UnifiedCutoffHistoryService
      */
     private function fetchManualRows(Collection $vehicleIds, array $filters): Collection
     {
-        if ($vehicleIds->isEmpty()) {
+        $source = trim((string) ($filters['source'] ?? ''));
+        if ($source === 'AUTOMATIQUE' || $vehicleIds->isEmpty()) {
             return collect();
         }
 
-        $query = Commande::query()
-            ->with(['vehicule', 'user:id,nom,prenom', 'employe:id,nom,prenom'])
-            ->whereIn('vehicule_id', $vehicleIds);
-
-        $this->applyPeriodFilter($query, $filters, 'created_at');
+        $query = $this->manualBaseQuery($vehicleIds, $filters)
+            ->with(['vehicule', 'user:id,nom,prenom', 'employe:id,nom,prenom']);
 
         return $query->orderByDesc('created_at')
             ->limit(500)
@@ -186,6 +222,7 @@ class UnifiedCutoffHistoryService
                     'timestamp' => $c->created_at,
                     'source' => 'MANUEL',
                     'direction' => $direction,
+                    'status_group' => $c->status === 'QUEUED_OFFLINE' ? 'pending' : 'success',
                     'vehicle_label' => $c->vehicule->immatriculation ?? '—',
                     'vehicle_sub' => trim(($c->vehicule->marque ?? '') . ' ' . ($c->vehicule->model ?? '')),
                     'actor' => $actor !== '' ? $actor : 'Utilisateur inconnu',
@@ -196,32 +233,62 @@ class UnifiedCutoffHistoryService
             });
     }
 
-    /**
-     * Filtres appliqués APRÈS normalisation, sur la collection fusionnée :
-     * source (origine), direction (type de coupure) et tone (statut unifié
-     * — les deux sources ont des vocabulaires de statut différents, "tone"
-     * est le dénominateur commun déjà calculé pour chaque ligne).
-     */
-    private function applyRowFilters(Collection $rows, array $filters): Collection
+    private function autoStatusGroup(?string $status): string
     {
-        $source = trim((string) ($filters['source'] ?? ''));
-        if (in_array($source, ['AUTOMATIQUE', 'MANUEL'], true)) {
-            $rows = $rows->where('source', $source);
+        foreach (self::AUTO_STATUS_GROUPS as $group => $statuses) {
+            if (in_array($status, $statuses, true)) {
+                return $group;
+            }
         }
 
+        return 'pending';
+    }
+
+    private function automaticBaseQuery(User $partner, array $filters): Builder
+    {
+        $query = LeaseCutoffHistory::query()->where('partner_id', $partner->id);
+
+        $this->applyPeriodFilter($query, $filters, 'scheduled_for');
+
         $direction = trim((string) ($filters['direction'] ?? ''));
-        if (in_array($direction, ['COUPURE', 'ALLUMAGE'], true)) {
-            $rows = $rows->where('direction', $direction);
+        if ($direction === 'COUPURE') {
+            $query->whereNotIn('status', self::AUTO_ALLUMAGE_STATUSES);
+        } elseif ($direction === 'ALLUMAGE') {
+            $query->whereIn('status', self::AUTO_ALLUMAGE_STATUSES);
         }
 
         $status = trim((string) ($filters['status'] ?? ''));
-        if (in_array($status, ['success', 'failed', 'pending', 'cancelled'], true)) {
-            $rows = $status === 'pending'
-                ? $rows->whereIn('tone', ['pending', 'waiting', 'sent'])
-                : $rows->where('tone', $status);
+        if (isset(self::AUTO_STATUS_GROUPS[$status])) {
+            $query->whereIn('status', self::AUTO_STATUS_GROUPS[$status]);
         }
 
-        return $rows;
+        return $query;
+    }
+
+    private function manualBaseQuery(Collection $vehicleIds, array $filters): Builder
+    {
+        $query = Commande::query()->whereIn('vehicule_id', $vehicleIds->isEmpty() ? [0] : $vehicleIds);
+
+        $this->applyPeriodFilter($query, $filters, 'created_at');
+
+        $direction = trim((string) ($filters['direction'] ?? ''));
+        if ($direction === 'COUPURE') {
+            $query->where('type_commande', '!=', 'ALLUMAGE');
+        } elseif ($direction === 'ALLUMAGE') {
+            $query->where('type_commande', 'ALLUMAGE');
+        }
+
+        $status = trim((string) ($filters['status'] ?? ''));
+        if ($status === 'pending') {
+            $query->where('status', 'QUEUED_OFFLINE');
+        } elseif ($status === 'success') {
+            $query->where('status', '!=', 'QUEUED_OFFLINE');
+        } elseif (in_array($status, ['failed', 'cancelled'], true)) {
+            // Aucune commande manuelle échouée/annulée n'est journalisée aujourd'hui.
+            $query->whereRaw('1 = 0');
+        }
+
+        return $query;
     }
 
     private function applyPeriodFilter($query, array $filters, string $column): void
