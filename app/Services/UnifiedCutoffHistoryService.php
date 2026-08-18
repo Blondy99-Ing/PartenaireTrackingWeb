@@ -143,7 +143,7 @@ class UnifiedCutoffHistoryService
         $manuel = $manualQuery ? (clone $manualQuery)->count() : 0;
 
         $coupures = ($autoQuery ? (clone $autoQuery)->whereNotIn('status', self::AUTO_ALLUMAGE_STATUSES)->count() : 0)
-            + ($manualQuery ? (clone $manualQuery)->where('type_commande', '!=', 'ALLUMAGE')->count() : 0);
+            + ($manualQuery ? (clone $manualQuery)->where(fn ($q) => $q->where('type_commande', '!=', 'ALLUMAGE')->orWhereNull('type_commande'))->count() : 0);
 
         $allumages = ($autoQuery ? (clone $autoQuery)->whereIn('status', self::AUTO_ALLUMAGE_STATUSES)->count() : 0)
             + ($manualQuery ? (clone $manualQuery)->where('type_commande', 'ALLUMAGE')->count() : 0);
