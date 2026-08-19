@@ -59,8 +59,15 @@ class AffectationChauffeurVoitureController extends Controller
         $partner = $this->tenantPartner($request->user());
         $q = trim((string) $request->query('q', ''));
 
+        /**
+         * Uniquement les véhicules SANS chauffeur déjà associé : cette liste
+         * sert à choisir un véhicule pour un chauffeur donné, et n'a pas
+         * vocation à servir de réaffectation (qui a son propre flux avec
+         * désaffectation préalable) — les masquer accélère l'association.
+         */
         $query = Voiture::query()
             ->whereHas('partenaires', fn($x) => $x->where('users.id', $partner->id))
+            ->whereDoesntHave('chauffeurPartnerActuel')
             ->with(['chauffeurPartnerActuel.chauffeur:id,nom,prenom,phone']);
 
         if ($q !== '') {
