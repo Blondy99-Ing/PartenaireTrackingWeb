@@ -1203,6 +1203,7 @@
                     <tr>
                         <th style="width:38px;">#</th>
                         <th>Véhicule</th>
+                        <th>Type de contrat</th>
                         <th>Contrat / Paiement</th>
                         <th>Statut</th>
                         <th>Planifié</th>
@@ -1436,6 +1437,12 @@
                         </div>
                     </td>
 
+                    {{-- Type de contrat --}}
+                    <td>
+                        <span class="font-semibold">{{ $contractTypeLabel }}</span>
+                        <div style="font-size:.68rem;color:var(--color-text-muted);">{{ $contractKindLabel }}</div>
+                    </td>
+
                     {{-- Contrat / Paiement --}}
                     <td>
                         <div class="ch-pay">
@@ -1544,7 +1551,7 @@
 
                 {{-- ── DETAIL ROW ── --}}
                 <tr class="ch-detail-row" id="{{ $rowId }}">
-                    <td colspan="9">
+                    <td colspan="10">
                         <div class="ch-detail-inner" id="inner-{{ $rowId }}">
 
                             {{-- Résumé métier --}}
@@ -1719,7 +1726,7 @@
 
                 @empty
                 <tr>
-                    <td colspan="9">
+                    <td colspan="10">
                         <div class="ch-empty">
                             <div class="ch-empty-icon"><i class="fas fa-inbox"></i></div>
                             <div class="ch-empty-text">Aucun historique trouvé</div>

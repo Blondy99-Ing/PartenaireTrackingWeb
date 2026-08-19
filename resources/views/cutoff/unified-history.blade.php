@@ -163,6 +163,7 @@
                     <th>Date</th>
                     <th>Origine</th>
                     <th>Véhicule</th>
+                    <th>Type de contrat</th>
                     <th>Action</th>
                     <th>Statut</th>
                     <th>Déclenché par</th>
@@ -194,6 +195,15 @@
                         </td>
 
                         <td>
+                            @if($row['source'] === 'AUTOMATIQUE')
+                                <span class="font-semibold">{{ $row['contract_type_label'] ?? '—' }}</span>
+                                <div class="text-xs text-secondary">{{ $row['contract_kind_label'] ?? '' }}</div>
+                            @else
+                                <span class="text-secondary">—</span>
+                            @endif
+                        </td>
+
+                        <td>
                             <span class="dash-badge {{ $row['direction'] === 'COUPURE' ? 'danger' : 'success' }}">
                                 {{ $row['direction'] === 'COUPURE' ? 'Coupure' : 'Rallumage' }}
                             </span>
@@ -216,7 +226,7 @@
                         </td>
                     </tr>
                     <tr id="{{ $rowId }}" class="hidden">
-                        <td colspan="8" class="p-0">
+                        <td colspan="9" class="p-0">
                             <div class="p-4" style="background: var(--color-bg-subtle, #f9fafb);">
                                 @if($row['source'] === 'AUTOMATIQUE')
                                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
@@ -325,7 +335,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="8" class="text-center text-secondary py-6">Aucun événement pour cette période.</td>
+                        <td colspan="9" class="text-center text-secondary py-6">Aucun événement pour cette période.</td>
                     </tr>
                 @endforelse
             </tbody>
