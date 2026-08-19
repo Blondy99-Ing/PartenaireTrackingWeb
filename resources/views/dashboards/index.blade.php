@@ -2599,13 +2599,7 @@ $defaultTab = $canFlotte ? 'flotte' : ($canTrajets ? 'trajets' : ($canAlertes ? 
 
         const s = document.createElement('script');
 
-        /*
-         * IMPORTANT :
-         * On garde la même clé que l'ancien dashboard, car elle est déjà autorisée
-         * pour http://partner.tracking.test/. La seule différence est libraries=geometry,
-         * nécessaire pour tester "Dans la zone / Hors zone".
-         */
-        s.src = 'https://maps.googleapis.com/maps/api/js?key=AIzaSyBn88TP5X-xaRCYo5gYxvGnVy_0WYotZWo&libraries=geometry&callback=initFleetMap';
+        s.src = 'https://maps.googleapis.com/maps/api/js?key={{ config('services.google_maps.key') }}&libraries=geometry&callback=initFleetMap';
         s.async = true;
         s.defer = true;
         document.head.appendChild(s);
