@@ -1288,9 +1288,33 @@
                     ];
 
                     $contractKindLabel = $history->contract_kind === 'SUB' ? 'Sous-contrat' : 'Contrat principal';
-                    $contractTypeLabel = $history->type_contrat_label
-                        ?: optional($history->contractLink)->type_contrat_label
-                        ?: '—';
+
+                    /**
+                     * type_contrat_label reste souvent bloqué sur le replai
+                     * technique "Type #N" (bug de sync corrigé le 19/08/2026,
+                     * mais les lignes déjà en base restent affectées tant
+                     * qu'elles ne sont pas resynchronisées) : on retombe sur
+                     * last_snapshot du lien de contrat, qui porte le vrai
+                     * libellé Recouvrement même quand la colonne plate ne
+                     * l'a jamais eu. Même logique que
+                     * LeaseCutoffPlannerService::cleanContractTypeLabel().
+                     */
+                    $rawTypeCandidates = [
+                        data_get(optional($history->contractLink)->last_snapshot, 'type_contrat_libelle'),
+                        data_get(optional($history->contractLink)->last_snapshot, 'type_contrat_label'),
+                        data_get(optional($history->contractLink)->last_snapshot, 'type_contrat.libelle'),
+                        data_get(optional($history->contractLink)->last_snapshot, 'type_contrat.label'),
+                        $history->type_contrat_label,
+                        optional($history->contractLink)->type_contrat_label,
+                    ];
+                    $contractTypeLabel = '—';
+                    foreach ($rawTypeCandidates as $candidate) {
+                        $candidate = trim((string) $candidate);
+                        if ($candidate !== '' && !preg_match('/^(type|contrat|sous-contrat)\s*#?\d+$/i', $candidate)) {
+                            $contractTypeLabel = $candidate;
+                            break;
+                        }
+                    }
                     $contractLinkId = $history->contract_link_id ?: optional($history->contractLink)->id;
                     $ruleTime = optional($history->contractRule)->cutoff_time
                         ? substr((string) optional($history->contractRule)->cutoff_time, 0, 5)

@@ -449,10 +449,21 @@ class LeaseContractLinkService
             ? (string) ($type['libelle'] ?? $type['label'] ?? $type['nom'] ?? '')
             : '';
 
+        /**
+         * L'API Recouvrement renvoie le libellé sous la clé plate
+         * "type_contrat_libelle" (orthographe française), jamais vérifiée
+         * ici avant : seule "type_contrat_label" (anglicisme) l'était, donc
+         * ce champ ne matchait jamais et TOUS les contrats retombaient sur
+         * le replai "Type #N" — trouvé le 19/08/2026 (100% des lignes
+         * lease_cutoff_histories des 14 derniers jours affectées).
+         */
         $label = $label
+            ?: (string) ($row['type_contrat_libelle'] ?? '')
             ?: (string) ($row['type_contrat_label'] ?? '')
+            ?: (string) ($payload['type_contrat_libelle'] ?? '')
             ?: (string) ($payload['type_contrat_label'] ?? '')
-            ?: (string) Arr::get($row, 'raw.type_contrat.libelle', '');
+            ?: (string) Arr::get($row, 'raw.type_contrat.libelle', '')
+            ?: (string) Arr::get($row, 'raw.type_contrat_libelle', '');
 
         return trim($label) !== '' ? trim($label) : ($typeId > 0 ? 'Type #' . $typeId : '');
     }

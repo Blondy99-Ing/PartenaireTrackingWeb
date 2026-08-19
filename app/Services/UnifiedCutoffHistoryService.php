@@ -192,10 +192,7 @@ class UnifiedCutoffHistoryService
                 $direction = in_array($h->status, self::AUTO_ALLUMAGE_STATUSES, true) ? 'ALLUMAGE' : 'COUPURE';
 
                 $snapshot = is_array($h->payment_status_snapshot) ? $h->payment_status_snapshot : [];
-                $contractTypeLabel = $this->cleanBusinessLabel(
-                    $h->type_contrat_label ?: optional($h->contractLink)->type_contrat_label,
-                    $h->contract_kind === 'SUB' ? 'Sous-contrat' : 'Contrat principal'
-                );
+                $contractTypeLabel = $this->resolveContractTypeLabel($h);
 
                 return [
                     'timestamp' => $timestamp,
@@ -217,6 +214,12 @@ class UnifiedCutoffHistoryService
                     'speed_at_check' => $h->speed_at_check,
                     'ignition_state' => $h->ignition_state,
                     'cmd_no' => null,
+                    // Horodatage complet du cycle : quand la non-conformité a été
+                    // détectée, planifiée, commandée puis confirmée.
+                    'detected_at' => $h->detected_at,
+                    'scheduled_for' => $h->scheduled_for,
+                    'cutoff_requested_at' => $h->cutoff_requested_at,
+                    'cutoff_executed_at' => $h->cutoff_executed_at,
                     // Journal complet du cycle (une ligne par vérification réelle : offline,
                     // en mouvement, commande envoyée...) — pour expliquer un écart entre
                     // l'heure planifiée et l'heure réelle de coupure sans changer de page.
@@ -281,25 +284,37 @@ class UnifiedCutoffHistoryService
     }
 
     /**
-     * Réservé aux courts libellés bruts venant de la base (ex. type de
-     * contrat "Type #3") : retire les identifiants internes avant affichage
-     * — mêmes règles que leases/cutoff-history.blade.php ($cleanBusinessText).
+     * type_contrat_label (colonne plate, sur l'historique ou le lien de
+     * contrat) reste souvent bloqué sur le replai technique "Type #N" — bug
+     * de sync corrigé le 19/08/2026 (LeaseContractLinkService::extractTypeContractLabel
+     * ne vérifiait jamais la clé plate "type_contrat_libelle" renvoyée par
+     * l'API Recouvrement), mais les lignes déjà en base restent affectées
+     * tant qu'elles ne sont pas resynchronisées. On retombe donc sur
+     * last_snapshot du lien de contrat, qui porte le vrai libellé même
+     * quand la colonne plate ne l'a jamais eu — même logique que
+     * LeaseCutoffPlannerService::cleanContractTypeLabel().
      */
-    private function cleanBusinessLabel(?string $value, string $fallback): string
+    private function resolveContractTypeLabel(LeaseCutoffHistory $h): string
     {
-        $value = trim((string) $value);
+        $fallback = $h->contract_kind === 'SUB' ? 'Sous-contrat' : 'Contrat principal';
 
-        if ($value === '') {
-            return $fallback;
+        $candidates = [
+            data_get(optional($h->contractLink)->last_snapshot, 'type_contrat_libelle'),
+            data_get(optional($h->contractLink)->last_snapshot, 'type_contrat_label'),
+            data_get(optional($h->contractLink)->last_snapshot, 'type_contrat.libelle'),
+            data_get(optional($h->contractLink)->last_snapshot, 'type_contrat.label'),
+            $h->type_contrat_label,
+            optional($h->contractLink)->type_contrat_label,
+        ];
+
+        foreach ($candidates as $candidate) {
+            $candidate = trim((string) $candidate);
+            if ($candidate !== '' && ! preg_match('/^(type|contrat|sous-contrat)\s*#?\d+$/i', $candidate)) {
+                return $candidate;
+            }
         }
 
-        $value = preg_replace('/\bType\s*#?\d+\b/i', '', $value);
-        $value = preg_replace('/\b(?:contrat|sous-contrat|lien|règle|regle|lease)\s*#?\d+\b/i', '', $value);
-        $value = preg_replace('/#\d+/', '', $value);
-        $value = preg_replace('/\s*[·|,-]\s*(?=\s*[·|,-]|$)/', ' ', $value);
-        $value = preg_replace('/\s+/', ' ', trim($value, " ·|-\t\n\r\0\x0B"));
-
-        return $value !== '' ? $value : $fallback;
+        return $fallback;
     }
 
     /**

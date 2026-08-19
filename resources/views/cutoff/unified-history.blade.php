@@ -247,6 +247,31 @@
                                         </div>
                                     </div>
 
+                                    {{-- Horodatage complet : détecté -> planifié -> commande -> confirmée. --}}
+                                    <div class="mt-3">
+                                        <div class="text-secondary uppercase tracking-wide mb-2" style="font-size:.65rem;">
+                                            <i class="fas fa-clock mr-1"></i> Horodatage complet
+                                        </div>
+                                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                                            <div>
+                                                <div class="text-secondary uppercase tracking-wide" style="font-size:.65rem;">Détecté</div>
+                                                <div class="font-semibold">{{ $row['detected_at'] ? $row['detected_at']->copy()->setTimezone($tz)->format('d/m/Y H:i:s') : '—' }}</div>
+                                            </div>
+                                            <div>
+                                                <div class="text-secondary uppercase tracking-wide" style="font-size:.65rem;">Planifié</div>
+                                                <div class="font-semibold">{{ $row['scheduled_for'] ? $row['scheduled_for']->copy()->setTimezone($tz)->format('d/m/Y H:i:s') : '—' }}</div>
+                                            </div>
+                                            <div>
+                                                <div class="text-secondary uppercase tracking-wide" style="font-size:.65rem;">Commande</div>
+                                                <div class="font-semibold">{{ $row['cutoff_requested_at'] ? $row['cutoff_requested_at']->copy()->setTimezone($tz)->format('d/m/Y H:i:s') : '—' }}</div>
+                                            </div>
+                                            <div>
+                                                <div class="text-secondary uppercase tracking-wide" style="font-size:.65rem;">Confirmée</div>
+                                                <div class="font-semibold">{{ $row['cutoff_executed_at'] ? $row['cutoff_executed_at']->copy()->setTimezone($tz)->format('d/m/Y H:i:s') : '—' }}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     {{-- Journal complet du cycle : explique un écart entre l'heure planifiée
                                          et l'heure réelle (véhicule offline, en mouvement, commande envoyée...). --}}
                                     @if(!empty($row['events']) && $row['events']->isNotEmpty())
