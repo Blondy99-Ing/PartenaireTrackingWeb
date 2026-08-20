@@ -3519,7 +3519,9 @@ input:checked + .fl-slider:before {
         }
 
         try {
-            const url = BLOCKING_SIBLINGS_URL_TEMPLATE.replace('__CONTRACT_LINK_ID__', String(row.contract_link_id));
+            const dueDate = row.date_echeance || row.date || '';
+            const baseUrl = BLOCKING_SIBLINGS_URL_TEMPLATE.replace('__CONTRACT_LINK_ID__', String(row.contract_link_id));
+            const url = dueDate ? `${baseUrl}?date_echeance=${encodeURIComponent(dueDate)}` : baseUrl;
             const response = await fetch(url, {
                 headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
                 credentials: 'same-origin',

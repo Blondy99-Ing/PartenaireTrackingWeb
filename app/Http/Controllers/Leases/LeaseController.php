@@ -513,7 +513,16 @@ public function blockingSiblingContracts(
     $user = $request->user();
     $partnerId = (int) ($user->partner_id ?: $user->id);
 
-    $siblings = $forgivenessService->previewBlockingSiblings($partnerId, $contractLinkId);
+    /**
+     * Échéance du lease qu'on s'apprête à pardonner, PAS la date du jour :
+     * sans elle, le contrôle des frères bloquants se faisait par défaut sur
+     * "aujourd'hui", ratant les frères d'un lease en retard pardonné
+     * plusieurs jours après son échéance (bug corrigé le 19/08/2026).
+     */
+    $dueDate = trim((string) $request->query('date_echeance', ''));
+    $dueDate = $dueDate !== '' ? $dueDate : null;
+
+    $siblings = $forgivenessService->previewBlockingSiblings($partnerId, $contractLinkId, $dueDate);
 
     return response()->json([
         'ok' => true,
