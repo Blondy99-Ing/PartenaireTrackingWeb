@@ -1580,6 +1580,7 @@ input:checked + .fl-slider:before {
                         <th style="width:2rem;">
                             <input type="checkbox" id="selectAllLeasesCheckbox" title="Tout sélectionner (page affichée)">
                         </th>
+                        <th title="Identifie précisément le lease (cycle de paiement) concerné par l’échéance affichée">Lease du</th>
                         <th style="cursor:pointer;" onclick="window.sortBy('date')" title="Trier par date d’échéance">
                             Échéance <i class="fas fa-sort" style="font-size:.55rem;opacity:.4;"></i>
                         </th>
@@ -2550,7 +2551,7 @@ input:checked + .fl-slider:before {
         if (!page.length) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="16">
+                    <td colspan="17">
                         <div class="lease-empty">
                             <i class="fas fa-filter"></i>
                             Aucune ligne ne correspond aux filtres actifs.
@@ -2647,6 +2648,11 @@ input:checked + .fl-slider:before {
                 <tr data-id="${esc(r.id)}">
                     <td>
                         <input type="checkbox" class="lease-row-select" data-lease-id="${esc(r.id)}" ${selectedLeaseIds.has(Number(r.id)) ? 'checked' : ''}>
+                    </td>
+
+                    <td style="white-space:nowrap;">
+                        <span style="font-weight:700;">#${esc(r.id)}</span>
+                        <div style="font-size:.7rem;color:var(--color-secondary-text);">${esc(r.date)}</div>
                     </td>
 
                     <td><span class="time-cell">${esc(r.date)}</span></td>
