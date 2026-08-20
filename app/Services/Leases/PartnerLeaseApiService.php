@@ -582,6 +582,16 @@ private function extractRows(mixed $response): array
          */
         unset($query['page']);
 
+        /**
+         * Comme pour fetchContracts()/fetchPayments() : l'API recouvrement
+         * supporte 500 éléments par page, mais cette méthode ne le
+         * demandait jamais et retombait donc sur le défaut de l'API (25),
+         * soit ~400 appels HTTP séquentiels pour ~10 000 échéances au lieu
+         * de ~20 — cause principale de la lenteur de la page /lease
+         * (trouvé et corrigé le 20/08/2026).
+         */
+        $query['page_size'] = 500;
+
         Log::info('[LEASE_API_FETCH_LEASES_START]', [
             'status' => $status,
             'query' => $query,
@@ -592,7 +602,7 @@ private function extractRows(mixed $response): array
         $apiCount    = 0;
         $pageNumber  = 1;
         $pagesLoaded = 0;
-        $maxPages    = 400; // garde-fou : ~10 000 échéances au maximum
+        $maxPages    = 20; // garde-fou : ~10 000 échéances au maximum (page_size=500)
 
         while ($pageNumber <= $maxPages) {
             $json = $this->get('/leases/', $query + ['page' => $pageNumber]);
