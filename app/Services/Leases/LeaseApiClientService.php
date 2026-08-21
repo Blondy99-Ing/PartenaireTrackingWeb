@@ -303,13 +303,38 @@ class LeaseApiClientService
             return null;
         }
 
-        foreach ($this->getRows('/leases/', ['id' => $leaseId]) as $row) {
-            if (is_array($row) && $this->extractLeaseId($row) === $leaseId) {
-                return $row;
-            }
-        }
+        /**
+         * /leases/ ne supporte aucun filtre par id côté Recouvrement : le
+         * paramètre 'id' est silencieusement ignoré, donc getRows() drainait
+         * TOUT l'historique (~10 000 lignes, ~400+ pages de 25) à chaque
+         * appel, avant même de chercher la bonne ligne — répété à chaque
+         * revérification, pour chaque ligne de queue non confirmée, toutes
+         * les minutes. Deux correctifs sans changer la sémantique (toujours
+         * un scan non filtré, volontaire : voir le commentaire au-dessus de
+         * cette méthode) : le plus grand page_size accepté (500, comme
+         * fetchLeases()) pour diviser le nombre de pages par ~20, et un
+         * arrêt dès la ligne trouvée au lieu de toujours tout drainer.
+         * Trouvé et corrigé le 21/08/2026 (véhicule ROYAL95916 : ce scan a
+         * provoqué une 502 de Recouvrement en page 195/422, faisant échouer
+         * à tort une revérification de coupure qui n'avait rien de cassé).
+         */
+        $json = $this->get('/leases/', ['id' => $leaseId, 'page_size' => 500]);
 
-        return null;
+        while (true) {
+            foreach ($this->unwrapRows($json) as $row) {
+                if (is_array($row) && $this->extractLeaseId($row) === $leaseId) {
+                    return $row;
+                }
+            }
+
+            $next = $this->forceApiHttps($json['next'] ?? null);
+
+            if (! is_string($next) || trim($next) === '') {
+                return null;
+            }
+
+            $json = $this->getAbsoluteUrl($next);
+        }
     }
 
     /**
