@@ -3834,9 +3834,21 @@ input:checked + .fl-slider:before {
     const searchInput = document.getElementById('leaseSearch');
 
     if (searchInput) {
+        /*
+         * applyFilters()/renderTable() re-filtrent et redessinent tout le
+         * tableau en HTML : le faire de façon synchrone à CHAQUE frappe
+         * (avant ce correctif) bloquait le clavier le temps du rendu à
+         * chaque caractère tapé. Un court debounce laisse la frappe fluide
+         * et ne redessine qu'une fois que l'utilisateur marque une pause.
+         */
+        let searchDebounce = null;
         searchInput.addEventListener('input', function () {
-            searchQuery = this.value || '';
-            applyFilters();
+            const value = this.value || '';
+            clearTimeout(searchDebounce);
+            searchDebounce = setTimeout(function () {
+                searchQuery = value;
+                applyFilters();
+            }, 200);
         });
     }
 
