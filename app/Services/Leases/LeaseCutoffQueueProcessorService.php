@@ -712,6 +712,28 @@ class LeaseCutoffQueueProcessorService
 
     private function markWaiting(LeaseCutoffQueue $item, string $eventType, string $reason, ?float $speed, ?string $uiStatus): void
     {
+        /**
+         * Un rallumage après pardon en cours de confirmation (queue.status déjà
+         * COMMAND_SENT, history.status REACTIVATION_REQUESTED_AFTER_FORGIVENESS)
+         * ne doit JAMAIS transiter par ce chemin générique de coupure : ça
+         * écraserait son statut (queue ET history) par WAITING_STOP, et le
+         * garde $isReactivationConfirmation du passage suivant ne le
+         * reconnaîtrait plus comme un rallumage — la ligne retomberait dans le
+         * flux de coupure normal et pourrait recouper un véhicule qu'un
+         * employé vient de pardonner. Trouvé et corrigé le 21/08/2026 (état
+         * GPS indisponible pendant la confirmation d'un rallumage = seul point
+         * d'entrée non protégé).
+         */
+        if ($item->history?->status === 'REACTIVATION_REQUESTED_AFTER_FORGIVENESS') {
+            $this->markReactivationStillPending(
+                $item,
+                'UNKNOWN',
+                (int) env('LEASE_CUTOFF_CONFIRM_MAX_CHECKS', self::DEFAULT_CONFIRM_MAX_CHECKS)
+            );
+
+            return;
+        }
+
         $delayMinutes = (int) env('LEASE_CUTOFF_WAITING_DELAY_MINUTES', self::DEFAULT_WAITING_DELAY_MINUTES);
 
         DB::transaction(function () use ($item, $eventType, $reason, $speed, $uiStatus, $delayMinutes) {
