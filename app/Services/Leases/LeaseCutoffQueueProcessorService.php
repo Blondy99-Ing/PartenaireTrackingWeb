@@ -766,7 +766,19 @@ class LeaseCutoffQueueProcessorService
             $item->update([
                 'status' => 'COMMAND_SENT',
                 'last_checked_at' => now(),
-                'retry_count' => $item->retry_count + 1,
+                /**
+                 * Repart de zéro, pas +1 : retry_count compte les cycles de
+                 * confirmation POST-envoi (borné par $maxChecks côté
+                 * traitement), un compteur distinct des cycles d'attente
+                 * PRE-envoi (véhicule en mouvement/hors ligne) qui l'ont
+                 * incrémenté jusqu'ici via markWaiting(). Sans ce reset, un
+                 * véhicule ayant mis du temps à s'arrêter arrivait à l'envoi
+                 * avec un compteur déjà au maximum, et la toute première
+                 * vérification post-envoi déclarait l'échec de confirmation
+                 * sans avoir laissé la vraie fenêtre de ~20 min s'écouler.
+                 * Trouvé et corrigé le 21/08/2026.
+                 */
+                'retry_count' => 0,
                 'next_check_at' => now()->addSeconds($delay),
             ]);
 
