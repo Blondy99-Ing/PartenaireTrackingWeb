@@ -791,7 +791,19 @@ class LeaseForgivenessService
                 $queueUpdate = [
                     'status' => $queueStatus,
                     'last_checked_at' => now(),
-                    'retry_count' => $queueStatus === 'COMMAND_SENT' ? $queue->retry_count + 1 : $queue->retry_count,
+                    /**
+                     * Repart de zéro, pas +1 : cette ligne de queue peut être
+                     * réutilisée depuis une PRÉCÉDENTE coupure (retry_count déjà
+                     * élevé par ses propres cycles d'attente/confirmation), mais
+                     * la demande de rallumage ouvre une toute NOUVELLE fenêtre de
+                     * confirmation (~20 min, vérifiée par
+                     * LeaseCutoffQueueProcessorService::markReactivationStillPending()).
+                     * Sans ce reset, le compteur hérité de l'ancienne coupure
+                     * pouvait déjà dépasser le seuil au moment même de la
+                     * demande de rallumage — même bug que markCommandSent()
+                     * pour la coupure, corrigé le 21/08/2026.
+                     */
+                    'retry_count' => $queueStatus === 'COMMAND_SENT' ? 0 : $queue->retry_count,
                     'next_check_at' => $queueNextCheckAt,
                     'history_id' => $history->id,
                 ];
@@ -834,7 +846,8 @@ class LeaseForgivenessService
                     'history_id' => $history->id,
                     'scheduled_for' => now(),
                     'status' => $queueStatus,
-                    'retry_count' => 1,
+                    // Nouvelle ligne, aucun cycle de confirmation encore effectué.
+                    'retry_count' => 0,
                     'last_checked_at' => now(),
                     'next_check_at' => $queueNextCheckAt,
                 ]);
