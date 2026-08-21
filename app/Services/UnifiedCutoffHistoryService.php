@@ -100,29 +100,70 @@ class UnifiedCutoffHistoryService
         return $partner->voitures()->pluck('voitures.id');
     }
 
+    /**
+     * Pagination "id d'abord, hydratation ensuite" : plutôt que de charger
+     * jusqu'à 500 lignes par source en mémoire puis fusionner/couper (ancien
+     * comportement, qui rendait tout événement plus ancien que le 500e le
+     * plus récent définitivement invisible — la flotte a des milliers
+     * d'événements réels), on ne récupère d'abord qu'une page d'(id, source)
+     * via UNION + ORDER BY + LIMIT/OFFSET côté SQL, puis on hydrate
+     * uniquement CES lignes-là avec leurs relations. Jamais plus qu'une page
+     * en mémoire, quelle que soit la taille réelle de l'historique.
+     * Bug trouvé et corrigé le 21/08/2026.
+     */
     public function getMergedHistory(User $actor, array $filters): LengthAwarePaginator
     {
         $partner = $this->resolveTenantPartner($actor);
         $vehicleIds = $this->tenantVehicleIds($partner);
         $perPage = (int) ($filters['per_page'] ?? 20);
-        $page = (int) ($filters['page'] ?? 1);
+        $page = max(1, (int) ($filters['page'] ?? 1));
 
-        $rows = collect();
+        $canAuto = $actor->hasPermission('lease.view') || is_null($actor->partner_id);
+        $canManual = $actor->hasPermission('engine.control') || is_null($actor->partner_id);
 
-        if ($actor->hasPermission('lease.view') || is_null($actor->partner_id)) {
-            $rows = $rows->concat($this->fetchAutomaticRows($partner, $filters));
-        }
+        $source = trim((string) ($filters['source'] ?? ''));
+        $includeAuto = $canAuto && $source !== 'MANUEL';
+        $includeManual = $canManual && $source !== 'AUTOMATIQUE' && $vehicleIds->isNotEmpty();
 
-        if ($actor->hasPermission('engine.control') || is_null($actor->partner_id)) {
-            $rows = $rows->concat($this->fetchManualRows($vehicleIds, $filters));
-        }
+        $autoIndexQuery = $includeAuto
+            ? $this->automaticBaseQuery($partner, $filters)
+                ->selectRaw("id, scheduled_for as ts, 'AUTOMATIQUE' as src")
+            : null;
 
-        $rows = $rows->sortByDesc('timestamp')->values();
+        $manualIndexQuery = $includeManual
+            ? $this->manualBaseQuery($vehicleIds, $filters)
+                ->selectRaw("id, created_at as ts, 'MANUEL' as src")
+            : null;
 
-        $total = $rows->count();
-        $slice = $rows->slice(($page - 1) * $perPage, $perPage)->values();
+        $total = ($autoIndexQuery ? (clone $autoIndexQuery)->count() : 0)
+            + ($manualIndexQuery ? (clone $manualIndexQuery)->count() : 0);
 
-        return new Paginator($slice, $total, $perPage, $page, [
+        /**
+         * Tiebreaker 'id' indispensable : plusieurs contrats sœurs partagent
+         * souvent EXACTEMENT le même timestamp (pardon en cascade sur un même
+         * véhicule) — sans lui, ORDER BY sur un timestamp non-unique avec
+         * LIMIT/OFFSET peut sauter ou dupliquer des lignes d'une page à l'autre.
+         */
+        $offset = ($page - 1) * $perPage;
+        $pageIndex = match (true) {
+            $autoIndexQuery && $manualIndexQuery => $manualIndexQuery->union($autoIndexQuery)
+                ->orderByDesc('ts')->orderBy('src')->orderByDesc('id')
+                ->offset($offset)->limit($perPage)->get(),
+            (bool) $autoIndexQuery => $autoIndexQuery->orderByDesc('ts')->orderByDesc('id')->offset($offset)->limit($perPage)->get(),
+            (bool) $manualIndexQuery => $manualIndexQuery->orderByDesc('ts')->orderByDesc('id')->offset($offset)->limit($perPage)->get(),
+            default => collect(),
+        };
+
+        $autoIds = $pageIndex->where('src', 'AUTOMATIQUE')->pluck('id');
+        $manualIds = $pageIndex->where('src', 'MANUEL')->pluck('id');
+
+        $rows = collect()
+            ->concat($this->fetchAutomaticRows($partner, $filters, $autoIds))
+            ->concat($this->fetchManualRows($vehicleIds, $filters, $manualIds))
+            ->sortByDesc('timestamp')
+            ->values();
+
+        return new Paginator($rows, $total, $perPage, $page, [
             'path' => request()->url(),
             'query' => request()->query(),
         ]);
@@ -173,20 +214,22 @@ class UnifiedCutoffHistoryService
     }
 
     /**
+     * Hydrate UNIQUEMENT les ids déjà sélectionnés par getMergedHistory()
+     * (voir son commentaire) — jamais un lot arbitraire tronqué à 500.
+     *
      * @return Collection<int, array>
      */
-    private function fetchAutomaticRows(User $partner, array $filters): Collection
+    private function fetchAutomaticRows(User $partner, array $filters, Collection $ids): Collection
     {
-        $source = trim((string) ($filters['source'] ?? ''));
-        if ($source === 'MANUEL') {
+        if ($ids->isEmpty()) {
             return collect();
         }
 
-        $query = $this->automaticBaseQuery($partner, $filters)->with(['vehicle', 'contractLink', 'events']);
+        $query = $this->automaticBaseQuery($partner, $filters)
+            ->whereIn('id', $ids)
+            ->with(['vehicle', 'contractLink', 'events']);
 
-        return $query->orderByDesc('scheduled_for')
-            ->limit(500)
-            ->get()
+        return $query->get()
             ->map(function (LeaseCutoffHistory $h) {
                 $timestamp = $h->cutoff_executed_at ?? $h->cutoff_requested_at ?? $h->scheduled_for ?? $h->detected_at;
                 $direction = in_array($h->status, self::AUTO_ALLUMAGE_STATUSES, true) ? 'ALLUMAGE' : 'COUPURE';
@@ -229,16 +272,19 @@ class UnifiedCutoffHistoryService
     }
 
     /**
+     * Hydrate UNIQUEMENT les ids déjà sélectionnés par getMergedHistory()
+     * (voir son commentaire) — jamais un lot arbitraire tronqué à 500.
+     *
      * @return Collection<int, array>
      */
-    private function fetchManualRows(Collection $vehicleIds, array $filters): Collection
+    private function fetchManualRows(Collection $vehicleIds, array $filters, Collection $ids): Collection
     {
-        $source = trim((string) ($filters['source'] ?? ''));
-        if ($source === 'AUTOMATIQUE' || $vehicleIds->isEmpty()) {
+        if ($ids->isEmpty() || $vehicleIds->isEmpty()) {
             return collect();
         }
 
         $query = $this->manualBaseQuery($vehicleIds, $filters)
+            ->whereIn('id', $ids)
             ->with([
                 'vehicule',
                 'vehicule.chauffeurActuelPartner.chauffeur:id,nom,prenom',
@@ -246,9 +292,7 @@ class UnifiedCutoffHistoryService
                 'employe:id,nom,prenom',
             ]);
 
-        return $query->orderByDesc('created_at')
-            ->limit(500)
-            ->get()
+        return $query->get()
             ->map(function (Commande $c) {
                 $direction = $c->type_commande === 'ALLUMAGE' ? 'ALLUMAGE' : 'COUPURE';
                 $actor = $c->user

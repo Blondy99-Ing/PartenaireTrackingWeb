@@ -70,10 +70,6 @@
         </div>
     @endforeach
 </div>
-<p class="text-xs text-secondary">
-    <i class="fas fa-circle-info mr-1"></i>
-    Les chiffres ci-dessus comptent tous les événements correspondant aux filtres. La liste ci-dessous se limite aux 500 événements les plus récents par origine — filtrez par période pour consulter un historique plus ancien.
-</p>
 
 {{-- Filtres --}}
 <div class="ui-card p-4">
