@@ -644,11 +644,24 @@ private function extractRows(mixed $response): array
         ]);
 
         try {
-            $payments = $this->fetchPayments([
-                // On ne filtre pas par date_paiement ici : un lease d'une échéance donnée
-                // peut être payé à une date différente. On limite seulement aux paiements non annulés.
-                'est_annule' => 'false',
-            ]);
+            /**
+             * Si la requête de leases est elle-même bornée par échéance (cas
+             * par défaut désormais : LeaseController::resolveLeaseFilters()
+             * limite à l'échéance du jour), on borne aussi les paiements —
+             * avec une marge de 90 jours avant/après pour couvrir les
+             * paiements en avance ou en retard — au lieu de tout
+             * l'historique jamais enregistré, qui ne fait que grossir avec
+             * le temps et ralentissait chaque chargement de page.
+             */
+            $paymentsQuery = ['est_annule' => 'false'];
+            $paymentsWindow = $this->derivePaymentsDateWindow($query);
+
+            if ($paymentsWindow) {
+                $paymentsQuery['date_paiement_start'] = $paymentsWindow[0];
+                $paymentsQuery['date_paiement_end'] = $paymentsWindow[1];
+            }
+
+            $payments = $this->fetchPayments($paymentsQuery);
         } catch (\Throwable $e) {
             report($e);
 
@@ -737,6 +750,36 @@ private function extractRows(mixed $response): array
             'has_next'     => false,
             'has_previous' => false,
         ];
+    }
+
+    /**
+     * Déduit une fenêtre [début, fin] pour filtrer les paiements à partir des
+     * bornes d'échéance déjà appliquées à la requête /leases/, avec 90 jours
+     * de marge de chaque côté (un paiement peut arriver en avance ou très en
+     * retard par rapport à l'échéance d'origine). Retourne null si la
+     * requête de leases n'est pas bornée par date (cas "toutes les dates") :
+     * dans ce cas les paiements restent volontairement non filtrés aussi.
+     */
+    private function derivePaymentsDateWindow(array $leaseQuery): ?array
+    {
+        $dates = array_filter([
+            $leaseQuery['date_echeance'] ?? null,
+            $leaseQuery['date_echeance_start'] ?? null,
+            $leaseQuery['date_echeance_end'] ?? null,
+        ]);
+
+        if (empty($dates)) {
+            return null;
+        }
+
+        $parsed = collect($dates)
+            ->map(fn ($d) => \Illuminate\Support\Carbon::parse((string) $d))
+            ->sort();
+
+        $start = $parsed->first()->copy()->subDays(90)->toDateString();
+        $end = $parsed->last()->copy()->addDays(90)->toDateString();
+
+        return [$start, $end];
     }
 
     /**

@@ -1460,7 +1460,7 @@ input:checked + .fl-slider:before {
         <div class="filter-pill-wrap" id="wrap-date">
             <button class="filter-pill-btn" id="btn-date" onclick="window.toggleDrop('date')">
                 <i class="fas fa-calendar-alt" style="font-size:.6rem;"></i>
-                <span id="date-label">Période</span>
+                <span id="date-label">Aujourd'hui</span>
                 <i class="fas fa-chevron-down fchev"></i>
             </button>
             <div class="filter-dropdown-menu" id="drop-date" style="min-width:240px;">
@@ -1474,13 +1474,13 @@ input:checked + .fl-slider:before {
 
                 <div class="fdrop-label">Période rapide</div>
 
-                <div class="fdrop-item selected" data-filter="date" data-val="all" onclick="window.setFilter('date','all',this)">
+                <div class="fdrop-item" data-filter="date" data-val="all" onclick="window.setFilter('date','all',this)">
                     <i class="fas fa-infinity" style="font-size:.65rem;width:12px;"></i>
                     Toutes dates
                     <i class="fas fa-check fcheck"></i>
                 </div>
 
-                <div class="fdrop-item" data-filter="date" data-val="today" onclick="window.setFilter('date','today',this)">
+                <div class="fdrop-item selected" data-filter="date" data-val="today" onclick="window.setFilter('date','today',this)">
                     <i class="fas fa-sun" style="font-size:.65rem;width:12px;"></i>
                     Aujourd'hui
                     <i class="fas fa-check fcheck"></i>
@@ -1868,15 +1868,37 @@ input:checked + .fl-slider:before {
     const LEASE_DATA_REFRESH_URL = @json(route('lease.data'));
 
     /*
-     * Actualisation ciblée après une action (paiement, pardon, coupure) :
-     * on relit juste les données depuis le serveur et on redessine le
-     * tableau/les KPI, sans recharger toute la page — ce qui gardait avant
-     * les filtres, le tri, la pagination et la position de défilement du
-     * partenaire, au lieu de tout remettre à zéro à chaque clic.
+     * Portée de date actuellement chargée côté serveur — reflète toujours
+     * ce que LeaseController::resolveLeaseFilters() a effectivement utilisé
+     * (par défaut : l'échéance du jour seule, voir activeFilters.date plus
+     * haut). Un refresh après action (paiement/pardon/coupure) sans
+     * changement de filtre doit rester sur CETTE portée, pas revenir au
+     * défaut serveur — sinon changer de date puis payer une échéance
+     * ferait disparaître la ligne qu'on vient de traiter.
      */
-    async function refreshLeaseData() {
+    let currentDateParams = { date_echeance: new Date().toISOString().slice(0, 10) };
+
+    /*
+     * Actualisation ciblée après une action (paiement, pardon, coupure) ou
+     * un changement du filtre de date : on relit juste les données depuis
+     * le serveur et on redessine le tableau/les KPI, sans recharger toute
+     * la page — ce qui gardait avant les filtres, le tri, la pagination et
+     * la position de défilement du partenaire, au lieu de tout remettre à
+     * zéro à chaque clic.
+     *
+     * dateParams (optionnel) : nouvelle portée de date à charger (et à
+     * mémoriser pour les prochains refresh implicites). Omis => on relit
+     * la portée déjà active.
+     */
+    async function refreshLeaseData(dateParams) {
+        if (dateParams) {
+            currentDateParams = dateParams;
+        }
+
         try {
-            const res = await fetch(LEASE_DATA_REFRESH_URL, {
+            const qs = new URLSearchParams(currentDateParams).toString();
+            const url = qs ? `${LEASE_DATA_REFRESH_URL}?${qs}` : LEASE_DATA_REFRESH_URL;
+            const res = await fetch(url, {
                 headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
                 credentials: 'same-origin',
                 cache: 'no-store',
@@ -1929,7 +1951,9 @@ input:checked + .fl-slider:before {
     let activeFilters = {
         statut: 'all',
         coupure: 'all',
-        date: 'all',
+        // Correspond au chargement initial cote serveur (LeaseController::resolveLeaseFilters) :
+        // par defaut, seule l'echeance du jour est chargee, pas tout l'historique.
+        date: 'today',
         // 'echeance' = date à laquelle l'échéance devait être payée.
         // 'paiement' = date à laquelle l'échéance a réellement été payée
         // (une échéance impayée n'a pas de date de paiement : elle sort
@@ -2005,6 +2029,48 @@ input:checked + .fl-slider:before {
     };
 
     const yearStart = () => `${new Date().getFullYear()}-01-01`;
+
+    /*
+     * Traduit une préselection de date (today/yesterday/week/month/year/
+     * specific/range/all) en paramètres pour LEASE_DATA_REFRESH_URL, avec
+     * exactement la même logique que le filtre client existant
+     * (rowDate(r) >= weekStart(), etc.) — pour que la portée rechargée
+     * depuis le serveur corresponde à ce que l'utilisateur voit ensuite.
+     * Retourne null quand la sélection n'est pas encore complète (ex.
+     * "Date spécifique" cliqué mais aucune date choisie) : dans ce cas on
+     * ne relance aucun appel serveur.
+     */
+    function dateFilterToServerParams(val) {
+        switch (val) {
+            case 'all':
+                return { all_dates: 1 };
+            case 'today':
+                return { date_echeance: today() };
+            case 'yesterday':
+                return { date_echeance: yesterday() };
+            case 'week':
+                return { date_echeance_start: weekStart() };
+            case 'month':
+                return { date_echeance_start: monthStart() };
+            case 'year':
+                return { date_echeance_start: yearStart() };
+            case 'specific': {
+                const v = document.getElementById('filterDateSpecific')?.value;
+                return v ? { date_echeance: v } : null;
+            }
+            case 'range': {
+                const from = document.getElementById('filterDateFrom')?.value;
+                const to = document.getElementById('filterDateTo')?.value;
+                if (!from && !to) return null;
+                const params = {};
+                if (from) params.date_echeance_start = from;
+                if (to) params.date_echeance_end = to;
+                return params;
+            }
+            default:
+                return null;
+        }
+    }
 
     function getCsrfToken() {
         const meta = document.querySelector('meta[name="csrf-token"]');
@@ -2354,7 +2420,8 @@ input:checked + .fl-slider:before {
     function hasActiveFilters() {
         return activeFilters.statut !== 'all'
             || activeFilters.coupure !== 'all'
-            || activeFilters.date !== 'all'
+            || activeFilters.date !== 'today'
+            || activeFilters.dateBasis !== 'echeance'
             || activeFilters.type_contrat !== 'all'
             || activeFilters.methode !== 'all'
             || searchQuery.trim() !== '';
@@ -3045,7 +3112,7 @@ input:checked + .fl-slider:before {
         }
     });
 
-    window.setFilter = function (name, val, el) {
+    window.setFilter = async function (name, val, el) {
         activeFilters[name] = val;
 
         const menu = document.getElementById('drop-' + name);
@@ -3053,6 +3120,8 @@ input:checked + .fl-slider:before {
         menu?.querySelectorAll('.fdrop-item').forEach(item => {
             item.classList.toggle('selected', item.dataset.val === val);
         });
+
+        let handledByRefresh = false;
 
         if (name === 'date') {
             const specInput = document.getElementById('date-specific-input');
@@ -3082,10 +3151,28 @@ input:checked + .fl-slider:before {
             if (label) {
                 label.textContent = labelMap[val] || 'Période';
             }
+
+            /*
+             * "specific"/"range" attendent une date saisie dans leur champ
+             * (déclenché par applyDateFilter()) avant de savoir quoi
+             * recharger — pour les autres préréglages, la portée est
+             * connue immédiatement : direction serveur, pas de simple
+             * filtre client sur des données potentiellement absentes.
+             */
+            if (activeFilters.dateBasis === 'echeance' && val !== 'specific' && val !== 'range') {
+                const params = dateFilterToServerParams(val);
+                if (params) {
+                    handledByRefresh = true;
+                    currentPage = 1;
+                    await refreshLeaseData(params);
+                }
+            }
         }
 
-        currentPage = 1;
-        applyFilters();
+        if (!handledByRefresh) {
+            currentPage = 1;
+            applyFilters();
+        }
     };
 
     window.setQuickSelectFilter = function (name, val) {
@@ -3094,12 +3181,22 @@ input:checked + .fl-slider:before {
         applyFilters();
     };
 
-    window.applyDateFilter = function () {
+    window.applyDateFilter = async function () {
         currentPage = 1;
+
+        if (activeFilters.dateBasis === 'echeance' && (activeFilters.date === 'specific' || activeFilters.date === 'range')) {
+            const params = dateFilterToServerParams(activeFilters.date);
+            if (params) {
+                await refreshLeaseData(params);
+                return;
+            }
+        }
+
         applyFilters();
     };
 
-    window.setDateBasis = function (basis) {
+    window.setDateBasis = async function (basis) {
+        const previousBasis = activeFilters.dateBasis;
         activeFilters.dateBasis = basis;
 
         document.querySelectorAll('.fdate-basis-btn').forEach(btn => {
@@ -3114,6 +3211,26 @@ input:checked + .fl-slider:before {
         }
 
         currentPage = 1;
+
+        /*
+         * /leases/ ne sait filtrer que par date d'échéance, jamais par date
+         * de paiement (non documenté côté API) : un paiement d'aujourd'hui
+         * peut concerner une échéance de n'importe quelle date passée. Pas
+         * moyen de borner la requête serveur ici — on charge donc tout
+         * l'historique le temps que ce mode reste actif, et on revient à
+         * la portée d'échéance choisie en repassant sur "Échéance".
+         */
+        if (basis === 'paiement' && previousBasis !== 'paiement') {
+            await refreshLeaseData({ all_dates: 1 });
+            return;
+        }
+
+        if (basis === 'echeance' && previousBasis === 'paiement') {
+            const params = dateFilterToServerParams(activeFilters.date) || { date_echeance: today() };
+            await refreshLeaseData(params);
+            return;
+        }
+
         applyFilters();
     };
 
@@ -3172,8 +3289,9 @@ input:checked + .fl-slider:before {
             });
         }
 
-        if (activeFilters.date !== 'all') {
+        if (activeFilters.date !== 'today' || activeFilters.dateBasis !== 'echeance') {
             const labels = {
+                all: 'Toutes dates',
                 today: "Aujourd'hui",
                 yesterday: 'Hier',
                 week: 'Cette semaine',
@@ -3206,13 +3324,43 @@ input:checked + .fl-slider:before {
         `).join('');
     }
 
-    window.clearFilter = function (key) {
+    window.clearFilter = async function (key) {
         if (key === 'search') {
             searchQuery = '';
             const input = document.getElementById('leaseSearch');
 
             if (input) {
                 input.value = '';
+            }
+        } else if (key === 'date') {
+            // "Effacer" le filtre de date revient au défaut (échéance du
+            // jour), pas à "toutes les dates" — voir resetAllFilters().
+            const scopeNeedsReload = activeFilters.dateBasis === 'paiement' || activeFilters.date !== 'today';
+            activeFilters.date = 'today';
+            activeFilters.dateBasis = 'echeance';
+
+            const menu = document.getElementById('drop-date');
+            menu?.querySelectorAll('.fdrop-item').forEach(item => {
+                item.classList.toggle('selected', item.dataset.val === 'today');
+            });
+
+            document.querySelectorAll('.fdate-basis-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.dateBasis === 'echeance');
+            });
+            const basisHint = document.getElementById('date-basis-hint');
+            if (basisHint) basisHint.textContent = 'Date à laquelle l’échéance devait être payée.';
+
+            const label = document.getElementById('date-label');
+            if (label) label.textContent = "Aujourd'hui";
+
+            const specInput = document.getElementById('date-specific-input');
+            const rangeInput = document.getElementById('date-range-inputs');
+            if (specInput) specInput.style.display = 'none';
+            if (rangeInput) rangeInput.style.display = 'none';
+
+            if (scopeNeedsReload) {
+                await refreshLeaseData({ date_echeance: today() });
+                return;
             }
         } else if (activeFilters[key] !== undefined) {
             activeFilters[key] = 'all';
@@ -3223,32 +3371,13 @@ input:checked + .fl-slider:before {
             });
 
             if (key === 'type_contrat') {
-            activeFilters.type_contrat = 'all';
-            const typeSelect = document.getElementById('contractTypeFilter');
-            if (typeSelect) typeSelect.value = 'all';
-        }
+                const typeSelect = document.getElementById('contractTypeFilter');
+                if (typeSelect) typeSelect.value = 'all';
+            }
 
-        if (key === 'methode') {
-            activeFilters.methode = 'all';
-            const methodSelect = document.getElementById('paymentMethodFilter');
-            if (methodSelect) methodSelect.value = 'all';
-        }
-
-        if (key === 'date') {
-                activeFilters.dateBasis = 'echeance';
-                document.querySelectorAll('.fdate-basis-btn').forEach(btn => {
-                    btn.classList.toggle('active', btn.dataset.dateBasis === 'echeance');
-                });
-                const basisHint = document.getElementById('date-basis-hint');
-                if (basisHint) basisHint.textContent = 'Date à laquelle l’échéance devait être payée.';
-
-                const label = document.getElementById('date-label');
-                if (label) label.textContent = 'Période';
-
-                const specInput = document.getElementById('date-specific-input');
-                const rangeInput = document.getElementById('date-range-inputs');
-                if (specInput) specInput.style.display = 'none';
-                if (rangeInput) rangeInput.style.display = 'none';
+            if (key === 'methode') {
+                const methodSelect = document.getElementById('paymentMethodFilter');
+                if (methodSelect) methodSelect.value = 'all';
             }
         }
 
@@ -3265,7 +3394,8 @@ input:checked + .fl-slider:before {
         const hasFilters =
             activeFilters.statut !== 'all' ||
             activeFilters.coupure !== 'all' ||
-            activeFilters.date !== 'all' ||
+            activeFilters.date !== 'today' ||
+            activeFilters.dateBasis !== 'echeance' ||
             activeFilters.type_contrat !== 'all' ||
             activeFilters.methode !== 'all' ||
             searchQuery.trim() !== '';
@@ -3273,11 +3403,15 @@ input:checked + .fl-slider:before {
         btn.style.display = hasFilters ? 'inline-flex' : 'none';
     }
 
-    window.resetAllFilters = function () {
+    window.resetAllFilters = async function () {
+        const scopeNeedsReload = activeFilters.dateBasis === 'paiement' || activeFilters.date !== 'today';
+
         activeFilters = {
             statut: 'all',
             coupure: 'all',
-            date: 'all',
+            // Revient à la portée par défaut (l'échéance du jour), pas à
+            // "toutes les dates" — cohérent avec le chargement initial.
+            date: 'today',
             dateBasis: 'echeance',
             type_contrat: 'all',
             methode: 'all',
@@ -3290,7 +3424,8 @@ input:checked + .fl-slider:before {
 
         document.querySelectorAll('.filter-dropdown-menu').forEach(menu => {
             menu.querySelectorAll('.fdrop-item').forEach(item => {
-                item.classList.toggle('selected', item.dataset.val === 'all');
+                const defaultVal = menu.id === 'drop-date' ? 'today' : 'all';
+                item.classList.toggle('selected', item.dataset.val === defaultVal);
             });
         });
 
@@ -3301,7 +3436,7 @@ input:checked + .fl-slider:before {
         if (basisHint) basisHint.textContent = 'Date à laquelle l’échéance devait être payée.';
 
         const label = document.getElementById('date-label');
-        if (label) label.textContent = 'Période';
+        if (label) label.textContent = "Aujourd'hui";
 
         const specInput = document.getElementById('date-specific-input');
         const rangeInput = document.getElementById('date-range-inputs');
@@ -3313,6 +3448,17 @@ input:checked + .fl-slider:before {
 
         const methodSelect = document.getElementById('paymentMethodFilter');
         if (methodSelect) methodSelect.value = 'all';
+
+        /*
+         * Ne recharge depuis le serveur que si la portée réellement chargée
+         * a changé (on venait du mode "paiement", qui charge tout
+         * l'historique) — sinon on est déjà sur l'échéance du jour, un
+         * simple re-filtre client suffit.
+         */
+        if (scopeNeedsReload) {
+            await refreshLeaseData({ date_echeance: today() });
+            return;
+        }
 
         applyFilters();
     };

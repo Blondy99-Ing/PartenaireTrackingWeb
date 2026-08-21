@@ -44,23 +44,7 @@ class LeaseController extends Controller
             $contractTypes = $leaseApiService->fetchContractTypes();
             $contracts = $leaseApiService->fetchContracts();
 
-            /**
-             * La page peut utiliser les filtres documentés par /leases/.
-             * Les filtres UI restent aussi disponibles côté navigateur pour une
-             * navigation rapide sans rechargement.
-             */
-            $leaseFilters = $request->only([
-                'search',
-                'statut',
-                'statut__in',
-                'date_echeance',
-                'date_echeance_start',
-                'date_echeance_end',
-                'created_at',
-                'start_date',
-                'end_date',
-                'page',
-            ]);
+            $leaseFilters = $this->resolveLeaseFilters($request);
 
             $leaseResult     = $leaseApiService->fetchLeases(null, $contracts, $leaseFilters);
             $leaseData       = $leaseResult['data'];
@@ -141,18 +125,7 @@ class LeaseController extends Controller
         try {
             $contracts = $leaseApiService->fetchContracts();
 
-            $leaseFilters = $request->only([
-                'search',
-                'statut',
-                'statut__in',
-                'date_echeance',
-                'date_echeance_start',
-                'date_echeance_end',
-                'created_at',
-                'start_date',
-                'end_date',
-                'page',
-            ]);
+            $leaseFilters = $this->resolveLeaseFilters($request);
 
             $leaseResult = $leaseApiService->fetchLeases(null, $contracts, $leaseFilters);
             $leaseData = $leaseResult['data'];
@@ -180,6 +153,43 @@ class LeaseController extends Controller
                     : 'Impossible de rafraîchir les données pour le moment.',
             ], 500);
         }
+    }
+
+    /**
+     * Filtres transmis à /leases/, partagés entre index() et refreshData().
+     *
+     * Par défaut (aucun filtre de date fourni), on ne charge que l'échéance
+     * du jour au lieu de l'historique complet : sans ça, chaque chargement
+     * de page récupérait TOUTES les échéances jamais enregistrées (~10 000+
+     * lignes), ce qui était la cause principale de la lenteur de cette page.
+     * Le front peut explicitement demander tout l'historique via `all_dates=1`
+     * (utilisé quand le partenaire choisit "Toutes les dates" ou bascule sur
+     * le filtre par date de paiement, qui doit chercher sur tout l'historique).
+     */
+    private function resolveLeaseFilters(Request $request): array
+    {
+        $filters = $request->only([
+            'search',
+            'statut',
+            'statut__in',
+            'date_echeance',
+            'date_echeance_start',
+            'date_echeance_end',
+            'created_at',
+            'start_date',
+            'end_date',
+            'page',
+        ]);
+
+        $hasDateFilter = ! empty($filters['date_echeance'])
+            || ! empty($filters['date_echeance_start'])
+            || ! empty($filters['date_echeance_end']);
+
+        if (! $hasDateFilter && ! $request->boolean('all_dates')) {
+            $filters['date_echeance'] = now(config('app.display_timezone', 'Africa/Douala'))->toDateString();
+        }
+
+        return $filters;
     }
 
     /**
