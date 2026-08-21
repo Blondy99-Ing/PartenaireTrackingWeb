@@ -1890,10 +1890,28 @@ input:checked + .fl-slider:before {
      * mémoriser pour les prochains refresh implicites). Omis => on relit
      * la portée déjà active.
      */
+    /*
+     * Estompe le tableau (au lieu de le vider brutalement) pendant qu'un
+     * changement de filtre de date recharge les données depuis le serveur
+     * — sans ça, l'échange soudain de toutes les lignes donnait
+     * l'impression d'un rechargement de page complet, sans aucun signe
+     * qu'un chargement était en cours.
+     */
+    function setLeaseTableLoading(isLoading) {
+        const table = document.getElementById('leaseTable');
+        if (table) {
+            table.style.opacity = isLoading ? '0.45' : '';
+            table.style.pointerEvents = isLoading ? 'none' : '';
+            table.style.transition = 'opacity .15s ease';
+        }
+    }
+
     async function refreshLeaseData(dateParams) {
         if (dateParams) {
             currentDateParams = dateParams;
         }
+
+        setLeaseTableLoading(true);
 
         try {
             const qs = new URLSearchParams(currentDateParams).toString();
@@ -1931,6 +1949,8 @@ input:checked + .fl-slider:before {
                 window.showToast('Affichage non actualisé', 'Rechargez la page pour voir les dernières données.', 'warning');
             }
             return false;
+        } finally {
+            setLeaseTableLoading(false);
         }
     }
 
