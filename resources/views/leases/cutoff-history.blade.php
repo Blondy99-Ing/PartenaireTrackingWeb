@@ -1241,9 +1241,11 @@
                         default          => 'ch-badge-pending',
                     };
 
-                    {{-- WAITING_STOP recouvre quatre raisons d'attente très différentes,
-                         toutes écrasées sous un seul statut. ignition_state, déjà écrit
-                         sur la ligne, permet de dire laquelle sans déplier le journal. --}}
+                    /**
+                     * WAITING_STOP recouvre quatre raisons d'attente très différentes,
+                     * toutes écrasées sous un seul statut. ignition_state, déjà écrit
+                     * sur la ligne, permet de dire laquelle sans déplier le journal.
+                     */
                     $statusLabel = $history->status === 'WAITING_STOP'
                         ? match((string) $history->ignition_state) {
                             'OFFLINE'       => 'Programmée — GPS hors ligne',
