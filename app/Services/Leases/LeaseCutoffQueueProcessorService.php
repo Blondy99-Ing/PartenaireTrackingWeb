@@ -46,6 +46,14 @@ class LeaseCutoffQueueProcessorService
      */
     private const MAX_ITEMS_PER_RUN = 300;
 
+    /**
+     * Seuil d'alerte sur la durée d'un passage. Volontairement très en dessous
+     * de l'expiration du verrou anti-chevauchement (30 min, routes/console.php)
+     * pour laisser le temps de réagir : un passage dure normalement moins d'une
+     * minute.
+     */
+    private const RUN_DURATION_ALERT_SECONDS = 240;
+
     public function __construct(
         private readonly LeaseApiClientService $leaseApi,
         private readonly GpsControlService $gps,
@@ -56,6 +64,16 @@ class LeaseCutoffQueueProcessorService
 
     public function process(?string $dateEcheance = null): array
     {
+        /**
+         * Mesure de durée du passage : c'est le signal d'alerte de l'anomalie
+         * du 21/08/2026 (voir le commentaire du verrou dans routes/console.php).
+         * Tant qu'un passage reste très en dessous de l'expiration du verrou
+         * anti-chevauchement, deux passages ne peuvent pas se marcher dessus.
+         * Au-delà du seuil d'alerte ci-dessous, on trace un avertissement
+         * explicite AVANT que le scénario ne redevienne possible.
+         */
+        $startedAt = microtime(true);
+
         /**
          * Règle stricte demandée : chaque échéance est traitée indépendamment
          * de celles des jours précédents, sans exception. Sans ce nettoyage,
@@ -493,11 +511,31 @@ class LeaseCutoffQueueProcessorService
             }
         }
 
-        Log::info('[LEASE_CUTOFF_PROCESS] Fin du traitement de queue', array_merge(['target_date_echeance' => $targetDate], compact('processed', 'waiting', 'cancelled', 'failed')));
+        $durationSeconds = round(microtime(true) - $startedAt, 1);
+
+        Log::info('[LEASE_CUTOFF_PROCESS] Fin du traitement de queue', array_merge(
+            ['target_date_echeance' => $targetDate, 'duration_seconds' => $durationSeconds],
+            compact('processed', 'waiting', 'cancelled', 'failed')
+        ));
+
+        /**
+         * Le verrou anti-chevauchement expire à 30 min (routes/console.php).
+         * On alerte bien avant : un passage qui approche cette durée annonce
+         * le retour possible du scénario de doublons du 21/08/2026.
+         */
+        if ($durationSeconds >= self::RUN_DURATION_ALERT_SECONDS) {
+            Log::warning('[LEASE_CUTOFF_PROCESS] Passage anormalement long : risque de chevauchement avec le passage suivant.', [
+                'target_date_echeance' => $targetDate,
+                'duration_seconds' => $durationSeconds,
+                'alert_threshold_seconds' => self::RUN_DURATION_ALERT_SECONDS,
+                'items_traites' => $processed + $waiting + $cancelled + $failed,
+            ]);
+        }
 
         return [
             'success' => true,
             'target_date_echeance' => $targetDate,
+            'duration_seconds' => $durationSeconds,
             'processed' => $processed,
             'waiting' => $waiting,
             'cancelled' => $cancelled,
