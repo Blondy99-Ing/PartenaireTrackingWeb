@@ -254,7 +254,9 @@ class UnifiedCutoffHistoryService
                     'vehicle_label' => $h->vehicle->immatriculation ?? '—',
                     'vehicle_sub' => trim(($h->vehicle->marque ?? '') . ' ' . ($h->vehicle->model ?? '')),
                     'actor' => 'Système automatique',
-                    'action_label' => $this->leaseHistoryService->getStatusLabel($h->status),
+                    // ignition_state précise la raison quand le statut est WAITING_STOP
+                    // (GPS hors ligne / véhicule en circulation / état non vérifiable).
+                    'action_label' => $this->leaseHistoryService->getStatusLabel($h->status, $h->ignition_state),
                     'tone' => $this->leaseHistoryService->getStatusTone($h->status),
                     'reason' => $h->reason,
                     // Détail lease — pour ne pas devoir naviguer vers la page "Historique Coupure" pour ces infos.

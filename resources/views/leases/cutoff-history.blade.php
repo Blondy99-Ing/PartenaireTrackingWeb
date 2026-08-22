@@ -986,6 +986,8 @@
         'COMMAND_SENT'                   => ['label' => 'Commande de coupure envoyée',   'icon' => 'fa-paper-plane',     'color' => '#6d28d9'],
         'COMMAND_PENDING_CONFIRMATION'   => ['label' => 'Attente confirmation moteur',   'icon' => 'fa-hourglass-half',  'color' => '#6d28d9'],
         'CUT_OFF_CONFIRMED'              => ['label' => 'Coupure moteur confirmée',      'icon' => 'fa-check',           'color' => '#047857'],
+        'CUT_REFUSED_FORGIVEN'           => ['label' => 'Coupure bloquée : dossier pardonné', 'icon' => 'fa-shield-halved', 'color' => '#15803d'],
+        'CUT_REFUSED_ALREADY_SENT'       => ['label' => 'Coupure non renvoyée : déjà envoyée', 'icon' => 'fa-shield-halved', 'color' => '#6d28d9'],
         'CANCELLED_PAID'                 => ['label' => 'Annulée : paiement confirmé',   'icon' => 'fa-ban',             'color' => '#4b5563'],
         'CANCELLED_UNVERIFIED'           => ['label' => 'Annulée : sans preuve paiement', 'icon' => 'fa-circle-question', 'color' => '#b45309'],
         'CANCELLED_RULE_MISSING'         => ['label' => 'Annulée : règle absente',       'icon' => 'fa-link-slash',      'color' => '#4b5563'],
@@ -1239,7 +1241,17 @@
                         default          => 'ch-badge-pending',
                     };
 
-                    $statusLabel = match($history->status) {
+                    {{-- WAITING_STOP recouvre quatre raisons d'attente très différentes,
+                         toutes écrasées sous un seul statut. ignition_state, déjà écrit
+                         sur la ligne, permet de dire laquelle sans déplier le journal. --}}
+                    $statusLabel = $history->status === 'WAITING_STOP'
+                        ? match((string) $history->ignition_state) {
+                            'OFFLINE'       => 'Programmée — GPS hors ligne',
+                            'ONLINE_MOVING' => 'Programmée — véhicule en circulation',
+                            'ONLINE_STOPPED' => 'Programmée — mouvement non confirmé',
+                            default         => 'Programmée — état non vérifiable',
+                        }
+                        : match($history->status) {
                         'PENDING'        => 'En attente',
                         'WAITING_STOP'   => 'Attente arrêt',
                         'COMMAND_SENT'   => 'Cmd. envoyée',

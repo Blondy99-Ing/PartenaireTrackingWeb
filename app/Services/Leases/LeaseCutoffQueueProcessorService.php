@@ -54,6 +54,13 @@ class LeaseCutoffQueueProcessorService
      */
     private const RUN_DURATION_ALERT_SECONDS = 240;
 
+    /**
+     * Fenêtre de déduplication du journal. Volontairement juste en dessous du
+     * rythme légitime de vérification (60 s) : tout doublon strictement
+     * identique plus rapproché est un artefact, jamais une vraie vérification.
+     */
+    private const EVENT_DEDUPE_WINDOW_SECONDS = 55;
+
     public function __construct(
         private readonly LeaseApiClientService $leaseApi,
         private readonly GpsControlService $gps,
@@ -430,7 +437,11 @@ class LeaseCutoffQueueProcessorService
 
                     $this->markCommandStillPending(
                         $item,
-                        sprintf('L’ordre de coupure a été envoyé. Le système attend la confirmation que le moteur est bien coupé (tentative %d sur %d).', (int) $item->retry_count, $maxChecks),
+                        // +1 : retry_count est incrémenté PAR markCommandStillPending(),
+                        // donc l'afficher tel quel annonçait « tentative 0 sur 20 » au
+                        // premier passage depuis le correctif 641da66 (qui remet
+                        // justement le compteur à zéro à l'envoi).
+                        sprintf('L’ordre de coupure a été envoyé. Le système attend la confirmation que le moteur est bien coupé (tentative %d sur %d).', (int) $item->retry_count + 1, $maxChecks),
                         $speed,
                         $uiStatus
                     );
@@ -470,6 +481,22 @@ class LeaseCutoffQueueProcessorService
                     $this->markWaiting($item, 'WAITING_MOVING', sprintf('En attente : le véhicule est actuellement en circulation (%s km/h). Par sécurité, la coupure n’est effectuée qu’à l’arrêt complet du véhicule.', $speed !== null ? $speed : '?'), $speed, $uiStatus);
                     $waiting++;
                     Log::info('[LEASE_CUTOFF_PROCESS] Attente : véhicule en mouvement', $ctx);
+                    continue;
+                }
+
+                /**
+                 * DERNIER VERROU avant l'envoi physique de la commande.
+                 * Tout ce qui précède n'est qu'une suite de décisions prises
+                 * sur une copie mémoire chargée en début de passage : ici, et
+                 * seulement ici, on relit la vérité en base sous verrou.
+                 */
+                $refusal = $this->refuseCutBeforeDispatch($item);
+
+                if ($refusal !== null) {
+                    $cancelled++;
+                    Log::warning('[LEASE_CUTOFF_PROCESS] Commande de coupure NON envoyée : garde de sécurité', array_merge($ctx, [
+                        'raison_du_refus' => $refusal,
+                    ]));
                     continue;
                 }
 
@@ -647,6 +674,132 @@ class LeaseCutoffQueueProcessorService
      * permet de retracer après coup pourquoi une coupure prévue à 12h n'a été
      * confirmée qu'à 16h (offline ? en mouvement ? commande en attente ?).
      */
+    /**
+     * Dernier verrou avant l'envoi PHYSIQUE de la commande de coupure.
+     *
+     * `dispatchCutByMacId()` n'a qu'un seul appelant dans tout le pipeline
+     * automatique : c'est donc LE point de passage unique où poser la garde,
+     * plutôt que de la disperser sur chaque branche de décision — c'est la
+     * leçon de l'anomalie du 21/08/2026, où un garde placé trop haut avait
+     * laissé un chemin non protégé.
+     *
+     * Trois refus, tous décidés sur la vérité relue en base sous verrou (et
+     * non sur la copie mémoire chargée en début de passage, qui peut avoir
+     * plusieurs minutes de retard) :
+     *
+     *  1. La ligne n'est plus active : un autre passage l'a traitée entre-temps.
+     *  2. Le dossier a été pardonné : plus AUCUNE coupure ne doit partir
+     *     aujourd'hui pour ce contrat, quel que soit le statut atteint depuis.
+     *     Jusqu'ici, `forgiven_at` n'était lu nulle part dans le code : les
+     *     gardes existants se fiaient au seul statut
+     *     REACTIVATION_REQUESTED_AFTER_FORGIVENESS, et tout dossier portant un
+     *     autre statut de rallumage retombait dans le flux de coupure complet.
+     *  3. Une commande est déjà partie aujourd'hui pour ce dossier : on ne la
+     *     renvoie jamais. La contrainte d'unicité en base (une seule ligne
+     *     d'historique par véhicule + contrat + lease + échéance) fait de
+     *     `cutoff_requested_at` un marqueur fiable de « déjà envoyée ce jour ».
+     *
+     * Chaque refus laisse la ligne de queue dans un état cohérent et écrit un
+     * événement explicite : un blocage doit être lisible dans le journal, jamais
+     * silencieux. Surtout, aucun refus ne laisse la ligne « en l'état » : une
+     * ligne refusée mais toujours éligible serait relue à chaque minute
+     * indéfiniment, avec un appel à l'API Recouvrement à chaque fois — ce qui
+     * recréerait exactement la lenteur à l'origine de l'incident.
+     *
+     * @return string|null null si l'envoi est autorisé, sinon la raison du refus.
+     */
+    private function refuseCutBeforeDispatch(LeaseCutoffQueue $item): ?string
+    {
+        return DB::transaction(function () use ($item) {
+            $queue = LeaseCutoffQueue::query()->lockForUpdate()->find($item->id);
+
+            if (! $queue) {
+                return 'la ligne de traitement n’existe plus';
+            }
+
+            /**
+             * (1) Traitée entre-temps par un autre passage. Aucune écriture
+             * nécessaire : la ligne n'est déjà plus dans un statut actif, donc
+             * la requête de sélection ne la reprendra pas.
+             */
+            if (! in_array($queue->status, ['PENDING', 'WAITING_STOP', 'COMMAND_SENT'], true)) {
+                return sprintf('ligne déjà traitée par un autre passage (statut %s)', $queue->status);
+            }
+
+            $history = $queue->history_id
+                ? LeaseCutoffHistory::query()->lockForUpdate()->find($queue->history_id)
+                : null;
+
+            if (! $history) {
+                return null;
+            }
+
+            // (2) Dossier pardonné : la coupure s'arrête définitivement ici.
+            if ($history->forgiven_at !== null) {
+                $queue->update([
+                    'status' => 'PROCESSED',
+                    'last_checked_at' => now(),
+                    'next_check_at' => null,
+                ]);
+
+                $this->recordEvent(
+                    $queue,
+                    'CUT_REFUSED_FORGIVEN',
+                    sprintf(
+                        'Coupure bloquée : ce contrat a été pardonné le %s par %s. Aucune commande de coupure ne sera envoyée pour cette échéance.',
+                        $history->forgiven_at->format('d/m/Y à H:i'),
+                        $history->forgiven_by_name ?: 'un employé'
+                    )
+                );
+
+                return 'dossier pardonné';
+            }
+
+            /**
+             * (3) Commande déjà envoyée aujourd'hui. On ne renvoie pas, mais on
+             * ne clôt pas non plus : la commande est en vol et sa confirmation
+             * reste à faire. On remet donc la ligne en COMMAND_SENT pour que la
+             * boucle de confirmation reprenne la main au passage suivant. C'est
+             * aussi la réparation du cas où markWaiting() avait fait redescendre
+             * une ligne déjà envoyée vers WAITING_STOP.
+             */
+            if ($history->cutoff_requested_at !== null) {
+                $delay = (int) env('LEASE_CUTOFF_CONFIRM_DELAY_SECONDS', self::DEFAULT_CONFIRM_DELAY_SECONDS);
+
+                $queue->update([
+                    'status' => 'COMMAND_SENT',
+                    'last_checked_at' => now(),
+                    'next_check_at' => now()->addSeconds($delay),
+                ]);
+
+                $this->recordEvent(
+                    $queue,
+                    'CUT_REFUSED_ALREADY_SENT',
+                    sprintf(
+                        'Commande non renvoyée : un ordre de coupure a déjà été transmis à %s pour cette échéance. Le système attend sa confirmation.',
+                        $history->cutoff_requested_at->format('H:i')
+                    )
+                );
+
+                return 'commande de coupure déjà envoyée aujourd’hui pour ce contrat';
+            }
+
+            return null;
+        });
+    }
+
+    /**
+     * Journal du cycle (append-only).
+     *
+     * Les répétitions strictement identiques survenant en moins d'une minute
+     * sont ignorées : le rythme légitime de vérification est d'au moins 60 s
+     * (WAITING_DELAY_MINUTES / CONFIRM_DELAY_SECONDS), donc un doublon plus
+     * rapproché ne peut être qu'un artefact de traitement (passages
+     * concurrents). On ne perd ainsi aucune vérification réelle, tout en
+     * évitant les séries d'événements identiques qui noyaient l'information
+     * utile — comme les six CUT_OFF_CONFIRMED consécutifs observés le
+     * 21/08/2026.
+     */
     private function recordEvent(
         LeaseCutoffQueue $item,
         string $eventType,
@@ -655,6 +808,22 @@ class LeaseCutoffQueueProcessorService
         ?string $uiStatus = null
     ): void {
         if (! $item->history_id) {
+            return;
+        }
+
+        $lastEvent = LeaseCutoffEvent::query()
+            ->where('history_id', $item->history_id)
+            ->orderByDesc('occurred_at')
+            ->orderByDesc('id')
+            ->first();
+
+        if ($lastEvent
+            && $lastEvent->event_type === $eventType
+            && $lastEvent->message === $message
+            && $lastEvent->ignition_state === $uiStatus
+            && $lastEvent->occurred_at !== null
+            && $lastEvent->occurred_at->diffInSeconds(now()) < self::EVENT_DEDUPE_WINDOW_SECONDS
+        ) {
             return;
         }
 
@@ -768,6 +937,25 @@ class LeaseCutoffQueueProcessorService
                 'UNKNOWN',
                 (int) env('LEASE_CUTOFF_CONFIRM_MAX_CHECKS', self::DEFAULT_CONFIRM_MAX_CHECKS)
             );
+
+            return;
+        }
+
+        /**
+         * Symétrique du garde ci-dessus, mais pour la COUPURE : une commande
+         * déjà envoyée (queue COMMAND_SENT) ne doit jamais redescendre en
+         * WAITING_STOP. Sinon la ligne perd la mémoire de l'envoi, sort de la
+         * branche de confirmation au passage suivant, et le système renvoie une
+         * SECONDE commande au même véhicule pour la même échéance — c'est
+         * l'origine des trois COMMAND_SENT observés sur un même dossier le
+         * 21/08/2026. Le seul chemin qui pouvait produire ça est l'échec de
+         * lecture de l'état GPS, qui appelle markWaiting() sans distinction.
+         * On délègue donc au compteur de confirmation, qui est le bon
+         * comportement : la commande est partie, seule sa confirmation manque.
+         * Trouvé et corrigé le 22/08/2026.
+         */
+        if ($item->status === 'COMMAND_SENT') {
+            $this->markCommandStillPending($item, $reason, $speed, $uiStatus);
 
             return;
         }

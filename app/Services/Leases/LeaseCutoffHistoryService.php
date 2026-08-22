@@ -129,8 +129,33 @@ class LeaseCutoffHistoryService
     /**
      * Libellé métier lisible pour l’affichage.
      */
-    public function getStatusLabel(?string $status): string
+    /**
+     * @param string|null $ignitionState état moteur relevé au dernier contrôle
+     *                                   (colonne ignition_state de l'historique).
+     *                                   Sert uniquement à préciser POURQUOI un
+     *                                   dossier est en attente — voir ci-dessous.
+     */
+    public function getStatusLabel(?string $status, ?string $ignitionState = null): string
     {
+        /**
+         * WAITING_STOP recouvre quatre situations très différentes (GPS hors
+         * ligne, véhicule en circulation, mouvement non confirmé, état
+         * illisible) que markWaiting() écrase toutes sous un seul statut. La
+         * raison précise n'était donc lisible qu'en dépliant le journal.
+         * L'information existe pourtant déjà sur la ligne : ignition_state
+         * porte l'état moteur du dernier contrôle. On s'en sert pour dire
+         * explicitement que la coupure est DÉCIDÉE mais que rien n'a encore
+         * été envoyé au véhicule — et pourquoi. Ajouté le 22/08/2026.
+         */
+        if ((string) $status === 'WAITING_STOP') {
+            return match ((string) $ignitionState) {
+                'OFFLINE' => 'Programmée — non envoyée (GPS hors ligne)',
+                'ONLINE_MOVING' => 'Programmée — non envoyée (véhicule en circulation)',
+                'ONLINE_STOPPED' => 'Programmée — non envoyée (mouvement non confirmé)',
+                default => 'Programmée — non envoyée (état du véhicule non vérifiable)',
+            };
+        }
+
         return match ((string) $status) {
             'PENDING' => 'En attente de traitement',
             'WAITING_STOP' => 'En attente d’arrêt',
