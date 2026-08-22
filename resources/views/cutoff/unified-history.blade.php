@@ -279,28 +279,69 @@
                                     </div>
 
                                     {{-- Journal complet du cycle : explique un écart entre l'heure planifiée
-                                         et l'heure réelle (véhicule offline, en mouvement, commande envoyée...). --}}
+                                         et l'heure réelle (véhicule offline, en mouvement, commande envoyée...).
+                                         Les vérifications consécutives de MÊME type (ex. 8 "attente confirmation"
+                                         d'affilée) sont regroupées en une seule ligne — sinon un cycle de 20
+                                         tentatives noie l'info utile (les changements d'état) sous 20 lignes
+                                         quasi identiques. Amélioration demandée le 22/08/2026. --}}
                                     @if(!empty($row['events']) && $row['events']->isNotEmpty())
+                                        @php
+                                            $groups = [];
+                                            foreach ($row['events'] as $event) {
+                                                $last = $groups ? end($groups) : null;
+                                                $sameRun = $last
+                                                    && $last['event_type'] === $event->event_type
+                                                    && $last['ignition_state'] === $event->ignition_state;
+
+                                                if ($sameRun) {
+                                                    $groups[count($groups) - 1]['last'] = $event;
+                                                    $groups[count($groups) - 1]['count']++;
+                                                } else {
+                                                    $groups[] = [
+                                                        'event_type' => $event->event_type,
+                                                        'ignition_state' => $event->ignition_state,
+                                                        'first' => $event,
+                                                        'last' => $event,
+                                                        'count' => 1,
+                                                    ];
+                                                }
+                                            }
+
+                                            $firstEvt = $row['events']->first();
+                                            $lastEvt = $row['events']->last();
+                                            $totalMinutes = $firstEvt && $lastEvt ? $firstEvt->occurred_at->diffInMinutes($lastEvt->occurred_at) : 0;
+                                        @endphp
                                         <div class="mt-3">
-                                            <div class="text-secondary uppercase tracking-wide mb-2" style="font-size:.65rem;">
-                                                <i class="fas fa-timeline mr-1"></i> Journal complet du cycle
+                                            <div class="text-secondary uppercase tracking-wide mb-2 flex items-center gap-2 flex-wrap" style="font-size:.65rem;">
+                                                <span><i class="fas fa-timeline mr-1"></i> Journal complet du cycle</span>
+                                                @if($totalMinutes >= 5)
+                                                    <span class="dash-badge warning" style="font-size:.65rem;">
+                                                        <i class="fas fa-hourglass" style="font-size:.6rem;"></i>
+                                                        écart total : {{ $totalMinutes >= 60 ? intdiv($totalMinutes, 60) . 'h' . str_pad($totalMinutes % 60, 2, '0', STR_PAD_LEFT) : $totalMinutes . ' min' }}
+                                                    </span>
+                                                @endif
                                             </div>
                                             <div class="space-y-2">
-                                                @foreach($row['events'] as $event)
+                                                @foreach($groups as $group)
                                                     @php
-                                                        $meta = $eventTypeMeta[$event->event_type] ?? ['label' => $event->event_type, 'icon' => 'fa-circle', 'color' => '#6b7280'];
+                                                        $meta = $eventTypeMeta[$group['event_type']] ?? ['label' => $group['event_type'], 'icon' => 'fa-circle', 'color' => '#6b7280'];
                                                     @endphp
                                                     <div class="flex items-start gap-2 text-xs">
                                                         <i class="fas {{ $meta['icon'] }} mt-0.5" style="color: {{ $meta['color'] }}; width: 14px;"></i>
                                                         <div class="flex-1">
                                                             <div class="flex items-center gap-2 flex-wrap">
                                                                 <span class="font-semibold">{{ $meta['label'] }}</span>
-                                                                <span class="text-secondary">{{ $event->occurred_at?->copy()->setTimezone($tz)->format('d/m/Y H:i:s') }}</span>
-                                                                @if($event->speed_at_check !== null)
-                                                                    <span class="dash-badge muted"><i class="fas fa-gauge" style="font-size:.6rem;"></i> {{ $event->speed_at_check }} km/h</span>
+                                                                @if($group['count'] > 1)
+                                                                    <span class="dash-badge muted" style="font-size:.65rem;">×{{ $group['count'] }}</span>
+                                                                    <span class="text-secondary">{{ $group['first']->occurred_at?->copy()->setTimezone($tz)->format('H:i:s') }} → {{ $group['last']->occurred_at?->copy()->setTimezone($tz)->format('H:i:s') }}</span>
+                                                                @else
+                                                                    <span class="text-secondary">{{ $group['first']->occurred_at?->copy()->setTimezone($tz)->format('d/m/Y H:i:s') }}</span>
+                                                                @endif
+                                                                @if($group['last']->speed_at_check !== null)
+                                                                    <span class="dash-badge muted"><i class="fas fa-gauge" style="font-size:.6rem;"></i> {{ $group['last']->speed_at_check }} km/h</span>
                                                                 @endif
                                                             </div>
-                                                            <div class="text-secondary">{{ $event->message }}</div>
+                                                            <div class="text-secondary">{{ $group['last']->message }}</div>
                                                         </div>
                                                     </div>
                                                 @endforeach
