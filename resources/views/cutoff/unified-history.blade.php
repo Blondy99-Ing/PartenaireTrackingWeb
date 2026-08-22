@@ -309,7 +309,7 @@
 
                                             $firstEvt = $row['events']->first();
                                             $lastEvt = $row['events']->last();
-                                            $totalMinutes = $firstEvt && $lastEvt ? $firstEvt->occurred_at->diffInMinutes($lastEvt->occurred_at) : 0;
+                                            $totalMinutes = $firstEvt && $lastEvt ? (int) round($firstEvt->occurred_at->diffInMinutes($lastEvt->occurred_at)) : 0;
                                         @endphp
                                         <div class="mt-3">
                                             <div class="text-secondary uppercase tracking-wide mb-2 flex items-center gap-2 flex-wrap" style="font-size:.65rem;">

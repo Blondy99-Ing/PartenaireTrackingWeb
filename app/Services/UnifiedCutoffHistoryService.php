@@ -125,9 +125,18 @@ class UnifiedCutoffHistoryService
         $includeAuto = $canAuto && $source !== 'MANUEL';
         $includeManual = $canManual && $source !== 'AUTOMATIQUE' && $vehicleIds->isNotEmpty();
 
+        /**
+         * 'ts' doit être EXACTEMENT le même horodatage que celui affiché
+         * (voir fetchAutomaticRows() : cutoff_executed_at ?? cutoff_requested_at
+         * ?? scheduled_for ?? detected_at) — sinon le découpage des pages
+         * (basé sur 'ts') et le tri d'affichage (basé sur 'timestamp')
+         * divergent : une coupure planifiée à la même heure que d'autres
+         * mais confirmée bien plus tard se retrouvait mal classée, voire
+         * sur la mauvaise page. Bug trouvé et corrigé le 22/08/2026.
+         */
         $autoIndexQuery = $includeAuto
             ? $this->automaticBaseQuery($partner, $filters)
-                ->selectRaw("id, scheduled_for as ts, 'AUTOMATIQUE' as src")
+                ->selectRaw('id, COALESCE(cutoff_executed_at, cutoff_requested_at, scheduled_for, detected_at) as ts, \'AUTOMATIQUE\' as src')
             : null;
 
         $manualIndexQuery = $includeManual
