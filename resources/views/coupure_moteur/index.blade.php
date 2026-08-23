@@ -796,7 +796,7 @@
                 <input id="engineSearch"
                        type="text"
                        class="ui-input-style"
-                       placeholder="Immat, marque, chauffeur…"
+                       placeholder="Immat, marque, chauffeur, IMEI, SIM…"
                        aria-label="Rechercher un véhicule">
             </div>
 
@@ -811,7 +811,7 @@
                         <th scope="col">Marque / Modèle</th>
                         <th scope="col">Couleur</th>
                         <th scope="col">Chauffeur</th>
-                        <th scope="col">GPS</th>
+                        <th scope="col">GPS / SIM</th>
                         <th scope="col" class="th-center">Moteur</th>
                     </tr>
                 </thead>
@@ -823,8 +823,11 @@
                         $chauffeurName = $chauffeur
                             ? trim(($chauffeur->nom ?? '').' '.($chauffeur->prenom ?? ''))
                             : null;
+                        $simNumber = trim((string) ($voiture->simGps?->sim_number ?? ''));
                     @endphp
-                    <tr data-search="{{ strtolower($voiture->immatriculation.' '.($voiture->marque ?? '').' '.($voiture->model ?? '').' '.($chauffeurName ?? '')) }}">
+                    {{-- Le numéro de SIM et l'IMEI sont inclus dans l'index de recherche :
+                         c'est souvent par l'un des deux qu'on identifie un boîtier. --}}
+                    <tr data-search="{{ strtolower($voiture->immatriculation.' '.($voiture->marque ?? '').' '.($voiture->model ?? '').' '.($chauffeurName ?? '').' '.($voiture->mac_id_gps ?? '').' '.$simNumber) }}">
 
                         <td>
                             <span class="immat-badge">{{ $voiture->immatriculation }}</span>
@@ -875,6 +878,19 @@
                             @else
                                 <span style="font-size:0.72rem;color:var(--color-secondary-text);">—</span>
                             @endif
+
+                            {{-- Numéro de SIM du boîtier (table sim_gps, reliée par mac_id).
+                                 Tous les boîtiers n'en ont pas encore un enregistré : on
+                                 l'indique explicitement plutôt que de laisser une case vide,
+                                 qui laisserait croire à un bug d'affichage. --}}
+                            <div style="margin-top:.25rem;display:flex;align-items:center;gap:.3rem;font-size:0.72rem;">
+                                <i class="fas fa-sim-card" style="color:var(--color-secondary-text);font-size:.68rem;" aria-hidden="true"></i>
+                                @if($simNumber)
+                                    <span style="color:var(--color-text);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">{{ $simNumber }}</span>
+                                @else
+                                    <span style="color:var(--color-secondary-text);font-style:italic;">SIM non enregistrée</span>
+                                @endif
+                            </div>
                         </td>
 
                         <td class="td-center">

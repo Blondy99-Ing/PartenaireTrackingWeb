@@ -59,6 +59,14 @@ class ControlGpsController extends Controller
             ])
             ->with([
                 'chauffeurActuelPartner.chauffeur:id,nom,prenom,phone,photo',
+                /**
+                 * Le numéro de SIM du boîtier vit dans la table sim_gps
+                 * (reliée par mac_id), pas dans la colonne voitures.sim_gps
+                 * qui porte le même nom mais n'a jamais été alimentée —
+                 * vérifié en production : 0 véhicule sur 290 la renseigne,
+                 * contre 121 boîtiers sur 289 dans sim_gps.
+                 */
+                'simGps:id,mac_id,sim_number',
             ])
             ->orderBy('voitures.immatriculation', 'asc')
             ->get();
