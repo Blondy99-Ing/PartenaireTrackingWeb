@@ -432,7 +432,7 @@ class LeaseCutoffPlannerService
 
     private function resolveTargetDueDate(?string $dateEcheance, ?int $offsetDays): string
     {
-        $timezone = config('app.timezone', 'Africa/Douala');
+        $timezone = config('app.display_timezone', 'Africa/Douala');
 
         if ($dateEcheance && trim($dateEcheance) !== '') {
             return Carbon::parse($dateEcheance, $timezone)->toDateString();
@@ -562,8 +562,19 @@ class LeaseCutoffPlannerService
         $date = Carbon::parse($dueDate, $timezone)->addDays(max(0, (int) $rule->grace_days));
         $time = $rule->effectiveCutoffTime() ?: '00:00';
 
+        /**
+         * ATTENTION : contrairement aux autres usages de config('app.timezone')
+         * dans ce fichier, NE PAS remplacer par app.display_timezone ici.
+         * Le résultat de setTimezone() est stocké tel quel dans scheduled_for
+         * (colonne DATETIME, voir lignes 240/645 : $scheduledFor->toDateTimeString()) —
+         * il doit donc porter des chiffres UTC, pas Douala, pour rester cohérent
+         * avec la lecture (UnifiedCutoffHistoryService::applyPeriodFilter traite
+         * scheduled_for avec convertToUtc: true, donc suppose des chiffres UTC bruts).
+         * config('app.timezone') vaut toujours 'UTC' : on le garde tel quel,
+         * sans le faux fallback Africa/Douala qui ne se déclenche jamais.
+         */
         return Carbon::parse($date->format('Y-m-d') . ' ' . $time, $timezone)
-            ->setTimezone(config('app.timezone', 'Africa/Douala'));
+            ->setTimezone(config('app.timezone'));
     }
 
     private function isDueNow(Carbon $scheduledFor, LeaseCutoffContractRule $rule): bool
@@ -670,14 +681,7 @@ class LeaseCutoffPlannerService
      */
     public static function toLocalDisplay($scheduledFor, string $format = 'd/m/Y à H:i'): string
     {
-        if (! $scheduledFor) {
-            return '—';
-        }
-
-        return Carbon::parse($scheduledFor)
-            ->copy()
-            ->setTimezone(config('app.display_timezone', 'Africa/Douala'))
-            ->format($format);
+        return \App\Support\LocalTime::display($scheduledFor, $format);
     }
 
     /**
@@ -690,13 +694,7 @@ class LeaseCutoffPlannerService
      */
     public static function toLocalDisplayFromRaw(?string $rawUtcValue, string $format = 'd/m/Y à H:i'): string
     {
-        if (! $rawUtcValue) {
-            return '—';
-        }
-
-        return Carbon::createFromFormat('Y-m-d H:i:s', $rawUtcValue, 'UTC')
-            ->setTimezone(config('app.display_timezone', 'Africa/Douala'))
-            ->format($format);
+        return \App\Support\LocalTime::displayRaw($rawUtcValue, $format);
     }
 
     /**

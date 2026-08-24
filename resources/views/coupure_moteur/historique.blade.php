@@ -93,9 +93,25 @@
                     ? ['En file d’attente (véhicule hors-ligne)', 'muted']
                     : ['En attente de confirmation', 'muted'],
             };
+            /**
+             * commands.created_at (TIMESTAMP) : cette page ne filtre que sur
+             * user_id = l'utilisateur connecté, donc n'affiche en pratique
+             * que des commandes manuelles saisies par un partenaire — jamais
+             * les coupures automatiques Node (géofencing/anti-vol), dont
+             * user_id n'est jamais celui d'un partenaire connecté. On garde
+             * néanmoins la même distinction que UnifiedCutoffHistoryService
+             * par sécurité (voir son commentaire pour le mécanisme complet).
+             */
+            $cmdCreatedAt = $cmd->trigger_source === null
+                ? $cmd->created_at
+                : \Carbon\Carbon::createFromFormat(
+                    'Y-m-d H:i:s',
+                    $cmd->created_at->format('Y-m-d H:i:s'),
+                    config('app.display_timezone', 'Africa/Douala')
+                )->setTimezone('UTC');
           @endphp
           <tr>
-            <td class="text-sm">{{ optional($cmd->created_at)->format('d/m/Y H:i') }}</td>
+            <td class="text-sm">{{ \App\Support\LocalTime::display($cmdCreatedAt, 'd/m/Y H:i') }}</td>
 
             <td>
               <div class="flex flex-col leading-tight">

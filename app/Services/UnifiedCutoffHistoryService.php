@@ -6,6 +6,7 @@ use App\Models\Commande;
 use App\Models\LeaseCutoffHistory;
 use App\Models\User;
 use App\Services\Leases\LeaseCutoffHistoryService;
+use App\Support\LocalTime;
 use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
@@ -314,8 +315,43 @@ class UnifiedCutoffHistoryService
 
                 $chauffeur = $c->vehicule?->chauffeurActuelPartner?->chauffeur;
 
+                /**
+                 * commands.created_at (TIMESTAMP) est écrite par DEUX
+                 * systèmes sous des sessions MySQL OPPOSÉES.
+                 *
+                 * Cette application écrit sous session Douala : l'écriture
+                 * est décalée de -1h en interne (MySQL réinterprète le
+                 * littéral UTC comme heure Douala), mais la RELECTURE sous
+                 * la même session Douala reconvertit automatiquement dans
+                 * l'autre sens — les deux erreurs s'annulent, et
+                 * $c->created_at (taggé UTC par le cast Eloquent) porte donc
+                 * déjà la vraie valeur UTC. Rien à faire.
+                 *
+                 * Le service Node de coupure automatique géofencing/anti-vol
+                 * (trigger_source non nul) écrit lui sous session UTC pure :
+                 * sa ligne est stockée juste, donc MySQL la relit déjà
+                 * CONVERTIE en Douala — mais le cast Eloquent l'étiquette
+                 * quand même UTC par défaut. $c->created_at porte alors des
+                 * chiffres Douala sous une étiquette UTC : il faut les
+                 * ré-étiqueter (pas les décaler une 2e fois) pour obtenir un
+                 * Carbon réellement UTC, exploitable par le tri et par la
+                 * conversion d'affichage générique de la vue.
+                 *
+                 * Latent aujourd'hui (aucune ligne trigger_source non nulle
+                 * dans le jeu de données actuel) mais le code qui les
+                 * produira est déjà en production côté Node. Trouvé
+                 * (contre-expertise) et corrigé le 24/08/2026.
+                 */
+                $timestamp = $c->trigger_source === null
+                    ? $c->created_at
+                    : Carbon::createFromFormat(
+                        'Y-m-d H:i:s',
+                        $c->created_at->format('Y-m-d H:i:s'),
+                        config('app.display_timezone', 'Africa/Douala')
+                    )->setTimezone('UTC');
+
                 return [
-                    'timestamp' => $c->created_at,
+                    'timestamp' => $timestamp,
                     'source' => 'MANUEL',
                     'direction' => $direction,
                     'status_group' => $statusGroup,
@@ -419,7 +455,10 @@ class UnifiedCutoffHistoryService
     {
         $query = LeaseCutoffHistory::query()->where('partner_id', $partner->id);
 
-        $this->applyPeriodFilter($query, $filters, 'scheduled_for');
+        // lease_cutoff_histories.scheduled_for est une colonne DATETIME
+        // (littéral UTC stocké tel quel, jamais converti par MySQL) : le
+        // filtre doit être borné en UTC avant liaison SQL.
+        $this->applyPeriodFilter($query, $filters, 'scheduled_for', convertToUtc: true);
 
         $direction = trim((string) ($filters['direction'] ?? ''));
         if ($direction === 'COUPURE') {
@@ -460,7 +499,17 @@ class UnifiedCutoffHistoryService
     {
         $query = Commande::query()->whereIn('vehicule_id', $vehicleIds->isEmpty() ? [0] : $vehicleIds);
 
-        $this->applyPeriodFilter($query, $filters, 'created_at');
+        /**
+         * commands.created_at est une colonne TIMESTAMP : MySQL la convertit
+         * automatiquement selon le fuseau de SESSION (SYSTEM=Africa/Douala),
+         * y compris pour l'interprétation du littéral lié dans ce WHERE.
+         * Un littéral déjà tagué Douala non reconverti donne donc ici le bon
+         * résultat par ce mécanisme d'auto-conversion — reconvertir en UTC
+         * comme pour scheduled_for casserait ce filtre. Vérifié empiriquement
+         * le 24/08/2026 : NE PAS harmoniser ce site avec scheduled_for sans
+         * revérifier, les deux colonnes ont un comportement opposé.
+         */
+        $this->applyPeriodFilter($query, $filters, 'created_at', convertToUtc: false);
 
         /**
          * NULL-safe : quelques anciennes commandes ont type_commande/status
@@ -522,27 +571,35 @@ class UnifiedCutoffHistoryService
         return $query;
     }
 
-    private function applyPeriodFilter($query, array $filters, string $column): void
+    /**
+     * @param bool $convertToUtc true pour une colonne DATETIME (littéral UTC
+     *   stocké tel quel : les bornes doivent être reconverties en UTC avant
+     *   liaison SQL) ; false pour une colonne TIMESTAMP (MySQL reconvertit
+     *   déjà lui-même le littéral lié selon le fuseau de session — reconvertir
+     *   ici casserait le filtre, vérifié empiriquement le 24/08/2026).
+     */
+    private function applyPeriodFilter($query, array $filters, string $column, bool $convertToUtc): void
     {
         $period = trim((string) ($filters['period'] ?? ''));
-        $timezone = config('app.display_timezone', 'Africa/Douala');
 
         if ($period === '') {
             return;
         }
 
-        $now = Carbon::now($timezone);
+        [$from, $to] = LocalTime::periodRange($period, [
+            'date' => $filters['specific_date'] ?? null,
+            'from' => $filters['date_from'] ?? null,
+            'to' => $filters['date_to'] ?? null,
+        ]);
 
-        [$from, $to] = match ($period) {
-            'today' => [$now->copy()->startOfDay(), $now->copy()->endOfDay()],
-            'yesterday' => [$now->copy()->subDay()->startOfDay(), $now->copy()->subDay()->endOfDay()],
-            'this_week' => [$now->copy()->startOfWeek(), $now->copy()->endOfWeek()],
-            'this_month' => [$now->copy()->startOfMonth(), $now->copy()->endOfMonth()],
-            'this_year' => [$now->copy()->startOfYear(), $now->copy()->endOfYear()],
-            'specific_date' => $this->specificDateRange($filters, $timezone),
-            'range' => $this->customRange($filters, $timezone),
-            default => [null, null],
-        };
+        if (! $convertToUtc) {
+            // Retag en Douala sans changer les chiffres : compense
+            // volontairement l'auto-conversion MySQL propre aux colonnes
+            // TIMESTAMP (voir le commentaire au site d'appel).
+            $tz = config('app.display_timezone', 'Africa/Douala');
+            $from = $from?->copy()->setTimezone($tz);
+            $to = $to?->copy()->setTimezone($tz);
+        }
 
         if ($from) {
             $query->where($column, '>=', $from);
@@ -551,29 +608,5 @@ class UnifiedCutoffHistoryService
         if ($to) {
             $query->where($column, '<=', $to);
         }
-    }
-
-    private function specificDateRange(array $filters, string $timezone): array
-    {
-        $date = trim((string) ($filters['specific_date'] ?? ''));
-
-        if ($date === '') {
-            return [null, null];
-        }
-
-        $parsed = Carbon::parse($date, $timezone);
-
-        return [$parsed->copy()->startOfDay(), $parsed->copy()->endOfDay()];
-    }
-
-    private function customRange(array $filters, string $timezone): array
-    {
-        $from = trim((string) ($filters['date_from'] ?? ''));
-        $to = trim((string) ($filters['date_to'] ?? ''));
-
-        return [
-            $from !== '' ? Carbon::parse($from, $timezone)->startOfDay() : null,
-            $to !== '' ? Carbon::parse($to, $timezone)->endOfDay() : null,
-        ];
     }
 }

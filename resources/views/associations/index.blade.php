@@ -526,13 +526,19 @@ table.dataTable {
                     </td>
 
                     {{-- Date --}}
+                    @php
+                        // Corrige le 24/08/2026 : assigned_at s'affichait en UTC brut, une heure en retard.
+                        $assignedAtLocal = $row->assigned_at
+                            ? \Carbon\Carbon::parse($row->assigned_at)->setTimezone(config('app.display_timezone', 'Africa/Douala'))
+                            : null;
+                    @endphp
                     <td>
                         <span class="date-chip">
                             <i class="fas fa-calendar-alt" style="font-size:0.6rem;color:var(--color-primary);"></i>
-                            {{ optional($row->assigned_at)->format('d/m/Y') ?? '—' }}
+                            {{ optional($assignedAtLocal)->format('d/m/Y') ?? '—' }}
                         </span>
                         <div style="font-size:0.65rem;color:var(--color-secondary-text);margin-top:1px;padding-left:14px;">
-                            {{ optional($row->assigned_at)->format('H:i') ?? '' }}
+                            {{ optional($assignedAtLocal)->format('H:i') ?? '' }}
                         </div>
                     </td>
 

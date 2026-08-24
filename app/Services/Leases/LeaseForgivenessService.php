@@ -1094,7 +1094,7 @@ class LeaseForgivenessService
     {
         $excludeContractLinkId = $contractLink?->id ?? 0;
         $driverId = $contractLink?->driver_id;
-        $targetDate = $dueDate ?: now(config('app.timezone', 'Africa/Douala'))->toDateString();
+        $targetDate = $dueDate ?: now(config('app.display_timezone', 'Africa/Douala'))->toDateString();
 
         $siblings = LeaseContractLink::query()
             ->where('partner_id', $partnerId)
@@ -1164,7 +1164,7 @@ class LeaseForgivenessService
             return collect();
         }
 
-        $targetDate = $dueDate ?: now(config('app.timezone', 'Africa/Douala'))->toDateString();
+        $targetDate = $dueDate ?: now(config('app.display_timezone', 'Africa/Douala'))->toDateString();
 
         $candidateLinks = LeaseContractLink::query()
             ->where('partner_id', $partnerId)
@@ -1477,7 +1477,7 @@ class LeaseForgivenessService
             return [];
         }
 
-        $targetDate = $dueDate ?: now(config('app.timezone', 'Africa/Douala'))->toDateString();
+        $targetDate = $dueDate ?: now(config('app.display_timezone', 'Africa/Douala'))->toDateString();
 
         $candidateLinks = LeaseContractLink::query()
             ->where('partner_id', $partnerId)

@@ -69,6 +69,25 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Fuseau d'affichage
+    |--------------------------------------------------------------------------
+    |
+    | 'timezone' ci-dessus DOIT rester UTC : c'est le fuseau de stockage (toutes
+    | les colonnes datetime/timestamp de la base contiennent des heures UTC).
+    | 'display_timezone' est le SEUL fuseau à utiliser pour montrer une heure à
+    | un utilisateur ou interpréter une heure qu'il saisit — jamais l'inverse.
+    |
+    | Avant l'introduction de cette clé, chaque site d'appel recopiait le même
+    | littéral 'Africa/Douala' en dur (6 endroits, tous incohérents avec le
+    | reste du système qui affichait l'UTC brut). Passer par App\Support\LocalTime
+    | plutôt que par cette clé directement.
+    |
+    */
+
+ 'display_timezone' => env('APP_DISPLAY_TIMEZONE', 'Africa/Douala'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Locale Configuration
     |--------------------------------------------------------------------------
     |

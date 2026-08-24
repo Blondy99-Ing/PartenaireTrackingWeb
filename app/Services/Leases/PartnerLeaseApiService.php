@@ -1055,7 +1055,7 @@ private function extractRows(mixed $response): array
         }
 
         $partnerId = $this->resolvePartnerId();
-        $now = now(config('app.timezone', 'Africa/Douala'));
+        $now = now(config('app.display_timezone', 'Africa/Douala'));
         $activeStatuses = ['PENDING', 'WAITING_STOP', 'COMMAND_SENT'];
         $cancelled = 0;
 
@@ -1205,7 +1205,8 @@ private function extractRows(mixed $response): array
                 'lease_id' => $row->lease_id ? (int) $row->lease_id : null,
                 'contract_id' => $row->contract_id ? (int) $row->contract_id : null,
                 'contract_link_id' => $row->contract_link_id ? (int) $row->contract_link_id : null,
-                'next_check_at' => $row->next_check_at ? Carbon::parse($row->next_check_at)->format('H:i') : null,
+                // Corrige le 24/08/2026 : affichait l'UTC brut, une heure en retard.
+                'next_check_at' => $row->next_check_at ? \App\Support\LocalTime::displayRaw($row->next_check_at, 'H:i') : null,
                 'reason' => $this->shortUserCutoffReason((string) ($row->reason ?? ''), (string) ($row->ignition_state ?? '')),
                 'ignition_state' => (string) ($row->ignition_state ?? ''),
             ])
@@ -1605,15 +1606,19 @@ protected function getCutoffStatusMetaByLeaseId(): array
             'reason' => $row->reason,
             'ignition_state' => $row->ignition_state,
 
-            'scheduled_for' => $row->scheduled_for ? Carbon::parse($row->scheduled_for)->toDateTimeString() : null,
-            'next_check_at' => $row->next_check_at ? Carbon::parse($row->next_check_at)->toDateTimeString() : null,
-            'detected_at' => $row->detected_at ? Carbon::parse($row->detected_at)->toDateTimeString() : null,
-            'cutoff_executed_at' => $row->cutoff_executed_at ? Carbon::parse($row->cutoff_executed_at)->toDateTimeString() : null,
+            // Corrige le 24/08/2026 : ces 7 champs s'affichaient en UTC brut,
+            // une heure en retard. displayRaw() les ancre explicitement en
+            // UTC (fuseau de stockage réel) avant de les convertir en heure
+            // de Douala — format identique à l'ancien toDateTimeString().
+            'scheduled_for' => $row->scheduled_for ? \App\Support\LocalTime::displayRaw($row->scheduled_for, 'Y-m-d H:i:s') : null,
+            'next_check_at' => $row->next_check_at ? \App\Support\LocalTime::displayRaw($row->next_check_at, 'Y-m-d H:i:s') : null,
+            'detected_at' => $row->detected_at ? \App\Support\LocalTime::displayRaw($row->detected_at, 'Y-m-d H:i:s') : null,
+            'cutoff_executed_at' => $row->cutoff_executed_at ? \App\Support\LocalTime::displayRaw($row->cutoff_executed_at, 'Y-m-d H:i:s') : null,
             'forgiven_by_user_id' => $row->forgiven_by_user_id,
             'forgiven_by_name' => $row->forgiven_by_name,
-            'forgiven_at' => $row->forgiven_at ? Carbon::parse($row->forgiven_at)->toDateTimeString() : null,
-            'updated_at' => $row->updated_at ? Carbon::parse($row->updated_at)->toDateTimeString() : null,
-            'created_at' => $row->created_at ? Carbon::parse($row->created_at)->toDateTimeString() : null,
+            'forgiven_at' => $row->forgiven_at ? \App\Support\LocalTime::displayRaw($row->forgiven_at, 'Y-m-d H:i:s') : null,
+            'updated_at' => $row->updated_at ? \App\Support\LocalTime::displayRaw($row->updated_at, 'Y-m-d H:i:s') : null,
+            'created_at' => $row->created_at ? \App\Support\LocalTime::displayRaw($row->created_at, 'Y-m-d H:i:s') : null,
         ];
     }
 

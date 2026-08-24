@@ -353,8 +353,11 @@ table.dataTable {
                 <tbody>
                 @foreach(($items ?? []) as $row)
                 @php
-                    $start    = $row->started_at ? \Carbon\Carbon::parse($row->started_at) : null;
-                    $end      = $row->ended_at   ? \Carbon\Carbon::parse($row->ended_at)   : null;
+                    // Convertis en heure d'affichage (Douala) ici : sans ça, started_at/ended_at
+                    // restaient en UTC brut, une heure en retard. Corrige le 24/08/2026.
+                    $tzDisplay = config('app.display_timezone', 'Africa/Douala');
+                    $start    = $row->started_at ? \Carbon\Carbon::parse($row->started_at)->setTimezone($tzDisplay) : null;
+                    $end      = $row->ended_at   ? \Carbon\Carbon::parse($row->ended_at)->setTimezone($tzDisplay)   : null;
                     $ongoing  = $start && !$end;
                     $duration = null;
                     if ($start && $end)  { $duration = $start->diffForHumans($end, true); }

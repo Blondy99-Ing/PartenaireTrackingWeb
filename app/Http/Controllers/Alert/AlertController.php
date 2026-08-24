@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Alert;
 
 use App\Http\Controllers\Controller;
+use App\Support\LocalTime;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -27,7 +28,6 @@ class AlertController extends Controller
     public function index(Request $request)
     {
         $partnerId = (int) Auth::id();
-        $tz = 'Africa/Douala';
 
         $vehicleIds = DB::table('association_user_voitures')
             ->where('user_id', $partnerId)
@@ -46,7 +46,7 @@ class AlertController extends Controller
             ->whereIn('a.voiture_id', $vehicleIds)
             ->whereIn('a.alert_type', $this->visibleAlertTypes);
 
-        $this->applyFilters($query, $request, $tz);
+        $this->applyFilters($query, $request);
 
         $stats = $this->computeStats(clone $query);
 
@@ -71,7 +71,7 @@ class AlertController extends Controller
         ]);
     }
 
-    private function applyFilters($query, Request $request, $tz)
+    private function applyFilters($query, Request $request)
     {
         if ($request->filled('q')) {
             $term = "%{$request->q}%";
@@ -93,22 +93,34 @@ class AlertController extends Controller
             };
         }
 
+        /**
+         * Anomalie corrigée : les bornes étaient calculées en heure Douala
+         * (now($tz), Carbon::parse($request->date_from) sans reconversion)
+         * puis liées TELLES QUELLES dans whereDate/whereBetween contre
+         * a.created_at (colonne DATETIME, littéral UTC stocké). Laravel ne
+         * reconvertit jamais un DateTimeInterface en UTC avant de le lier à
+         * une requête SQL (Illuminate\Database\Connection::prepareBindings()
+         * réémet juste les chiffres du fuseau déjà attaché à l'objet) : le
+         * filtre "aujourd'hui" sélectionnait donc les mauvaises lignes,
+         * décalé d'environ 1h. LocalTime::periodRange() calcule la période
+         * en heure Douala PUIS la reconvertit en UTC avant de la retourner.
+         * Trouvé et corrigé le 24/08/2026.
+         */
         $quick = $request->get('quick') ?: $request->get('date_quick', 'today');
-        $now = now($tz);
 
         if ($quick && $quick !== 'range') {
-            match ($quick) {
-                'today'     => $query->whereDate('a.created_at', $now->copy()->toDateString()),
-                'yesterday' => $query->whereDate('a.created_at', $now->copy()->subDay()->toDateString()),
-                'this_week' => $query->whereBetween('a.created_at', [$now->copy()->startOfWeek(), $now->copy()->endOfWeek()]),
-                'this_month'=> $query->whereBetween('a.created_at', [$now->copy()->startOfMonth(), $now->copy()->endOfMonth()]),
-                default     => null
-            };
+            [$from, $to] = LocalTime::periodRange($quick);
         } elseif ($request->filled('date_from')) {
-            $query->whereBetween('a.created_at', [
-                Carbon::parse($request->date_from)->startOfDay(),
-                Carbon::parse($request->date_to ?? $request->date_from)->endOfDay()
+            [$from, $to] = LocalTime::periodRange('range', [
+                'from' => $request->date_from,
+                'to' => $request->date_to ?? $request->date_from,
             ]);
+        } else {
+            [$from, $to] = [null, null];
+        }
+
+        if ($from && $to) {
+            $query->whereBetween('a.created_at', [$from, $to]);
         }
     }
 
@@ -132,18 +144,43 @@ class AlertController extends Controller
 
     private function formatAlert($r): array
     {
+        /**
+         * alerted_at peut être vide selon l'origine de l'alerte (certains
+         * types ne le renseignent pas) : on retombe alors sur created_at,
+         * toujours présent. Les deux sont des colonnes DATETIME (littéral
+         * UTC), donc lues via displayRaw() plutôt que display().
+         *
+         * alerted_at (ISO, suffixe Z explicite) est fourni pour un usage JS
+         * éventuel (new Date(...)) : le suffixe Z force le navigateur à
+         * l'interpréter comme UTC avant de le reconvertir dans son propre
+         * fuseau, au lieu de le lire à tort comme une heure locale du poste
+         * client. alerted_at_human est la même valeur déjà formatée en heure
+         * de Douala, prête à afficher sans recalcul côté client.
+         *
+         * Corrige au passage un bug fonctionnel sans lien avec le fuseau :
+         * alerts/index.blade.php attendait déjà ces deux clés (isToday(),
+         * colonne date de la table), jamais envoyées par ce contrôleur — la
+         * colonne date et le filtre "aujourd'hui" de cette page étaient donc
+         * cassés. Trouvé et corrigé le 24/08/2026.
+         */
+        $rawAlertedAt = $r->alerted_at ?? $r->created_at;
+
         return [
-            'id'           => (int) $r->id,
-            'type'         => $this->normalizeType($r->alert_type),
-            'message'      => $r->message,
-            'is_read'      => (bool) $r->read,
-            'is_processed' => (bool) ($r->processed ?? false),
-            'created_at'   => Carbon::parse($r->created_at)->format('d/m/Y H:i:s'),
-            'vehicle'      => [
+            'id'               => (int) $r->id,
+            'type'             => $this->normalizeType($r->alert_type),
+            'message'          => $r->message,
+            'is_read'          => (bool) $r->read,
+            'is_processed'     => (bool) ($r->processed ?? false),
+            'alerted_at'       => $rawAlertedAt
+                ? Carbon::createFromFormat('Y-m-d H:i:s', $rawAlertedAt, 'UTC')->format('Y-m-d\TH:i:s\Z')
+                : null,
+            'alerted_at_human' => LocalTime::displayRaw($rawAlertedAt, 'd/m/Y H:i:s'),
+            'created_at'       => LocalTime::displayRaw($r->created_at, 'd/m/Y H:i:s'),
+            'vehicle'          => [
                 'id'    => $r->voiture_id,
                 'label' => $r->immatriculation . " (" . $r->marque . ")",
             ],
-            'driver'       => trim(($r->driver_nom ?? '') . ' ' . ($r->driver_prenom ?? '')) ?: 'Non assigné'
+            'driver'           => trim(($r->driver_nom ?? '') . ' ' . ($r->driver_prenom ?? '')) ?: 'Non assigné'
         ];
     }
 

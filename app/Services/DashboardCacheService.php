@@ -968,7 +968,7 @@ private function buildVehicleRowWithDriver(
             'gps' => [
                 'online'    => $gpsOnline,
                 'state'     => $hasLocation ? ($gpsOnline === true ? 'ONLINE' : 'OFFLINE') : 'NO_LOCATION',
-                'last_seen' => $lastSeen ? (string) $lastSeen : null,
+                'last_seen' => $lastSeen ? \App\Support\LocalTime::displayRaw((string) $lastSeen, 'Y-m-d H:i:s') : null,
                 'message'   => $hasLocation ? null : 'GPS jamais reçu',
             ],
             'live_status' => $liveStatus,
@@ -1119,7 +1119,7 @@ private function isGpsOnline($lastSeen): ?bool
 
         try {
             return Carbon::createFromTimestampMs($ms)
-                ->setTimezone(config('app.timezone'))
+                ->setTimezone(config('app.display_timezone', 'Africa/Douala'))
                 ->toDateTimeString();
         } catch (\Throwable) {
             return null;

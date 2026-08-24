@@ -7,6 +7,7 @@ use App\Models\Trajet;
 use App\Models\Voiture;
 use App\Services\GpsControlService;
 use App\Services\ManualRoadSnapService;
+use App\Support\LocalTime;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -35,7 +36,6 @@ class TrajetController extends Controller
         }
 
         $userId = auth()->id();
-        $tz = 'Africa/Douala';
 
         $query = Trajet::query()
             ->with(['voiture'])
@@ -47,21 +47,29 @@ class TrajetController extends Controller
             $query->where('vehicle_id', (int) $request->vehicle_id);
         }
 
+        /**
+         * Anomalie corrigée : les bornes étaient calculées en heure Douala
+         * puis liées telles quelles (whereDate/whereBetween) contre
+         * start_time (colonne datetime, littéral UTC) — Laravel ne
+         * reconvertit jamais un DateTimeInterface en UTC avant liaison SQL.
+         * LocalTime::periodRange() calcule la période en heure Douala PUIS
+         * la reconvertit en UTC avant de la retourner. Trouvé et corrigé le
+         * 24/08/2026.
+         */
         $quick = $request->query('quick', $request->query('date_quick', 'today'));
-        $now = now($tz);
 
         if ($quick && $quick !== 'range') {
-            match ($quick) {
-                'today'      => $query->whereDate('start_time', $now->copy()->toDateString()),
-                'yesterday'  => $query->whereDate('start_time', $now->copy()->subDay()->toDateString()),
-                'this_week'  => $query->whereBetween('start_time', [$now->copy()->startOfWeek(), $now->copy()->endOfWeek()]),
-                'this_month' => $query->whereBetween('start_time', [$now->copy()->startOfMonth(), $now->copy()->endOfMonth()]),
-                default      => null,
-            };
+            [$start, $end] = LocalTime::periodRange($quick);
         } elseif ($request->filled('start_date')) {
-            $start = Carbon::parse($request->start_date, $tz)->startOfDay();
-            $end   = Carbon::parse($request->end_date ?? $request->start_date, $tz)->endOfDay();
+            [$start, $end] = LocalTime::periodRange('range', [
+                'from' => $request->start_date,
+                'to' => $request->end_date ?? $request->start_date,
+            ]);
+        } else {
+            [$start, $end] = [null, null];
+        }
 
+        if ($start && $end) {
             $query->whereBetween('start_time', [$start, $end]);
         }
 
@@ -81,8 +89,10 @@ class TrajetController extends Controller
                         'vehicle_id'        => (int) $t->vehicle_id,
                         'immatriculation'   => $t->voiture?->immatriculation,
                         'driver_label'      => $t->voiture?->users_labels ?? 'Inconnu',
-                        'start_time'        => $t->start_time,
-                        'end_time'          => $t->end_time,
+                        // Affichés directement en texte côté client, sans reparsing JS :
+                        // formatés en heure de Douala ici plutôt que de laisser passer l'UTC brut.
+                        'start_time'        => LocalTime::display($t->start_time),
+                        'end_time'          => LocalTime::display($t->end_time),
                         'duration_minutes'  => (int) ($t->duration_minutes ?? 0),
                         'total_distance_km' => round((float) ($t->total_distance_km ?? 0), 2),
                         'avg_speed_kmh'     => round((float) ($t->avg_speed_kmh ?? 0), 1),
@@ -212,8 +222,8 @@ class TrajetController extends Controller
                     'id'              => (int) $trajet->id,
                     'vehicle_id'      => (int) $trajet->vehicle_id,
                     'immatriculation' => $trajet->voiture?->immatriculation ?? '—',
-                    'start_time'      => $trajet->start_time,
-                    'end_time'        => $trajet->end_time,
+                    'start_time'      => LocalTime::display($trajet->start_time),
+                    'end_time'        => LocalTime::display($trajet->end_time),
                     'stats' => [
                         'distance'  => round((float) ($trajet->total_distance_km ?? 0), 2),
                         'duration'  => (int) ($trajet->duration_minutes ?? 0),

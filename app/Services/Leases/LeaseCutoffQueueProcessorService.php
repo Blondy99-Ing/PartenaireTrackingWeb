@@ -580,7 +580,7 @@ class LeaseCutoffQueueProcessorService
      */
     public function expireStaleQueueItems(): int
     {
-        $timezone = config('app.timezone', 'Africa/Douala');
+        $timezone = config('app.display_timezone', 'Africa/Douala');
         $today = Carbon::now($timezone)->toDateString();
 
         $staleIds = LeaseCutoffQueue::query()
@@ -637,7 +637,7 @@ class LeaseCutoffQueueProcessorService
 
     private function resolveProcessingDueDate(?string $dateEcheance): string
     {
-        $timezone = config('app.timezone', 'Africa/Douala');
+        $timezone = config('app.display_timezone', 'Africa/Douala');
 
         if ($dateEcheance && trim($dateEcheance) !== '') {
             return Carbon::parse($dateEcheance, $timezone)->toDateString();

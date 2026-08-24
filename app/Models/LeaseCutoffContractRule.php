@@ -95,7 +95,7 @@ class LeaseCutoffContractRule extends Model
 
     public function effectiveTimezone(): string
     {
-        return $this->timezone ?: config('app.timezone', 'Africa/Douala');
+        return $this->timezone ?: config('app.display_timezone', 'Africa/Douala');
     }
 
     public function isMainContractRule(): bool

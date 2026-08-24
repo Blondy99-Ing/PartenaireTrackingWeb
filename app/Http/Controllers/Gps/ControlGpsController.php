@@ -470,7 +470,14 @@ class ControlGpsController extends Controller
      */
     private function buildRestoreWithoutForgivenessNote(int $vehicleId): ?string
     {
-        $today = now(config('app.timezone', 'Africa/Douala'))->toDateString();
+        /**
+         * Anomalie corrigée : le repli 'Africa/Douala' ne s'appliquait jamais
+         * puisque la clé config('app.timezone') EXISTE et vaut 'UTC' — c'est
+         * le fuseau de stockage, pas d'affichage. "Aujourd'hui" était donc
+         * calculé avec la frontière minuit UTC (23h00 heure Douala), pas
+         * minuit Douala. Trouvé et corrigé le 24/08/2026.
+         */
+        $today = now(config('app.display_timezone', 'Africa/Douala'))->toDateString();
 
         $openHistories = LeaseCutoffHistory::query()
             ->where('vehicle_id', $vehicleId)
@@ -811,14 +818,31 @@ class ControlGpsController extends Controller
         ];
     }
 
+    /**
+     * Convertit un horodatage brut du fournisseur GPS (timestamp unix, ms ou
+     * s) en chaîne prête à afficher à l'utilisateur — heure de Douala.
+     *
+     * Anomalie corrigée : les trois branches appelaient
+     * ->setTimezone(config('app.timezone')), qui ressemble à une conversion
+     * volontaire mais ne fait RIEN puisque config('app.timezone') vaut 'UTC'
+     * (fuseau de stockage, pas d'affichage) — la valeur restait donc en UTC
+     * brut, une heure en retard sur Douala. Plus trompeur qu'une simple
+     * omission : le code semblait déjà "gérer" le fuseau. Le
+     * ->toDateTimeString() final ne portant pas le fuseau, chaque appelant
+     * qui l'affiche directement (ex. dashboard GPS) doit le traiter comme
+     * une heure de Douala déjà prête, pas comme de l'UTC.
+     * Trouvé et corrigé le 24/08/2026.
+     */
     private function dateTimeString($value): ?string
     {
         if ($value === null || $value === '') {
             return null;
         }
 
+        $tz = config('app.display_timezone', 'Africa/Douala');
+
         if ($value instanceof Carbon) {
-            return $value->toDateTimeString();
+            return $value->copy()->setTimezone($tz)->toDateTimeString();
         }
 
         if (is_numeric($value)) {
@@ -828,15 +852,15 @@ class ControlGpsController extends Controller
             }
             try {
                 return ($n >= 1000000000000)
-                    ? Carbon::createFromTimestampMs($n)->setTimezone(config('app.timezone'))->toDateTimeString()
-                    : Carbon::createFromTimestamp($n)->setTimezone(config('app.timezone'))->toDateTimeString();
+                    ? Carbon::createFromTimestampMs($n)->setTimezone($tz)->toDateTimeString()
+                    : Carbon::createFromTimestamp($n)->setTimezone($tz)->toDateTimeString();
             } catch (\Throwable) {
                 return null;
             }
         }
 
         try {
-            return Carbon::parse((string) $value)->setTimezone(config('app.timezone'))->toDateTimeString();
+            return Carbon::parse((string) $value)->setTimezone($tz)->toDateTimeString();
         } catch (\Throwable) {
             return null;
         }

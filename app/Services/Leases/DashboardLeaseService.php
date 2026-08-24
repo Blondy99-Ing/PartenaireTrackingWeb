@@ -1260,7 +1260,8 @@ class DashboardLeaseService
                     'status_label' => $this->cutoffStatusLabel((string) $history->status),
                     'badge' => $this->cutoffBadge((string) $history->status),
                     'reason' => $this->shortCutoffReason($history),
-                    'updated_at' => optional($history->updated_at)->format('d/m H:i'),
+                    // Corrige le 24/08/2026 : s'affichait en UTC brut, une heure en retard.
+                    'updated_at' => \App\Support\LocalTime::display($history->updated_at, 'd/m H:i'),
                     'search' => mb_strtolower((optional($history->vehicle)->immatriculation ?? '') . ' ' . ($history->type_contrat_label ?? '') . ' ' . ($history->reason ?? ''), 'UTF-8'),
                 ];
             })
@@ -1361,7 +1362,15 @@ class DashboardLeaseService
 
     private function resolvePeriod(array|string $filters = []): array
     {
-        $timezone = config('app.timezone') ?: 'Africa/Douala';
+        /**
+         * Anomalie corrigée : le repli 'Africa/Douala' ne s'appliquait jamais
+         * puisque la clé config('app.timezone') EXISTE et vaut 'UTC' — c'est
+         * le fuseau de stockage, pas d'affichage. "Aujourd'hui" retombait
+         * donc sur le jour calendaire UTC : entre 23h00 et 23h59 UTC (déjà
+         * le lendemain en heure de Douala), le filtre affichait encore la
+         * veille. Trouvé et corrigé le 24/08/2026.
+         */
+        $timezone = config('app.display_timezone', 'Africa/Douala');
         $today = now($timezone)->startOfDay();
         $filters = is_array($filters) ? $filters : ['period' => $filters];
         $key = (string) ($filters['period'] ?? 'today');
@@ -1444,7 +1453,8 @@ class DashboardLeaseService
 
     private function currentWeekPeriod(): array
     {
-        $timezone = config('app.timezone') ?: 'Africa/Douala';
+        // Même correction que resolvePeriod() ci-dessus.
+        $timezone = config('app.display_timezone', 'Africa/Douala');
         $today = now($timezone);
 
         return [

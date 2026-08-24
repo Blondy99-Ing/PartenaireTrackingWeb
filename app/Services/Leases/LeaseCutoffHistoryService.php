@@ -4,7 +4,6 @@ namespace App\Services\Leases;
 
 use App\Models\LeaseCutoffHistory;
 use App\Models\User;
-use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -262,86 +261,41 @@ class LeaseCutoffHistoryService
         });
     }
 
+    /**
+     * scheduled_for est une colonne DATETIME (chiffres UTC bruts, jamais
+     * convertis par MySQL) : les bornes doivent donc être calculées en heure
+     * murale Douala puis reconverties en UTC avant liaison, sinon le filtre
+     * "aujourd'hui" se cale sur minuit UTC au lieu de minuit Douala (~1h de
+     * décalage). Voir App\Support\LocalTime::periodRange().
+     */
     private function applyPeriodFilter(Builder $query, array $filters): void
     {
         $period = trim((string) ($filters['period'] ?? ''));
-        $timezone = config('app.timezone', 'Africa/Douala');
 
         if ($period === '') {
             return;
         }
 
-        $now = Carbon::now($timezone);
+        [$from, $to] = \App\Support\LocalTime::periodRange($period, [
+            'date' => $filters['specific_date'] ?? null,
+            'from' => $filters['date_from'] ?? null,
+            'to' => $filters['date_to'] ?? null,
+        ]);
 
-        switch ($period) {
-            case 'today':
-                $query->whereBetween('scheduled_for', [
-                    $now->copy()->startOfDay(),
-                    $now->copy()->endOfDay(),
-                ]);
-                break;
+        if ($period === 'range') {
+            if ($from) {
+                $query->where('scheduled_for', '>=', $from);
+            }
 
-            case 'yesterday':
-                $query->whereBetween('scheduled_for', [
-                    $now->copy()->subDay()->startOfDay(),
-                    $now->copy()->subDay()->endOfDay(),
-                ]);
-                break;
+            if ($to) {
+                $query->where('scheduled_for', '<=', $to);
+            }
 
-            case 'this_week':
-                $query->whereBetween('scheduled_for', [
-                    $now->copy()->startOfWeek(),
-                    $now->copy()->endOfWeek(),
-                ]);
-                break;
+            return;
+        }
 
-            case 'this_month':
-                $query->whereBetween('scheduled_for', [
-                    $now->copy()->startOfMonth(),
-                    $now->copy()->endOfMonth(),
-                ]);
-                break;
-
-            case 'this_year':
-                $query->whereBetween('scheduled_for', [
-                    $now->copy()->startOfYear(),
-                    $now->copy()->endOfYear(),
-                ]);
-                break;
-
-            case 'specific_date':
-                $specificDate = trim((string) ($filters['specific_date'] ?? ''));
-
-                if ($specificDate !== '') {
-                    $date = Carbon::parse($specificDate, $timezone);
-
-                    $query->whereBetween('scheduled_for', [
-                        $date->copy()->startOfDay(),
-                        $date->copy()->endOfDay(),
-                    ]);
-                }
-                break;
-
-            case 'range':
-                $dateFrom = trim((string) ($filters['date_from'] ?? ''));
-                $dateTo = trim((string) ($filters['date_to'] ?? ''));
-
-                if ($dateFrom !== '') {
-                    $query->where(
-                        'scheduled_for',
-                        '>=',
-                        Carbon::parse($dateFrom, $timezone)->startOfDay()
-                    );
-                }
-
-                if ($dateTo !== '') {
-                    $query->where(
-                        'scheduled_for',
-                        '<=',
-                        Carbon::parse($dateTo, $timezone)->endOfDay()
-                    );
-                }
-                break;
+        if ($from && $to) {
+            $query->whereBetween('scheduled_for', [$from, $to]);
         }
     }
 }

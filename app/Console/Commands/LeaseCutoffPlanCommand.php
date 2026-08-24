@@ -27,7 +27,7 @@ class LeaseCutoffPlanCommand extends Command
 
     public function handle(LeaseCutoffPlannerService $service): int
     {
-        $timezone = config('app.timezone', 'Africa/Douala');
+        $timezone = config('app.display_timezone', 'Africa/Douala');
         $optionDate = $this->option('date');
 
         try {

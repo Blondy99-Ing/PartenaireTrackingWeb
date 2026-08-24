@@ -1306,7 +1306,8 @@ input:checked + .fl-slider:before {
             <div class="status-hub-card" id="autoCutHub">
                 <div class="hub-section">
                     <span class="hub-label">Collecte du jour</span>
-                    <span class="hub-value" id="currentDateDisplay">{{ now()->format('d/m/Y') }}</span>
+                    {{-- Corrige le 24/08/2026 : now() sans fuseau affichait la date serveur UTC. --}}
+                    <span class="hub-value" id="currentDateDisplay">{{ now(config('app.display_timezone', 'Africa/Douala'))->format('d/m/Y') }}</span>
                 </div>
 
                 <div class="hub-section">
