@@ -691,6 +691,40 @@ class ControlGpsController extends Controller
         return $loc?->toArray();
     }
 
+    /**
+     * Convertit un horodatage venu du fournisseur GPS en heure locale
+     * affichable.
+     *
+     * Volontairement tolérant : LocalTime::displayRaw() impose le format
+     * strict 'Y-m-d H:i:s' et lève une InvalidFormatException ("Trailing
+     * data") dès que le fournisseur renvoie autre chose -- fractions de
+     * seconde, suffixe de fuseau, format ISO. Cette valeur vient d'un
+     * service externe dont on ne maîtrise pas le format : une date
+     * d'affichage ne doit jamais faire tomber la réponse entière.
+     *
+     * Renvoie null quand la date est absente ou illisible : l'interface
+     * conserve alors l'horodatage qu'elle affichait déjà.
+     */
+    private function formatProviderTime($valeur): ?string
+    {
+        if (empty($valeur)) {
+            return null;
+        }
+
+        try {
+            return \Carbon\Carbon::parse($valeur, 'UTC')
+                ->setTimezone(config('app.display_timezone', 'Africa/Douala'))
+                ->format('d/m/Y H:i');
+        } catch (\Throwable $e) {
+            Log::debug('[ENGINE_STATUS] horodatage fournisseur illisible', [
+                'valeur' => is_scalar($valeur) ? (string) $valeur : gettype($valeur),
+                'erreur' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
     private function buildEnginePayloadFromProviderStatus(array $status): array
     {
         $engineState = $status['decoded']['engineState'] ?? 'UNKNOWN';
@@ -738,10 +772,7 @@ class ControlGpsController extends Controller
                 // le fournisseur renvoie sa DERNIÈRE position connue, pas une
                 // position actuelle. L'afficher évite de laisser croire le
                 // contraire.
-                'fixed_at' => \App\Support\LocalTime::displayRaw(
-                    $status['location']['sys_time'] ?? null,
-                    'd/m/Y H:i'
-                ),
+                'fixed_at' => $this->formatProviderTime($status['location']['sys_time'] ?? null),
             ],
             'meta' => [
                 'source' => $status['source'] ?? null,
