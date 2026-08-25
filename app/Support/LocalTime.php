@@ -43,13 +43,48 @@ class LocalTime
      */
     public static function displayRaw(?string $rawUtcValue, string $format = 'd/m/Y à H:i'): string
     {
-        if (! $rawUtcValue) {
+        $rawUtcValue = trim((string) $rawUtcValue);
+
+        if ($rawUtcValue === '') {
             return '—';
         }
 
-        return Carbon::createFromFormat('Y-m-d H:i:s', $rawUtcValue, 'UTC')
-            ->setTimezone(config('app.display_timezone', 'Africa/Douala'))
-            ->format($format);
+        $tz = config('app.display_timezone', 'Africa/Douala');
+
+        /*
+         * Chemin nominal : format exact des colonnes DATETIME de la base.
+         * createFromFormat est volontairement strict — il refuse toute
+         * donnée résiduelle — ce qui garantit qu'on n'interprète pas de
+         * travers une valeur inattendue.
+         */
+        try {
+            return Carbon::createFromFormat('Y-m-d H:i:s', $rawUtcValue, 'UTC')
+                ->setTimezone($tz)
+                ->format($format);
+        } catch (\Throwable $e) {
+            // On tente une lecture tolérante ci-dessous.
+        }
+
+        /*
+         * Repli tolérant. Cette méthode ne reçoit pas que des colonnes de
+         * base : certains appelants lui passent des horodatages venus du
+         * fournisseur GPS, qui peuvent porter des fractions de seconde, un
+         * suffixe de fuseau ou un format ISO. Une exception y faisait tomber
+         * toute la page — un simple affichage de date ne doit jamais avoir
+         * cet effet.
+         *
+         * Une valeur qui porte déjà son fuseau est respectée ; une valeur
+         * naïve reste ancrée sur UTC, comme dans le chemin nominal.
+         */
+        try {
+            $porteUnFuseau = (bool) preg_match('/(Z|[+-]\d{2}:?\d{2})$/', $rawUtcValue);
+
+            return ($porteUnFuseau ? Carbon::parse($rawUtcValue) : Carbon::parse($rawUtcValue, 'UTC'))
+                ->setTimezone($tz)
+                ->format($format);
+        } catch (\Throwable $e) {
+            return '—';
+        }
     }
 
     /**
