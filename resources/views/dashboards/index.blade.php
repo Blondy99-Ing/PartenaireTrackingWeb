@@ -1547,7 +1547,12 @@ $defaultTab = $canFlotte ? 'flotte' : ($canTrajets ? 'trajets' : ($canAlertes ? 
                                 <div class="v" id="vmStatus">—</div>
                             </div>
                             <div class="tm-box">
-                                <div class="k">Dernière MàJ</div>
+                                {{-- Le badge signale l'interrogation directe du fournisseur GPS
+                                     declenchee a l'ouverture de la fiche. --}}
+                                <div class="k">
+                                    Dernière MàJ
+                                    <span id="vmLiveBadge" style="font-size:.62rem;font-style:italic;margin-left:.3rem"></span>
+                                </div>
                                 <div class="v" id="vmUpdated" style="font-size:.72rem">—</div>
                             </div>
                         </div>
@@ -2480,6 +2485,107 @@ $defaultTab = $canFlotte ? 'flotte' : ($canTrajets ? 'trajets' : ($canAlertes ? 
             modal.dataset.vid = id;
             modal.classList.add('show');
         }
+
+        /*
+         * Les valeurs ci-dessus viennent du cache : elles s'affichent
+         * instantanément. On interroge ensuite 18GPS en direct pour les
+         * actualiser — utile surtout sur un véhicule hors ligne, dont le
+         * cache peut dater de plusieurs heures.
+         */
+        refreshVehicleLive(id);
+    }
+
+    /*
+     * Interrogation directe du fournisseur GPS pour un véhicule donné.
+     *
+     * Volontairement non bloquante : la fiche est déjà affichée avec les
+     * données en cache, cet appel ne fait que les corriger s'il aboutit.
+     * Tout échec est silencieux — permission absente (403), fournisseur
+     * injoignable (502), réseau coupé : on conserve simplement l'affichage
+     * en cache plutôt que de vider la fiche.
+     */
+    let vmLiveAbort = null;
+    let vmLiveLastCall = 0;
+
+    function refreshVehicleLive(id) {
+        const modal = document.getElementById('vehicleModal');
+        if (!modal) return;
+
+        /*
+         * Garde-fou anti-abus : chaque appel sollicite le fournisseur
+         * externe. Sans limite, un utilisateur qui clique en rafale
+         * multiplierait les requêtes sortantes.
+         */
+        const now = Date.now();
+        if (now - vmLiveLastCall < 3000) return;
+        vmLiveLastCall = now;
+
+        // Une fiche ouverte pendant qu'une requête précédente est en vol :
+        // on abandonne l'ancienne, sa réponse ne concerne plus l'affichage.
+        if (vmLiveAbort) vmLiveAbort.abort();
+        vmLiveAbort = new AbortController();
+
+        const badge = document.getElementById('vmLiveBadge');
+        if (badge) {
+            badge.textContent = 'actualisation…';
+            badge.style.color = '#94a3b8';
+        }
+
+        fetch(`/voitures/${encodeURIComponent(id)}/engine-status`, {
+            signal: vmLiveAbort.signal,
+            credentials: 'same-origin',
+            headers: { 'Accept': 'application/json' },
+        })
+            .then(r => (r.ok ? r.json() : null))
+            .then(d => {
+                if (!d || d.success !== true) {
+                    if (badge) badge.textContent = '';
+                    return;
+                }
+
+                // L'utilisateur a pu ouvrir un autre véhicule entre-temps :
+                // on n'écrase pas la fiche courante avec une réponse périmée.
+                if (String(modal.dataset.vid) !== String(id)) return;
+
+                const pos = d.position || {};
+                const sp = document.getElementById('vmSpeed');
+                const p = document.getElementById('vmPos');
+                const up = document.getElementById('vmUpdated');
+                const st = document.getElementById('vmStatus');
+
+                if (sp && pos.speed != null) {
+                    sp.textContent = `${Math.round(pos.speed)} km/h`;
+                }
+
+                if (p && pos.latitude != null && pos.longitude != null) {
+                    p.textContent = `${Number(pos.latitude).toFixed(5)}, ${Number(pos.longitude).toFixed(5)}`;
+                }
+
+                /*
+                 * Sur un véhicule hors ligne, le fournisseur renvoie sa
+                 * DERNIÈRE position connue, pas une position actuelle.
+                 * Afficher son horodatage réel évite de laisser croire que
+                 * le véhicule vient d'être localisé.
+                 */
+                if (up && pos.fixed_at && pos.fixed_at !== '—') {
+                    up.textContent = pos.fixed_at;
+                }
+
+                if (st && d.gps && d.gps.message) {
+                    const enLigne = d.gps.online === true;
+                    st.innerHTML = `<span style="color:${enLigne ? '#16a34a' : '#dc2626'}">${esc(d.gps.message)}</span>`;
+                }
+
+                if (badge) {
+                    badge.textContent = 'à jour';
+                    badge.style.color = '#16a34a';
+                    setTimeout(() => { if (badge) badge.textContent = ''; }, 4000);
+                }
+            })
+            .catch(() => {
+                // Abandon volontaire ou échec réseau : on garde le cache.
+                if (badge) badge.textContent = '';
+            });
     }
 
     window.closeVehicleModal = () => {

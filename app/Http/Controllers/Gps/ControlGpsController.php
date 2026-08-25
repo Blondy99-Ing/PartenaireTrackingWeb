@@ -698,6 +698,25 @@ class ControlGpsController extends Controller
 
         $connectivity = $this->buildGpsStateFromProviderStatus($status);
 
+        /**
+         * Position et vitesse remontées telles que le fournisseur les a
+         * renvoyées lors de cet appel. Elles étaient déjà présentes dans
+         * $status mais n'étaient pas exposées : sans elles, un clic sur un
+         * véhicule hors ligne actualisait son état moteur sans jamais
+         * rafraîchir sa localisation, ce qui est précisément l'information
+         * attendue.
+         *
+         * Ajout purement additif : aucune clé existante n'est modifiée, les
+         * consommateurs actuels de cette réponse ne voient aucun changement.
+         *
+         * latitude/longitude valent 0 quand le boîtier n'a jamais été
+         * localisé : on renvoie null plutôt que des coordonnées au large du
+         * golfe de Guinée, qui s'afficheraient comme une position valide.
+         */
+        $lat = (float) ($status['location']['latitude'] ?? 0);
+        $lon = (float) ($status['location']['longitude'] ?? 0);
+        $hasPosition = ($lat !== 0.0 || $lon !== 0.0);
+
         return [
             'success' => true,
             'engine' => [
@@ -709,6 +728,20 @@ class ControlGpsController extends Controller
                 'state' => $connectivity['state'],
                 'last_seen' => $connectivity['last_seen'],
                 'message' => $connectivity['message'],
+            ],
+            'position' => [
+                'latitude' => $hasPosition ? $lat : null,
+                'longitude' => $hasPosition ? $lon : null,
+                'direction' => $status['location']['direction'] ?? null,
+                'speed' => isset($status['speed']) ? (float) $status['speed'] : null,
+                // Horodatage réel de la position : sur un véhicule hors ligne
+                // le fournisseur renvoie sa DERNIÈRE position connue, pas une
+                // position actuelle. L'afficher évite de laisser croire le
+                // contraire.
+                'fixed_at' => \App\Support\LocalTime::displayRaw(
+                    $status['location']['sys_time'] ?? null,
+                    'd/m/Y H:i'
+                ),
             ],
             'meta' => [
                 'source' => $status['source'] ?? null,
