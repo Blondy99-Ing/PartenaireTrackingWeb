@@ -1158,7 +1158,7 @@ class GpsControlService
      *
      * @return array<string,array<string,mixed>>
      */
-    public function refreshLiveFleetMap(array $accounts = ['tracking'], int $ttlSeconds = 180): array
+    public function refreshLiveFleetMap(array $accounts = ['tracking'], ?int $ttlSeconds = null): array
     {
         /*
          * Le compte 'mobility' est volontairement absent de la liste par défaut :
@@ -1167,6 +1167,20 @@ class GpsControlService
          * qu'échouer, faire tourner le jeton ou tronquer un cycle. À réintroduire
          * si des véhicules du parc y sont un jour rattachés.
          */
+        /*
+         * Duree de vie de la carte. Elle etait a 180 s, soit trois passages :
+         * une panne fournisseur de trois minutes suffisait a effacer l etat
+         * moteur de toute la flotte sur la page de coupure -- or ce fournisseur
+         * echoue environ une fois sur six et reste parfois muet plusieurs
+         * minutes d affilee.
+         *
+         * A quinze minutes, une panne courte devient invisible pour
+         * l utilisateur : la carte est de toute facon rafraichie chaque minute
+         * des que le fournisseur repond. Au-dela, l affichage retombe sur
+         * « Cliquer pour verifier », ce qui reste honnete.
+         */
+        $ttlSeconds = $ttlSeconds ?? (int) config('gps.live_fleet_ttl', 900);
+
         $precedent = Cache::get(self::LIVE_FLEET_MAP_CACHE_KEY);
         $map = is_array($precedent) ? $precedent : [];
 

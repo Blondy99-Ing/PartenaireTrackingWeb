@@ -45,6 +45,9 @@ return [
     'offline_threshold_minutes' => (int) env('GPS_OFFLINE_THRESHOLD_MINUTES', 25),
     'moving_threshold'          => (float) env('GPS_MOVING_THRESHOLD', 5.0),
 
+    // Duree de vie du releve live de la flotte. Voir refreshLiveFleetMap().
+    'live_fleet_ttl' => (int) env('GPS_LIVE_FLEET_TTL', 900),
+
     /*
      | Limites géographiques d'exploitation (Cameroun).
      |
