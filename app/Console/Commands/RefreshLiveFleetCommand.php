@@ -31,7 +31,7 @@ use Illuminate\Support\Facades\Log;
 class RefreshLiveFleetCommand extends Command
 {
     protected $signature = 'gps:refresh-live-fleet
-                            {--dry-run : Interroge le fournisseur et affiche le bilan sans écrire le cache}';
+                            {--dry-run : Affiche ce que contient le cache fournisseur, sans appel ni ecriture}';
 
     protected $description = 'Rafraîchit l\'état live de la flotte depuis 18gps (position + connectivité)';
 
@@ -39,7 +39,24 @@ class RefreshLiveFleetCommand extends Command
     {
         $debut = microtime(true);
 
-        $map = $gps->refreshLiveFleetMap();
+        /*
+         * En simulation, on lit le cache au lieu d'interroger le fournisseur :
+         * autrement l'option écrivait quand même la carte, ce qui contredit son
+         * nom et fausse toute vérification faite juste avant une mise en
+         * production.
+         */
+        $map = $this->option('dry-run')
+            ? $gps->getLiveFleetMap(false)
+            : $gps->refreshLiveFleetMap();
+
+        if ($this->option('dry-run')) {
+            $this->info(sprintf(
+                'Simulation : %d boîtier(s) actuellement en cache, aucune écriture, aucun appel fournisseur.',
+                count($map)
+            ));
+
+            return self::SUCCESS;
+        }
 
         /*
          * « La carte n'est pas vide » ne veut PAS dire « le fournisseur a
@@ -61,16 +78,6 @@ class RefreshLiveFleetCommand extends Command
         }
 
         $dureeAppel = microtime(true) - $debut;
-
-        if ($this->option('dry-run')) {
-            $this->info(sprintf(
-                'Simulation : %d boîtier(s) reçu(s) en %.0f ms, aucune écriture.',
-                count($map),
-                $dureeAppel * 1000
-            ));
-
-            return self::SUCCESS;
-        }
 
         $bilan = $cache->updateFleetFromLiveProviderMap($map);
         $duree = microtime(true) - $debut;

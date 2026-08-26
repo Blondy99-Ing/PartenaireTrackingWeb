@@ -1338,7 +1338,21 @@ public function rebuildFleet(int $partnerId): array
             $oldVehicle = $vehicle;
             $vehicle = $this->applyDynamicLiveStatusOnRow($vehicle);
 
-            if ($vehicle !== $oldVehicle) {
+            /*
+             * `updated_at_ms` est l'heure de la dernière écriture, pas une
+             * information vue par l'utilisateur — et recomputeOfflineLiveStatus-
+             * FromRedis la remet à `now()` inconditionnellement. La comparaison
+             * brute était donc TOUJOURS vraie : chaque véhicule était réécrit et
+             * diffusé 120 fois par heure pour une information inchangée, chaque
+             * onglet ouvert monopolisant un worker sur les cinq du serveur.
+             *
+             * En l'excluant, on ne diffuse plus que les changements réels.
+             */
+            $avant = $oldVehicle;
+            $apres = $vehicle;
+            unset($avant['live_status']['updated_at_ms'], $apres['live_status']['updated_at_ms']);
+
+            if ($apres !== $avant) {
                 $changed++;
 
                 if (isset($vehicle['id'])) {
