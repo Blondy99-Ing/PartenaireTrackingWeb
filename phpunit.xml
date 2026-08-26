@@ -22,8 +22,20 @@
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="CACHE_STORE" value="array"/>
-        <!-- <env name="DB_CONNECTION" value="sqlite"/> -->
-        <!-- <env name="DB_DATABASE" value=":memory:"/> -->
+        <!--
+            NE JAMAIS RECOMMENTER CES DEUX LIGNES.
+
+            Tant qu'elles etaient commentees, la suite de tests ne definissait
+            aucune connexion : elle retombait donc sur celle du .env. Sur le
+            serveur, cela signifiait la base de PRODUCTION. Le 24/08/2026, un
+            lancement de tests avec RefreshDatabase a ainsi execute un
+            migrate:fresh sur `tracking` et detruit 43 tables.
+
+            Ces lignes forcent toute execution de tests vers une base dediee,
+            quelle que soit la configuration du .env de la machine.
+        -->
+        <env name="DB_CONNECTION" value="mysql"/>
+        <env name="DB_DATABASE" value="partenaire_tracking_test"/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="PULSE_ENABLED" value="false"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
