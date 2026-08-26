@@ -16,6 +16,15 @@ pest()->extend(Tests\TestCase::class)
     ->in('Feature');
 
 /*
+| Les tests Unit ont besoin de l'app Laravel bootee (config(), base_path()...)
+| pour App\Support\LocalTime et pour le scan anti-regression de
+| tests/Unit/CodeStyle -- mais pas de RefreshDatabase, ce sont des tests
+| purement logiques/fichiers, sans base de donnees.
+*/
+pest()->extend(Tests\TestCase::class)
+    ->in('Unit');
+
+/*
 |--------------------------------------------------------------------------
 | Expectations
 |--------------------------------------------------------------------------
