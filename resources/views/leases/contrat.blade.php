@@ -49,25 +49,45 @@
                 ?? $type['details']
                 ?? '';
 
-            $isMain = (bool) (
-                $type['is_main']
+            /*
+             | `est_principal` vient de Recouvrement et FAIT AUTORITÉ.
+             |
+             | Auparavant, quand ce drapeau valait explicitement false, le code
+             | le contredisait en devinant d'après le libellé : tout type
+             | contenant « moto », « voiture » ou « véhicule » était promu
+             | principal. Un sous-type nommé « Dette moto » se retrouvait donc
+             | classé principal, devenait LE type principal (le premier trouvé,
+             | dans l'ordre de l'API qui n'est pas celui des identifiants), et
+             | disparaissait de la liste des sous-contrats — précisément là où
+             | le partenaire le cherchait, tout en restant visible côté contrats
+             | principaux.
+             |
+             | On ne devine donc plus que si le drapeau est ABSENT de la réponse,
+             | jamais quand il est renseigné. filter_var traite correctement les
+             | valeurs sérialisées en chaîne ("false", "0") que renvoient
+             | certaines API.
+             */
+            $flagPrincipal = $type['is_main']
                 ?? $type['est_principal']
                 ?? $type['principal']
-                ?? false
-            );
+                ?? null;
 
-            if (! $isMain && $code !== '') {
-                $isMain = in_array($code, ['VEHICULE', 'VEHICLE', 'MOTO', 'VOITURE', 'MT'], true);
-            }
+            if ($flagPrincipal !== null) {
+                $isMain = filter_var($flagPrincipal, FILTER_VALIDATE_BOOLEAN);
+            } else {
+                // Drapeau absent : repli historique, par code puis par libellé.
+                $isMain = $code !== ''
+                    && in_array($code, ['VEHICULE', 'VEHICLE', 'MOTO', 'VOITURE', 'MT'], true);
 
-            if (! $isMain && $label) {
-                $lowerLabel = mb_strtolower($label, 'UTF-8');
+                if (! $isMain && $label) {
+                    $lowerLabel = mb_strtolower($label, 'UTF-8');
 
-                $isMain = str_contains($lowerLabel, 'véhicule')
-                    || str_contains($lowerLabel, 'vehicule')
-                    || str_contains($lowerLabel, 'vehicle')
-                    || str_contains($lowerLabel, 'moto')
-                    || str_contains($lowerLabel, 'voiture');
+                    $isMain = str_contains($lowerLabel, 'véhicule')
+                        || str_contains($lowerLabel, 'vehicule')
+                        || str_contains($lowerLabel, 'vehicle')
+                        || str_contains($lowerLabel, 'moto')
+                        || str_contains($lowerLabel, 'voiture');
+                }
             }
 
             return [
