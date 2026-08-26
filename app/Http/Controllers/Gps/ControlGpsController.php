@@ -118,6 +118,23 @@ class ControlGpsController extends Controller
             report($e);
         }
 
+        /*
+         * Relevé live enrichi de toute la flotte, alimenté hors requête par
+         * gps:refresh-live-fleet (chaque minute). Lecture de cache uniquement :
+         * aucun appel fournisseur n'est déclenché ici, la page reste immédiate.
+         *
+         * C'est lui qui permet d'afficher l'état moteur SANS cliquer sur chaque
+         * véhicule. L'objection d'origine — un état lu dans `locations` pouvait
+         * dériver de près d'une heure — ne tient plus : cette carte vient
+         * directement du fournisseur et a moins d'une minute.
+         */
+        $liveFleet = [];
+        try {
+            $liveFleet = $this->gps->getLiveFleetMap();
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
         $out = [];
 
         foreach ($ids as $id) {
@@ -141,17 +158,25 @@ class ControlGpsController extends Controller
             }
 
             /**
-             * Volontairement AUCUNE lecture de `locations` ici (ni cache
-             * "confirmé", ni sync planifié) : afficher un état moteur en
-             * masse pour toute la flotte s'est montré peu fiable, avec des
-             * écarts observés allant jusqu'à ~1h par rapport à la réalité
-             * sur certains boîtiers. L'état moteur n'est donc plus affiché
-             * qu'au clic sur un véhicule précis, via un appel live 18gps
-             * pour CE véhicule seul (voir engineStatus()) juste avant
-             * d'ouvrir la modale de confirmation. Ce tableau ne sert plus
-             * qu'à afficher la connexion GPS (online/offline), qui elle
-             * provient d'un cache réellement rafraîchi chaque minute
-             * (gps:refresh-online-map) et n'a pas cette dérive.
+             * Toujours AUCUNE lecture de `locations` ici : afficher un état
+             * moteur tiré de la dernière position enregistrée s'était montré
+             * peu fiable, avec des écarts allant jusqu'à ~1h sur certains
+             * boîtiers. C'est cette dérive qui avait fait retirer l'état
+             * moteur du tableau, le reléguant à un clic par véhicule.
+             *
+             * L'état vient désormais du relevé live de toute la flotte
+             * (gps:refresh-live-fleet, chaque minute, directement chez le
+             * fournisseur) : la dérive d'une heure n'existe plus, et le
+             * tableau peut afficher l'état moteur sans clic.
+             *
+             * IMPORTANT — même donnée, mêmes limites que le bouton de
+             * vérification : c'est le même bit de relais, lu au même endroit.
+             * Ce bit s'est révélé non fiable sur près d'un quart du parc, des
+             * véhicules roulant à 89 km/h s'y déclarant moteur coupé. L'écran
+             * n'est donc ni plus ni moins juste qu'avant — seulement plus
+             * immédiat. `checked_live` reste à false pour que l'interface
+             * puisse continuer à distinguer cet état d'une vérification
+             * explicite.
              */
             $payload = [
                 'success' => true,
@@ -179,6 +204,52 @@ class ControlGpsController extends Controller
                     'OFFLINE'           => 'GPS hors ligne',
                     default             => 'État GPS inconnu',
                 };
+            }
+
+            /*
+             * État moteur, depuis le relevé live de la flotte. Décodé par la
+             * même méthode que le bouton de vérification, sur la même chaîne
+             * de statut : le résultat est identique à ce qu'un clic afficherait.
+             *
+             * Si le boîtier est absent du relevé — carte froide, panne
+             * fournisseur, boîtier récent — on laisse UNKNOWN plutôt que
+             * d'inventer : l'utilisateur garde alors le bouton de vérification.
+             */
+            $releve = $liveFleet[$mac] ?? null;
+
+            if ($releve !== null && ! empty($releve['status_raw'])) {
+                $decode = $this->gps->decodeEngineStatus((string) $releve['status_raw']);
+                $etat = $decode['engineState'] ?? 'UNKNOWN';
+
+                /*
+                 * Garde de cohérence. Le bit de relais du fournisseur est faux
+                 * sur une partie du parc : mesuré en production, 9 véhicules
+                 * sur 41 en mouvement (22 %) déclarent un moteur « OFF » ou
+                 * « COUPÉ » alors qu'ils roulent jusqu'à 29 km/h.
+                 *
+                 * Un véhicule qui roule a forcément son moteur en marche. Quand
+                 * le boîtier prétend le contraire, on préfère ne rien affirmer :
+                 * la fiche retombe sur « Cliquer pour vérifier ». Afficher
+                 * « moteur coupé » sur un véhicule en circulation, sur la page
+                 * qui sert précisément à couper des moteurs, tromperait
+                 * l'exploitant sur l'état réel de sa flotte.
+                 *
+                 * Ce garde ne rattrape que les contradictions visibles : un
+                 * véhicule à l'arrêt dont le bit est faux reste indétectable.
+                 */
+                $enMouvement = ($releve['state'] ?? null) === 'ONLINE_MOVING';
+
+                if ($enMouvement && $etat !== 'ON') {
+                    $etat = 'UNKNOWN';
+                    $payload['meta']['engine_incoherent'] = true;
+                }
+
+                if ($etat !== 'UNKNOWN') {
+                    $payload['engine']['engineState'] = $etat;
+                    $payload['engine']['cut'] = ($etat === 'CUT');
+                    $payload['meta']['engine_source'] = 'live_fleet';
+                    $payload['meta']['engine_seen_at_ms'] = $releve['heart_time_ms'] ?? null;
+                }
             }
 
             $out[$id] = $payload;
