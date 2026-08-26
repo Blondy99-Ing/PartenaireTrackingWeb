@@ -716,6 +716,22 @@ public function rebuildFleet(int $partnerId): array
      * @param array<string,mixed> $sample relevé normalisé (GpsControlService)
      * @return array{0: array<string,mixed>, 1: bool} [ligne, changement visible]
      */
+    /**
+     * Une coordonnée tombe-t-elle dans la zone d'exploitation ?
+     *
+     * Mêmes bornes que l'ingestion Node, qui rejette déjà ces points avec la
+     * raison « outside_operational_bounds ».
+     */
+    private function positionVraisemblable(float $lat, float $lon): bool
+    {
+        $b = (array) config('gps.bounds', []);
+
+        return $lat >= (float) ($b['lat_min'] ?? 1.5)
+            && $lat <= (float) ($b['lat_max'] ?? 13.5)
+            && $lon >= (float) ($b['lon_min'] ?? 8.0)
+            && $lon <= (float) ($b['lon_max'] ?? 16.5);
+    }
+
     private function applyProviderSampleToRow(array $row, array $sample): array
     {
         $avant = [
@@ -740,6 +756,22 @@ public function rebuildFleet(int $partnerId): array
         $posCacheMs = (int) ($row['pos_ts_ms'] ?? ($row['live_status']['datetime_ms'] ?? 0));
 
         $positionAcceptee = false;
+
+        /*
+         * Contrôle de vraisemblance géographique. Le fournisseur renvoie
+         * parfois des coordonnées aberrantes — un boîtier de Yaoundé localisé
+         * au Tchad, un autre à Shenzhen (la position d'usine du fabricant).
+         * Tant que l'affichage venait de `locations`, ces points étaient déjà
+         * filtrés par l'ingestion Node ; le balayage fournisseur, lui, les
+         * écrivait tels quels.
+         *
+         * Seule la POSITION est rejetée : le battement du même relevé reste
+         * valable et continue d'alimenter l'état.
+         */
+        if ($lat !== null && $lon !== null && ! $this->positionVraisemblable($lat, $lon)) {
+            $lat = null;
+            $lon = null;
+        }
 
         if ($lat !== null && $lon !== null && $posMs > 0
             && ($posMs > $posCacheMs || ! isset($row['lat']) || $row['lat'] === null)) {

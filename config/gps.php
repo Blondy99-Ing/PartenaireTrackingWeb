@@ -45,6 +45,24 @@ return [
     'offline_threshold_minutes' => (int) env('GPS_OFFLINE_THRESHOLD_MINUTES', 25),
     'moving_threshold'          => (float) env('GPS_MOVING_THRESHOLD', 5.0),
 
+    /*
+     | Limites géographiques d'exploitation (Cameroun).
+     |
+     | Le fournisseur renvoie parfois des coordonnées aberrantes : un boîtier
+     | localisé au Tchad alors qu'il est à Yaoundé, un autre à Shenzhen — la
+     | position d'usine du fabricant. Les afficher telles quelles trompe
+     | l'utilisateur bien plus qu'une position simplement datée.
+     |
+     | Mêmes valeurs que celles utilisées par l'ingestion Node, qui rejette déjà
+     | ces points avec la raison « outside_operational_bounds ».
+     */
+    'bounds' => [
+        'lat_min' => (float) env('GPS_BOUND_LAT_MIN', 1.5),
+        'lat_max' => (float) env('GPS_BOUND_LAT_MAX', 13.5),
+        'lon_min' => (float) env('GPS_BOUND_LNG_MIN', 8.0),
+        'lon_max' => (float) env('GPS_BOUND_LNG_MAX', 16.5),
+    ],
+
     // Cartographie.
     'map_type'   => env('GPS_MAP_TYPE', 'BAIDU'),
     'map_option' => env('GPS_MAP_OPTION', 'cn'),
