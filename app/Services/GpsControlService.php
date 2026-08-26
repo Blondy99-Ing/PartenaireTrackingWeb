@@ -1035,7 +1035,10 @@ class GpsControlService
      * renvoie simplement [] : l'appelant retombe sur la dernière position en base.
      *
      * NB : la device-list ne porte PAS le bit `status` moteur -> l'état de coupure
-     * reste lu depuis la dernière position (champ status).
+     * reste lu depuis la dernière position (champ status). Le lot enrichi
+     * (voir getLiveFleetMap) le porte, lui — mais on choisit délibérément de ne
+     * pas l'exploiter : mesuré non fiable sur près d'un quart du parc, des
+     * véhicules relevés à 89 km/h s'y déclarant moteur coupé.
      *
      * @param bool $allowFetch true uniquement hors requête web (commande planifiée / CLI).
      * @return array<string,array{is_online:?bool,state:string,speed:?float,last_seen:mixed,account:string}>
@@ -1107,6 +1110,246 @@ class GpsControlService
         return $map;
     }
 
+
+    /** Cle de cache de la carte LIVE enrichie (position + etat), alimentee hors requete. */
+    private const LIVE_FLEET_MAP_CACHE_KEY = 'gps18gps:live_fleet_map';
+
+    /** @var array<string> comptes ayant réellement répondu au dernier balayage */
+    private array $derniersComptesServis = [];
+
+    /**
+     * Carte LIVE enrichie de tous les boitiers, indexee par mac.
+     *
+     * Meme contrat que getLiveOnlineMap() -- lecture de cache par defaut, jamais
+     * d'appel fournisseur pendant une requete web -- mais la source est ici
+     * `getDeviceListByCustomId` au lieu de `getDeviceList`.
+     *
+     * Ce que cela change : la device-list ne porte NI coordonnees NI bit moteur
+     * (voir le commentaire de getLiveOnlineMap). Le lot, lui, renvoie en un seul
+     * appel la position, la vitesse, le cap, le battement ET la chaine de statut,
+     * pour toute la flotte du compte. C'est ce qui permet d'afficher l'etat reel
+     * de chaque vehicule SANS attendre qu'on clique dessus.
+     *
+     * @param bool $allowFetch true uniquement hors requete web (commande planifiee / CLI).
+     * @return array<string,array<string,mixed>>
+     */
+    public function getLiveFleetMap(bool $allowFetch = false): array
+    {
+        $map = Cache::get(self::LIVE_FLEET_MAP_CACHE_KEY);
+
+        if (is_array($map)) {
+            return $map;
+        }
+
+        return $allowFetch ? $this->refreshLiveFleetMap() : [];
+    }
+
+    /**
+     * Reconstruit la carte LIVE enrichie depuis le fournisseur et la met en cache.
+     * À n'appeler QUE hors requête web (commande planifiée) : l'appel dure de 2 s
+     * à plus de 20 s selon l'humeur du fournisseur.
+     *
+     * ROBUSTESSE — leçon d'un test réel : quand un seul des deux comptes répond,
+     * remplacer la carte entière par ce qu'on vient d'obtenir la ferait passer de
+     * 289 boîtiers à 31, silencieusement. La carte précédente est donc conservée
+     * et seuls les comptes ayant RÉELLEMENT répondu sont remplacés. Les entrées
+     * ainsi conservées sont inoffensives : les gardes d'horodatage côté cache
+     * refusent d'elles-mêmes tout relevé qui n'est pas plus récent.
+     *
+     * @return array<string,array<string,mixed>>
+     */
+    public function refreshLiveFleetMap(array $accounts = ['tracking'], int $ttlSeconds = 180): array
+    {
+        /*
+         * Le compte 'mobility' est volontairement absent de la liste par défaut :
+         * ses 31 boîtiers sont tous à zéro (jamais connectés) et AUCUN ne
+         * correspond aux 176 mac_id_gps du parc. L'interroger ne pouvait donc
+         * qu'échouer, faire tourner le jeton ou tronquer un cycle. À réintroduire
+         * si des véhicules du parc y sont un jour rattachés.
+         */
+        $precedent = Cache::get(self::LIVE_FLEET_MAP_CACHE_KEY);
+        $map = is_array($precedent) ? $precedent : [];
+
+        $comptesServis = [];
+
+        foreach ($accounts as $acc) {
+            $acc = strtolower(trim($acc));
+            if (! in_array($acc, ['tracking', 'mobility'], true)) {
+                continue;
+            }
+
+            try {
+                $this->setAccount($acc);
+
+                // Le lot exige l'identifiant d'unité, mis en cache par loginGps().
+                if (! $this->loginGps()) {
+                    continue;
+                }
+
+                $unitId = trim((string) Cache::get("gps18gps:{$acc}:unit_id", ''));
+                if ($unitId === '') {
+                    continue;
+                }
+
+                $rows = $this->getSubUnitDeviceList($unitId);
+            } catch (\Throwable $e) {
+                report($e);
+                continue;
+            }
+
+            if (empty($rows)) {
+                // Réponse vide ou tronquée : on garde ce que ce compte avait déjà.
+                continue;
+            }
+
+            $nouveau = [];
+
+            foreach ($rows as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+
+                $mac = trim((string) ($row['sim_id'] ?? $row['macid'] ?? ''));
+                if ($mac === '') {
+                    continue;
+                }
+
+                $nouveau[$mac] = $this->normalizeFleetBatchRow($row, $acc);
+            }
+
+            if (empty($nouveau)) {
+                continue;
+            }
+
+            // Ce compte a répondu : on remplace SES entrées, pas celles des autres.
+            foreach ($map as $mac => $entree) {
+                if (($entree['account'] ?? null) === $acc) {
+                    unset($map[$mac]);
+                }
+            }
+
+            foreach ($nouveau as $mac => $entree) {
+                $map[$mac] = $entree;
+            }
+
+            $comptesServis[] = $acc;
+        }
+
+        /*
+         * Aucun compte n'a répondu : on ne touche pas au cache. L'écraser avec du
+         * vide ferait basculer toute la flotte en « inconnu » — bien pire que
+         * d'afficher un état légèrement daté.
+         */
+        /*
+         * Distinction essentielle : « la carte n'est pas vide » ne veut PAS dire
+         * « le fournisseur a répondu ». Quand aucun compte ne répond, on renvoie
+         * la carte précédente — ce qui est le bon comportement pour l'affichage,
+         * mais l'appelant doit pouvoir savoir que rien de neuf n'est arrivé,
+         * sans quoi une panne de plusieurs heures serait journalisée comme une
+         * série de succès.
+         */
+        $this->derniersComptesServis = $comptesServis;
+
+        if (empty($comptesServis)) {
+            return is_array($precedent) ? $precedent : [];
+        }
+
+        if (! empty($map)) {
+            Cache::put(self::LIVE_FLEET_MAP_CACHE_KEY, $map, $ttlSeconds);
+        }
+
+        return $map;
+    }
+
+    /**
+     * Comptes fournisseur ayant RÉELLEMENT répondu lors du dernier
+     * refreshLiveFleetMap(). Vide = panne, même si une carte a été renvoyée.
+     *
+     * @return array<string>
+     */
+    public function derniersComptesServis(): array
+    {
+        return $this->derniersComptesServis;
+    }
+
+    /**
+     * Normalise une ligne du lot `getDeviceListByCustomId`.
+     *
+     * Les horodatages du lot sont des millisecondes epoch et les coordonnees portent
+     * leurs noms d'origine : `jingdu` = longitude, `weidu` = latitude.
+     *
+     * La connectivite suit la regle 18GPS deja appliquee ailleurs dans ce service
+     * (voir computeConnectivityFromLatestRecord) : on compare l'heure serveur du
+     * fournisseur a son dernier battement -- jamais l'horloge locale, qui n'a aucune
+     * raison d'etre alignee sur la sienne.
+     *
+     * @return array<string,mixed>
+     */
+    private function normalizeFleetBatchRow(array $row, string $account): array
+    {
+        $heartMs  = $this->batchTimeToMs($row['heart_time'] ?? null);
+        $serverMs = $this->batchTimeToMs($row['server_time'] ?? null);
+        $gpsMs    = $this->batchTimeToMs($row['datetime'] ?? null);
+
+        // `su` vaut -9 quand le boitier n'a jamais emis : ce n'est pas une vitesse.
+        $speedRaw = $row['su'] ?? null;
+        $speed = is_numeric($speedRaw) ? (float) $speedRaw : null;
+        if ($speed !== null && $speed < 0) {
+            $speed = null;
+        }
+
+        $lat = (float) ($row['weidu'] ?? 0);
+        $lon = (float) ($row['jingdu'] ?? 0);
+        $hasPosition = ($lat !== 0.0 || $lon !== 0.0);
+
+        $isOnline = null;
+        $state = 'UNKNOWN';
+
+        if ($heartMs && $serverMs) {
+            $isOnline = (($serverMs - $heartMs) < ($this->offlineThresholdMinutes * 60 * 1000));
+
+            if (! $isOnline) {
+                $state = 'OFFLINE';
+            } elseif ($speed !== null && $speed >= (float) config('gps.moving_threshold', 5.0)) {
+                $state = 'ONLINE_MOVING';
+            } else {
+                $state = 'ONLINE_STATIONARY';
+            }
+        }
+
+        return [
+            'mac'            => trim((string) ($row['sim_id'] ?? $row['macid'] ?? '')),
+            'account'        => $account,
+            'is_online'      => $isOnline,
+            'state'          => $state,
+            'speed'          => $speed,
+            'latitude'       => $hasPosition ? $lat : null,
+            'longitude'      => $hasPosition ? $lon : null,
+            'direction'      => isset($row['hangxiang']) ? (int) $row['hangxiang'] : null,
+            'heart_time_ms'  => $heartMs,
+            'server_time_ms' => $serverMs,
+            'datetime_ms'    => $gpsMs,
+            /*
+             * Chaine de statut brute, DELIBEREMENT non decodee ici. Elle porte
+             * l'etat moteur, mais sa semantique bit a bit n'est pas encore
+             * confirmee pour CE point d'entree : afficher un etat moteur faux
+             * serait plus grave que de ne pas l'afficher du tout.
+             */
+            'status_raw'     => isset($row['status']) ? (string) $row['status'] : null,
+        ];
+    }
+
+    /** Horodatage du lot : millisecondes epoch, parfois 0 quand la donnee est absente. */
+    private function batchTimeToMs($value): ?int
+    {
+        if (! is_numeric($value)) {
+            return null;
+        }
+
+        $ms = (int) $value;
+
+        return $ms > 0 ? $ms : null;
+    }
     public function getSubUnitDeviceList(string $unitId, string $mapType = ''): array
     {
         $payload = [
