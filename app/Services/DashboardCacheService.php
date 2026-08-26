@@ -782,9 +782,21 @@ public function rebuildFleet(int $partnerId): array
              * (le fournisseur renvoie alors su = -9). On reconduit donc la
              * dernière vitesse connue.
              */
-            $vitesse = $positionAcceptee
-                ? ($sample['speed'] ?? null)
-                : ($precedent['speed'] ?? null);
+            $aUnePosition = ($lat !== null && $lon !== null && $posMs > 0);
+
+            /*
+             * On ne se méfie de la vitesse que si le relevé PORTE une position
+             * qu'on vient de rejeter comme périmée. Quand il n'en porte aucune,
+             * il n'y a rien de périmé : le boîtier bat sans avoir jamais été
+             * localisé, et sa vitesse décrit bien son état actuel.
+             *
+             * Écarter la vitesse dans ce second cas faisait basculer en
+             * « statut inconnu » neuf véhicules pourtant déclarés en ligne et à
+             * l'arrêt par le fournisseur.
+             */
+            $vitesse = ($aUnePosition && ! $positionAcceptee)
+                ? ($precedent['speed'] ?? null)
+                : ($sample['speed'] ?? null);
 
             // Même raison que pour pos_ts_ms : ne jamais abaisser l'horodatage
             // GPS, qui sert de référence à la garde de position.
