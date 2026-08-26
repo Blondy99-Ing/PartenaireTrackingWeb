@@ -2306,7 +2306,7 @@ $defaultTab = $canFlotte ? 'flotte' : ($canTrajets ? 'trajets' : ($canAlertes ? 
                 followSelectedVehicle = true;
                 updateFollowSelectedPill();
                 focusVehicle(selectedVehicleId, true);
-                openVehicleModal(selectedVehicleId);
+                openVehicleModal(selectedVehicleId, { live: true });
 
                 if (document.getElementById('pane-alertes')?.classList.contains('active')) loadAlerts();
                 if (document.getElementById('pane-trajets')?.classList.contains('active')) loadTrips();
@@ -2426,7 +2426,17 @@ $defaultTab = $canFlotte ? 'flotte' : ($canTrajets ? 'trajets' : ($canAlertes ? 
         return google.maps.geometry.poly.containsLocation(point, polygon);
     }
 
-    function openVehicleModal(id) {
+    /*
+     * `live` : interroger 18gps en direct après affichage. Réservé aux
+     * ouvertures déclenchées par l'utilisateur.
+     *
+     * Par défaut à false volontairement : cette fonction est aussi appelée
+     * pour REDESSINER une fiche déjà ouverte à chaque événement temps réel.
+     * Or l'interrogation directe met désormais le cache à jour, ce qui émet
+     * un événement temps réel — donc un nouveau redessin. Poller par défaut
+     * enfermerait la fiche ouverte dans une boucle d'appels au fournisseur.
+     */
+    function openVehicleModal(id, { live = false } = {}) {
         const v = vehicles.find(x => String(x.id) === String(id));
         if (!v) return;
 
@@ -2492,7 +2502,9 @@ $defaultTab = $canFlotte ? 'flotte' : ($canTrajets ? 'trajets' : ($canAlertes ? 
          * actualiser — utile surtout sur un véhicule hors ligne, dont le
          * cache peut dater de plusieurs heures.
          */
-        refreshVehicleLive(id);
+        if (live) {
+            refreshVehicleLive(id);
+        }
     }
 
     /*
@@ -2506,6 +2518,7 @@ $defaultTab = $canFlotte ? 'flotte' : ($canTrajets ? 'trajets' : ($canAlertes ? 
      */
     let vmLiveAbort = null;
     let vmLiveLastCall = 0;
+    const vmLiveLastCallByVehicle = new Map();
 
     function refreshVehicleLive(id) {
         const modal = document.getElementById('vehicleModal');
@@ -2515,10 +2528,21 @@ $defaultTab = $canFlotte ? 'flotte' : ($canTrajets ? 'trajets' : ($canAlertes ? 
          * Garde-fou anti-abus : chaque appel sollicite le fournisseur
          * externe. Sans limite, un utilisateur qui clique en rafale
          * multiplierait les requêtes sortantes.
+         *
+         * La limite est propre à CHAQUE véhicule : une limite globale
+         * empêchait d'actualiser un second véhicule ouvert dans les trois
+         * secondes — le cas courant quand on parcourt la flotte, et
+         * précisément celui où l'actualisation est utile. Un plancher global
+         * bien plus court reste appliqué pour borner les rafales.
          */
         const now = Date.now();
-        if (now - vmLiveLastCall < 3000) return;
+        const cle = String(id);
+
+        if (now - vmLiveLastCall < 700) return;
+        if (now - (vmLiveLastCallByVehicle.get(cle) || 0) < 3000) return;
+
         vmLiveLastCall = now;
+        vmLiveLastCallByVehicle.set(cle, now);
 
         // Une fiche ouverte pendant qu'une requête précédente est en vol :
         // on abandonne l'ancienne, sa réponse ne concerne plus l'affichage.
@@ -2567,8 +2591,9 @@ $defaultTab = $canFlotte ? 'flotte' : ($canTrajets ? 'trajets' : ($canAlertes ? 
                  * Afficher son horodatage réel évite de laisser croire que
                  * le véhicule vient d'être localisé.
                  */
-                if (up && pos.fixed_at && pos.fixed_at !== '—') {
-                    up.textContent = pos.fixed_at;
+                const horodatage = pos.fixed_at_raw || pos.fixed_at;
+                if (up && horodatage && horodatage !== '—') {
+                    up.textContent = horodatage;
                 }
 
                 if (st && d.gps && d.gps.message) {
@@ -2648,7 +2673,7 @@ $defaultTab = $canFlotte ? 'flotte' : ($canTrajets ? 'trajets' : ($canAlertes ? 
         selectVehicleInList(selectedVehicleId);
         scrollVehicleIntoView(selectedVehicleId);
         updateFollowSelectedPill();
-        openVehicleModal(selectedVehicleId);
+        openVehicleModal(selectedVehicleId, { live: true });
 
         if (map && markers[String(selectedVehicleId)]) {
             focusVehicle(selectedVehicleId, true);
@@ -2936,7 +2961,7 @@ $defaultTab = $canFlotte ? 'flotte' : ($canTrajets ? 'trajets' : ($canAlertes ? 
 
                     selectVehicleInList(v.id);
                     focusVehicle(v.id, true);
-                    openVehicleModal(v.id);
+                    openVehicleModal(v.id, { live: true });
 
                     if (document.getElementById('pane-alertes')?.classList.contains('active')) loadAlerts();
                     if (document.getElementById('pane-trajets')?.classList.contains('active')) loadTrips();
@@ -4038,7 +4063,7 @@ $defaultTab = $canFlotte ? 'flotte' : ($canTrajets ? 'trajets' : ($canAlertes ? 
                 renderVehicleList();
                 selectVehicleInList(vehicleId);
                 focusVehicle(vehicleId, true);
-                openVehicleModal(vehicleId);
+                openVehicleModal(vehicleId, { live: true });
                 window.closeAlertDetail();
                 toast('Véhicule localisé');
             });

@@ -10,6 +10,7 @@ use App\Models\SimGps;
 use App\Models\User;
 use App\Models\Voiture;
 use App\Services\Gps\ManualCommandConfirmationService;
+use App\Services\DashboardCacheService;
 use App\Services\GpsControlService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -21,7 +22,8 @@ class ControlGpsController extends Controller
 {
     public function __construct(
         private GpsControlService $gps,
-        private ManualCommandConfirmationService $manualCommandConfirmation
+        private ManualCommandConfirmationService $manualCommandConfirmation,
+        private DashboardCacheService $dashboardCache
     ) {}
 
     /**
@@ -243,6 +245,19 @@ class ControlGpsController extends Controller
                     default             => 'État GPS inconnu',
                 };
             }
+
+            /*
+             * Le relevé qui vient d'être obtenu est aussi écrit dans le cache
+             * du tableau de bord. Sans cela, la fiche était corrigée à
+             * l'écran mais le cache gardait l'ancienne valeur : au premier
+             * événement temps réel, la fiche se réécrivait depuis le cache et
+             * l'état affiché basculait (« hors ligne » puis « en ligne »).
+             *
+             * Volontairement après la réponse construite et sans condition de
+             * réussite : c'est une donnée dérivée, un échec ici ne doit pas
+             * dégrader la réponse.
+             */
+            $this->dashboardCache->updateVehicleRowFromLiveProviderStatus($voiture, $status);
 
             return response()->json($payload);
         }
@@ -705,7 +720,7 @@ class ControlGpsController extends Controller
      * Renvoie null quand la date est absente ou illisible : l'interface
      * conserve alors l'horodatage qu'elle affichait déjà.
      */
-    private function formatProviderTime($valeur): ?string
+    private function formatProviderTime($valeur, string $format = 'd/m/Y H:i'): ?string
     {
         if (empty($valeur)) {
             return null;
@@ -714,7 +729,7 @@ class ControlGpsController extends Controller
         try {
             return \Carbon\Carbon::parse($valeur, 'UTC')
                 ->setTimezone(config('app.display_timezone', 'Africa/Douala'))
-                ->format('d/m/Y H:i');
+                ->format($format);
         } catch (\Throwable $e) {
             Log::debug('[ENGINE_STATUS] horodatage fournisseur illisible', [
                 'valeur' => is_scalar($valeur) ? (string) $valeur : gettype($valeur),
@@ -773,6 +788,19 @@ class ControlGpsController extends Controller
                 // position actuelle. L'afficher évite de laisser croire le
                 // contraire.
                 'fixed_at' => $this->formatProviderTime($status['location']['sys_time'] ?? null),
+                /*
+                 * Même instant que fixed_at, mais dans le format déjà employé
+                 * par la fiche pour « Dernière MàJ » (celui du cache). Sans
+                 * lui, l'actualisation écrivait une date au format court, que
+                 * le rafraîchissement temps réel réécrivait aussitôt au format
+                 * long : même valeur, mais saut visible à l'écran.
+                 *
+                 * Aligné sur heart_time, la source que la fiche privilégie.
+                 */
+                'fixed_at_raw' => $this->formatProviderTime(
+                    $status['location']['heart_time'] ?? $status['location']['sys_time'] ?? null,
+                    'Y-m-d H:i:s'
+                ),
             ],
             'meta' => [
                 'source' => $status['source'] ?? null,

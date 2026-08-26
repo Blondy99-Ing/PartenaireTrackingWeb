@@ -84,3 +84,38 @@ Schedule::command('engine:confirm-manual-commands')
 Schedule::command('gps:refresh-online-map')
     ->everyMinute()
     ->withoutOverlapping();
+
+/*
+|--------------------------------------------------------------------------
+| GPS - état live de toute la flotte
+|--------------------------------------------------------------------------
+| Remonte position + connectivité de TOUS les boîtiers en un seul appel
+| (getDeviceListByCustomId) et les injecte dans le cache du tableau de bord.
+|
+| Pourquoi : l'état affiché était déduit du dernier point enregistré dans
+| `locations`. Or un véhicule à l'arrêt cesse d'émettre des points tout en
+| continuant son battement — sa dernière position peut donc dater de plusieurs
+| heures alors que le boîtier va très bien. L'écran ne distinguait pas « garé,
+| tout va bien » de « boîtier muet », et il fallait cliquer sur chaque véhicule
+| pour le savoir. Mesuré sur la flotte réelle : 72 véhicules affichés « jamais
+| localisé » et 87 « hors ligne » alors que 103 étaient en réalité connectés,
+| dont 34 en mouvement.
+|
+| Cette commande n'écrit PAS dans `locations` : l'ingestion Node en reste seule
+| responsable, car elle seule fournit la trace continue dont dépendent les
+| trajets, les alertes et les coupures sur géorepère.
+|
+| Verrou de 10 minutes, choisi entre deux écueils opposés :
+|  - trop court, il expire pendant que le passage tourne encore et un second
+|    démarre en parallèle — c'est ce qui, le 21/08/2026, a fait couper six
+|    véhicules pourtant pardonnés (verrou à 5 min, passages de 6 min) ;
+|  - sans limite (le défaut de Laravel est de 24 h), un processus tué en plein
+|    passage laisse le verrou posé et la tâche ne repart jamais de la journée.
+|    Ce serveur tue régulièrement des processus faute de mémoire : le risque
+|    est réel, pas théorique.
+| 10 minutes valent ~20 fois le pire passage observé (31 s), tout en garantissant
+| une reprise rapide après un arrêt brutal.
+*/
+Schedule::command('gps:refresh-live-fleet')
+    ->everyMinute()
+    ->withoutOverlapping(10);

@@ -46,6 +46,7 @@ class DashboardCacheService
     return "dash:p:$partnerId:assoc:check:lock";
 }
     private function kFleetReset(int $partnerId): string { return "dash:p:$partnerId:fleet:reset"; }
+    private function kDriverSignature(int $partnerId): string { return "dash:p:$partnerId:drivers:sig"; }
 
     private function kDirtyVehicles(int $partnerId): string { return "dash:p:$partnerId:dirty:vehicles"; }
     private function kDirtyAlerts(int $partnerId): string   { return "dash:p:$partnerId:dirty:alerts"; }
@@ -134,6 +135,70 @@ public function freshPartnerVehicleIdsFromDb(int $partnerId): array
 }
 
 /**
+ * Empreinte des affectations chauffeur -> véhicule d'un partenaire.
+ *
+ * Pourquoi : le contrôle de fraîcheur ne comparait que la LISTE des véhicules.
+ * Changer le chauffeur d'un véhicule déjà présent ne modifiait pas cette liste,
+ * donc rien ne le détectait — et comme la durée de vie du cache est remise à
+ * zéro toutes les 30 s par dashboard:refresh-offline-statuses, le filet
+ * d'expiration ne se déclenchait jamais non plus. Résultat : une affectation
+ * pouvait rester invisible indéfiniment, y compris faite depuis cette
+ * application (aucun observateur n'écoute cette table).
+ *
+ * L'empreinte combine trois valeurs pour couvrir tous les cas :
+ *  - le NOMBRE d'affectations       -> ajout ou suppression ;
+ *  - le plus grand identifiant      -> une suppression suivie d'un ajout, qui
+ *                                      laisserait le nombre inchangé ;
+ *  - la dernière date de mise à jour -> changement de chauffeur sur une ligne
+ *                                      existante.
+ *
+ * Une seule requête d'agrégat sur une petite table : le coût est négligeable
+ * devant le chargement de page qu'elle rend juste.
+ *
+ * @param array<int> $vehicleIds véhicules du partenaire, déjà résolus
+ */
+/**
+ * Mémorise l'empreinte des affectations qu'on vient de reconstruire.
+ *
+ * SANS DURÉE DE VIE, volontairement. Une empreinte qui expire alors que le
+ * hash de flotte, lui, n'expire jamais — sa durée de vie étant remise à zéro
+ * toutes les 30 s par dashboard:refresh-offline-statuses — provoquerait une
+ * reconstruction complète de la flotte à intervalle régulier, dans un worker
+ * web, sur un serveur qui n'en a que cinq pour quatre sites.
+ *
+ * La clé est minuscule et réécrite à chaque reconstruction ; la laisser
+ * survivre ne coûte rien.
+ */
+private function storeDriverSignature(int $partnerId, array $vehicleIds): void
+{
+    try {
+        Redis::set($this->kDriverSignature($partnerId), $this->driverAssignmentsSignature($vehicleIds));
+    } catch (\Throwable $e) {
+        // Sans empreinte, on paiera une reconstruction de plus au prochain
+        // chargement : jamais un affichage faux.
+    }
+}
+
+public function driverAssignmentsSignature(array $vehicleIds): string
+{
+    if (empty($vehicleIds)) {
+        return 'vide';
+    }
+
+    $row = AssociationChauffeurVoiturePartner::query()
+        ->whereIn('voiture_id', $vehicleIds)
+        ->selectRaw('COUNT(*) AS n, COALESCE(MAX(id), 0) AS dernier, COALESCE(MAX(updated_at), 0) AS maj')
+        ->first();
+
+    return sprintf(
+        '%d|%d|%s',
+        (int) ($row->n ?? 0),
+        (int) ($row->dernier ?? 0),
+        (string) ($row->maj ?? '0')
+    );
+}
+
+/**
  * Vérifie si Redis correspond encore à la vraie association en base.
  *
  * Cas traité :
@@ -149,13 +214,27 @@ public function ensurePartnerAssociationsFresh(int $partnerId): bool
     sort($freshIds);
     sort($cachedIds);
 
-    if ($freshIds === $cachedIds) {
+    $listeChangee = ($freshIds !== $cachedIds);
+
+    /*
+     * Deuxième contrôle, indépendant du premier : les affectations de
+     * chauffeur. Un changement de chauffeur sur un véhicule déjà présent ne
+     * modifie pas la liste ci-dessus et passait donc totalement inaperçu.
+     */
+    $signature = $this->driverAssignmentsSignature($freshIds);
+    $chauffeursChanges = ($signature !== (string) (Redis::get($this->kDriverSignature($partnerId)) ?? ''));
+
+    if (! $listeChangee && ! $chauffeursChanges) {
         return false;
     }
 
-    $this->invalidateVehicleIds($partnerId);
+    // Les statistiques ne dépendent que de la composition de la flotte : inutile
+    // de les recalculer quand seul un chauffeur a changé.
+    if ($listeChangee) {
+        $this->invalidateVehicleIds($partnerId);
+        $this->rebuildStats($partnerId);
+    }
 
-    $this->rebuildStats($partnerId);
     $this->rebuildFleet($partnerId);
 
     return true;
@@ -407,6 +486,16 @@ public function rebuildFleet(int $partnerId): array
                 $pipe->del($this->kDirtyVehicles($partnerId));
             });
 
+            /*
+             * Mémoriser l'empreinte AVANT de sortir. Sans cela, un partenaire
+             * sans véhicule n'en avait jamais : le contrôle de fraîcheur la
+             * trouvait toujours différente et reconstruisait la flotte à chaque
+             * chargement de page ET toutes les 5 secondes dans la boucle temps
+             * réel — soit des centaines de diffusions par heure pour un tableau
+             * de bord vide.
+             */
+            $this->storeDriverSignature($partnerId, []);
+
             $this->markFleetResetDirty($partnerId);
             $this->bumpVersionDebounced($partnerId, 1);
 
@@ -474,6 +563,49 @@ public function rebuildFleet(int $partnerId): array
                 $pipe->expire($this->kFleetH($partnerId), $this->ttlFleet);
             }
         });
+
+        /*
+         * Démarrage à froid. La flotte vient d'être reconstruite depuis
+         * `locations`, donc avec l'état déduit du dernier point enregistré : un
+         * véhicule garé depuis des heures y paraît « hors ligne » ou « jamais
+         * localisé », alors que son boîtier va très bien.
+         *
+         * On applique aussitôt le dernier relevé fournisseur DÉJÀ EN CACHE —
+         * lecture seule, aucun appel réseau, donc aucun coût ajouté à la
+         * requête web — pour que la page affiche l'état réel dès son premier
+         * chargement, au lieu d'attendre le prochain balayage.
+         *
+         * Sans cela, chaque expiration du cache ramenait l'écran à l'état
+         * trompeur d'avant ce chantier pendant une minute entière.
+         */
+        try {
+            $live = app(GpsControlService::class)->getLiveFleetMap(false);
+
+            if (! empty($live)) {
+                $this->updateFleetFromLiveProviderMap($live, $partnerId);
+
+                // Renvoyer ce que le cache contient RÉELLEMENT : sinon la page
+                // afficherait les lignes d'avant correction.
+                $corrige = $this->getFleetFromRedis($partnerId);
+                if (! empty($corrige)) {
+                    $fleet = $corrige;
+                }
+            }
+        } catch (\Throwable $e) {
+            // Correction d'affichage : son échec ne doit jamais empêcher la
+            // reconstruction de la flotte d'aboutir.
+        }
+
+        /*
+         * Mémoriser l'empreinte des affectations qu'on vient de reconstruire.
+         * Sans cela, le contrôle de fraîcheur la trouverait toujours différente
+         * et reconstruirait la flotte à CHAQUE chargement de page.
+         *
+         * Durée de vie volontairement plus longue que celle du hash : si
+         * l'empreinte disparaissait la première, on paierait une reconstruction
+         * inutile.
+         */
+        $this->storeDriverSignature($partnerId, $this->freshPartnerVehicleIdsFromDb($partnerId));
 
         $this->markFleetResetDirty($partnerId);
         $this->bumpVersionDebounced($partnerId, 1);
@@ -543,6 +675,400 @@ public function rebuildFleet(int $partnerId): array
         }
 
         $this->updateFleetBatchFromLocations($partnerId, [$location->toArray()], $bump);
+    }
+
+    /**
+     * Rafraîchit la ligne de cache d'UN véhicule à partir d'un relevé live
+     * 18gps (interrogation directe au clic sur une fiche), sans passer par la
+     * table `locations`.
+     *
+     * Motivation : l'interrogation directe corrigeait bien la fiche affichée,
+     * mais laissait le cache inchangé. Au premier événement temps réel reçu,
+     * la fiche était réécrite depuis le cache — donc avec l'ancienne valeur —
+     * ce qui produisait une bascule visible « hors ligne » / « en ligne ».
+     * Mettre le cache à jour ici traite la cause et non le symptôme.
+     *
+     * `live_status` est recalculé par le MÊME constructeur que le chemin
+     * normal : c'est lui qui fait autorité, applyDynamicLiveStatusOnRow()
+     * réécrivant `gps.*` à partir de lui à chaque lecture. Écrire `gps.*`
+     * seul serait silencieusement annulé.
+     *
+     * Donnée strictement dérivée : en cas d'échec on ne touche à rien, le
+     * cycle de reconstruction normal reprendra la main.
+     */
+    /**
+     * Applique un relevé fournisseur normalisé à une ligne de flotte, sous garde
+     * d'horodatage.
+     *
+     * POURQUOI DEUX GARDES SÉPARÉES, et non une seule sur la ligne entière :
+     * un véhicule garé a une position vieille de plusieurs heures mais un
+     * battement de deux minutes. Rejeter tout le relevé parce que la position
+     * est ancienne reviendrait à ne jamais rafraîchir son état — exactement le
+     * défaut qu'on cherche à corriger. Position et état sont donc arbitrés
+     * indépendamment, chacun sur SON horodatage.
+     *
+     * RÈGLE D'HYGIÈNE : heart_time ne se compare qu'à heart_time, datetime qu'à
+     * datetime. Jamais à l'heure locale : l'horloge du fournisseur n'a aucune
+     * raison d'être alignée sur la nôtre, et comparer les deux ferait basculer
+     * la ligne à chaque écriture.
+     *
+     * @param array<string,mixed> $row    ligne de flotte telle qu'en cache
+     * @param array<string,mixed> $sample relevé normalisé (GpsControlService)
+     * @return array{0: array<string,mixed>, 1: bool} [ligne, changement visible]
+     */
+    private function applyProviderSampleToRow(array $row, array $sample): array
+    {
+        $avant = [
+            'ui'     => $row['live_status']['ui_status'] ?? null,
+            'online' => $row['gps']['online'] ?? null,
+            'lat'    => isset($row['lat']) ? round((float) $row['lat'], 5) : null,
+            'lon'    => isset($row['lon']) ? round((float) $row['lon'], 5) : null,
+        ];
+
+        /* ---- Garde A : POSITION, arbitrée sur l'horodatage GPS ---- */
+        $lat = $sample['latitude'] ?? null;
+        $lon = $sample['longitude'] ?? null;
+        $posMs = (int) ($sample['datetime_ms'] ?? 0);
+
+        /*
+         * pos_ts_ms est un champ neuf : les lignes déjà en cache ne l'ont pas.
+         * On se rabat alors sur l'horodatage GPS déjà porté par live_status,
+         * plutôt que de traiter l'absence comme un zéro — ce qui ferait
+         * accepter, au tout premier balayage, une position plus ancienne que
+         * celle affichée.
+         */
+        $posCacheMs = (int) ($row['pos_ts_ms'] ?? ($row['live_status']['datetime_ms'] ?? 0));
+
+        $positionAcceptee = false;
+
+        if ($lat !== null && $lon !== null && $posMs > 0
+            && ($posMs > $posCacheMs || ! isset($row['lat']) || $row['lat'] === null)) {
+            $row['lat'] = $lat;
+            $row['lon'] = $lon;
+            $positionAcceptee = true;
+        }
+
+        /*
+         * Ce marqueur ne doit JAMAIS reculer, y compris quand le relevé vient
+         * d'être rejeté. Sinon la garde B, qui réécrit live_status juste après,
+         * abaisserait la référence — et un relevé suivant, pourtant plus ancien
+         * que la position affichée, redeviendrait acceptable : le véhicule
+         * reculerait sur la carte.
+         */
+        if ($posMs > 0 || $posCacheMs > 0) {
+            $row['pos_ts_ms'] = max($posCacheMs, $posMs);
+        }
+
+        /* ---- Garde B : ÉTAT, arbitré sur le battement ---- */
+        $heartMs = (int) ($sample['heart_time_ms'] ?? 0);
+        $precedent = (array) ($row['live_status'] ?? []);
+        $heartCacheMs = (int) ($precedent['heart_time_ms'] ?? 0);
+        $jamaisLocalise = (($precedent['ui_status'] ?? null) === 'NO_LOCATION');
+
+        if ($heartMs > 0 && ($heartMs > $heartCacheMs || $heartCacheMs === 0 || $jamaisLocalise)) {
+            /*
+             * Même constructeur que le chemin normal : c'est live_status qui
+             * fait autorité, applyDynamicLiveStatusOnRow() réécrivant gps.* à
+             * partir de lui à chaque lecture. Écrire gps.* seul serait annulé.
+             * On passe l'état précédent pour conserver la continuité des
+             * chronomètres (arrêté depuis, hors ligne depuis).
+             */
+            /*
+             * La vitesse est un attribut du POINT GPS, pas du battement. Si la
+             * position vient d'être rejetée comme plus ancienne que l'affichée,
+             * sa vitesse l'est tout autant : la reprendre ferait afficher
+             * « en mouvement » sur un véhicule immobile depuis longtemps, ou
+             * « statut inconnu » sur un boîtier qui bat sans avoir jamais émis
+             * (le fournisseur renvoie alors su = -9). On reconduit donc la
+             * dernière vitesse connue.
+             */
+            $vitesse = $positionAcceptee
+                ? ($sample['speed'] ?? null)
+                : ($precedent['speed'] ?? null);
+
+            // Même raison que pour pos_ts_ms : ne jamais abaisser l'horodatage
+            // GPS, qui sert de référence à la garde de position.
+            $gpsMs = max((int) ($sample['datetime_ms'] ?? 0), (int) ($precedent['datetime_ms'] ?? 0));
+
+            $liveStatus = $this->buildLiveStatusFromLocation([
+                'speed'       => $vitesse,
+                'heart_time'  => $heartMs,
+                'datetime'    => $gpsMs > 0 ? $gpsMs : null,
+                'server_time' => $sample['server_time_ms'] ?? null,
+            ], $precedent !== [] ? $precedent : null);
+
+            $row['live_status'] = $liveStatus;
+            $row['gps'] = [
+                'online'    => $liveStatus['is_online'] ?? null,
+                'state'     => ($liveStatus['is_online'] ?? null) === true ? 'ONLINE' : 'OFFLINE',
+                'last_seen' => $liveStatus['heart_time']
+                    ?? $liveStatus['datetime']
+                    ?? $liveStatus['sys_time']
+                    ?? ($row['gps']['last_seen'] ?? null),
+                'message'   => null,
+            ];
+        }
+
+        /*
+         * `engine` n'est VOLONTAIREMENT jamais écrit ici. Le bit de relais du
+         * fournisseur s'est révélé non fiable sur près d'un quart du parc : des
+         * véhicules mesurés à 89 km/h le rapportent moteur coupé. Afficher un
+         * moteur coupé à tort serait plus grave que de ne rien afficher.
+         *
+         * `loc_id` reste également inchangé : le remettre à zéro réactiverait à
+         * tort la garde isNewerLocIdThanCached() du chemin `locations`.
+         */
+
+        $apres = [
+            'ui'     => $row['live_status']['ui_status'] ?? null,
+            'online' => $row['gps']['online'] ?? null,
+            'lat'    => isset($row['lat']) ? round((float) $row['lat'], 5) : null,
+            'lon'    => isset($row['lon']) ? round((float) $row['lon'], 5) : null,
+        ];
+
+        return [$row, $avant !== $apres];
+    }
+
+    /**
+     * Rafraîchit la ligne de cache d'UN véhicule à partir d'un relevé live 18gps
+     * obtenu au clic sur sa fiche.
+     *
+     * Sans cela, la fiche était corrigée à l'écran mais le cache gardait
+     * l'ancienne valeur : au premier événement temps réel, la fiche se
+     * réécrivait depuis le cache et l'état affiché basculait.
+     *
+     * Donnée strictement dérivée : en cas d'échec on ne touche à rien, le cycle
+     * de reconstruction normal reprend la main.
+     */
+    public function updateVehicleRowFromLiveProviderStatus(Voiture $voiture, array $providerStatus): void
+    {
+        try {
+            $vehicleId = (int) $voiture->id;
+            $loc = (array) ($providerStatus['location'] ?? []);
+
+            // Un boîtier jamais localisé renvoie 0/0 : on ne remplace pas une
+            // position connue par des coordonnées au large du golfe de Guinée.
+            $lat = (float) ($loc['latitude'] ?? 0);
+            $lon = (float) ($loc['longitude'] ?? 0);
+            $hasPosition = ($lat !== 0.0 || $lon !== 0.0);
+
+            $sample = [
+                'latitude'       => $hasPosition ? $lat : null,
+                'longitude'      => $hasPosition ? $lon : null,
+                'speed'          => $providerStatus['speed'] ?? null,
+                'heart_time_ms'  => $this->toMs($loc['heart_time'] ?? null),
+                'server_time_ms' => $this->toMs($loc['sys_time'] ?? null),
+                /*
+                 * `datetime` est à la RACINE de la réponse, pas dans `location`
+                 * (voir GpsControlService::getEngineStatusFromLastLocation).
+                 * Le lire au mauvais endroit donnait toujours null : la garde
+                 * de position ne passait jamais, et l'horodatage GPS déjà en
+                 * cache était écrasé — la fiche était donc moins juste après
+                 * un clic qu'avant.
+                 */
+                'datetime_ms'    => $this->toMs($providerStatus['datetime'] ?? null),
+            ];
+
+            // Sans battement NI position, le relevé n'apprend rien : le laisser
+            // passer ferait basculer un véhicule « jamais localisé » en « hors
+            // ligne », ce qui serait faux.
+            if (empty($sample['heart_time_ms']) && ! $hasPosition) {
+                return;
+            }
+
+            foreach ($this->partnerIdsForVehicle($vehicleId) as $partnerId) {
+                $row = $this->getFleetVehicleRowFromRedis($partnerId, $vehicleId);
+                if (! $row) {
+                    continue;   // rien en cache : le cycle normal le construira
+                }
+
+                [$row, $visible] = $this->applyProviderSampleToRow($row, $sample);
+
+                Redis::hset(
+                    $this->kFleetH($partnerId),
+                    (string) $vehicleId,
+                    json_encode($row, JSON_UNESCAPED_UNICODE)
+                );
+
+                if ($visible) {
+                    $this->markVehiclesDirty($partnerId, [$vehicleId]);
+                    $this->bumpVersionDebounced($partnerId, 1);
+                }
+            }
+        } catch (\Throwable $e) {
+            // Le rafraîchissement du cache ne doit jamais faire échouer la
+            // réponse : l'affichage live reste correct sans lui.
+            \Illuminate\Support\Facades\Log::debug('[DASH_CACHE] rafraichissement live ignore', [
+                'voiture_id' => $voiture->id ?? null,
+                'erreur'     => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Applique un relevé fournisseur de TOUTE la flotte au cache du tableau de
+     * bord, en un balayage.
+     *
+     * C'est ce qui permet d'afficher l'état réel (en ligne / en mouvement / à
+     * l'arrêt) de chaque véhicule DÈS LE CHARGEMENT de la page, sans attendre
+     * qu'on clique dessus. La page, elle, ne fait que lire le cache : l'appel
+     * fournisseur a lieu ici, hors requête web.
+     *
+     * Ce que ce balayage n'écrit PAS, volontairement :
+     *  - la table `locations`, qui reste alimentée par l'ingestion Node. Elle
+     *    seule porte la trace continue nécessaire aux trajets, aux alertes et
+     *    aux coupures sur géorepère ; un instantané par minute ne la remplace
+     *    pas. Ce balayage ne sert que l'affichage.
+     *  - l'état moteur (voir applyProviderSampleToRow).
+     *  - le TTL du hash : le rafraîchir à chaque minute supprimerait le filet
+     *    d'auto-réparation qui fait reconstruire la flotte depuis la base quand
+     *    le cache expire.
+     *
+     * @param array<string,array<string,mixed>> $map relevés indexés par mac
+     * @param int|null $onlyPartnerId restreint le balayage à un seul partenaire
+     *                 (utilisé au démarrage à froid, sur un chargement de page)
+     * @return array<string,int> compteurs de diagnostic
+     */
+    public function updateFleetFromLiveProviderMap(array $map, ?int $onlyPartnerId = null): array
+    {
+        $bilan = [
+            'boitiers_recus'   => count($map),
+            'lignes_examinees' => 0,
+            'lignes_ecrites'   => 0,
+            'changements_vus'  => 0,
+            'absents_du_cache' => 0,
+            'absents_du_lot'   => 0,
+        ];
+
+        if (empty($map)) {
+            return $bilan;
+        }
+
+        /*
+         * Un véhicule peut porter le même boîtier qu'un autre, et appartenir à
+         * plusieurs partenaires : chaque relevé se ventile donc en N lignes
+         * (partenaire, véhicule) indépendantes. Une seule requête les résout
+         * toutes — surtout pas une par véhicule.
+         */
+        $triplets = AssociationUserVoiture::query()
+            ->join('users', 'users.id', '=', 'association_user_voitures.user_id')
+            ->join('voitures', 'voitures.id', '=', 'association_user_voitures.voiture_id')
+            ->whereNull('users.partner_id')
+            ->whereNotNull('voitures.mac_id_gps')
+            ->where('voitures.mac_id_gps', '<>', '')
+            ->when($onlyPartnerId !== null, fn ($q) => $q->where('association_user_voitures.user_id', $onlyPartnerId))
+            ->select([
+                'association_user_voitures.user_id as partner_id',
+                'voitures.id as voiture_id',
+                'voitures.mac_id_gps as mac',
+            ])
+            ->get();
+
+        $parPartenaire = [];
+        foreach ($triplets as $t) {
+            $parPartenaire[(int) $t->partner_id][(int) $t->voiture_id] = trim((string) $t->mac);
+        }
+
+        foreach ($parPartenaire as $partnerId => $vehicules) {
+            try {
+                $hash = Redis::hgetall($this->kFleetH($partnerId));
+            } catch (\Throwable $e) {
+                continue;
+            }
+
+            if (empty($hash)) {
+                // Rien en cache pour ce partenaire : le cycle normal le
+                // construira. On ne crée pas de lignes partielles ici.
+                continue;
+            }
+
+            $aEcrire = [];
+            $modifies = [];
+            $trouves = 0;
+
+            foreach ($vehicules as $vehicleId => $mac) {
+                $bilan['lignes_examinees']++;
+
+                $sample = $map[$mac] ?? null;
+                if (! $sample) {
+                    $bilan['absents_du_lot']++;
+                    continue;   // aucune écriture : refreshOfflineStatuses les fera vieillir
+                }
+
+                $json = $hash[(string) $vehicleId] ?? null;
+                if (! $json) {
+                    $bilan['absents_du_cache']++;
+                    continue;
+                }
+
+                $row = json_decode($json, true);
+                if (! is_array($row)) {
+                    continue;
+                }
+
+                $trouves++;
+
+                [$row, $visible] = $this->applyProviderSampleToRow($row, $sample);
+
+                /*
+                 * Ne reecrire que ce qui a reellement bouge. En regime etabli, la
+                 * plupart des lignes sont rejetees par les gardes et ressortent
+                 * identiques : les reecrire couterait 159 ecritures Redis par
+                 * minute pour rien, sur un serveur deja a court de memoire.
+                 */
+                $encode = json_encode($row, JSON_UNESCAPED_UNICODE);
+                if ($encode === $json) {
+                    continue;
+                }
+
+                $aEcrire[(string) $vehicleId] = $encode;
+
+                if ($visible) {
+                    $modifies[] = (int) $vehicleId;
+                }
+            }
+
+            /*
+             * Garde-fou contre une reponse partielle du fournisseur : si plus de
+             * la moitie des vehicules du partenaire sont absents du releve, on
+             * n ecrit rien. Ecrire quand meme laisserait une flotte a moitie
+             * fraiche et a moitie figee, sans que rien ne le signale -- c est
+             * exactement le mode de defaillance silencieuse qu un test reel a
+             * fait apparaitre ici.
+             */
+            $examines = count($vehicules);
+            if ($examines > 0 && $trouves < ($examines * 0.8)) {
+                \Illuminate\Support\Facades\Log::warning('[GPS_LIVE_FLEET] releve partiel ignore', [
+                    'partenaire' => $partnerId,
+                    'attendus'   => $examines,
+                    'trouves'    => $trouves,
+                ]);
+
+                continue;
+            }
+
+            if (empty($aEcrire)) {
+                continue;
+            }
+
+            /*
+             * hMSet ne réinitialise pas le TTL d'une clé existante : ne pas
+             * appeler expire() ici suffit à préserver le filet d'expiration.
+             */
+            Redis::hMSet($this->kFleetH($partnerId), $aEcrire);
+            $bilan['lignes_ecrites'] += count($aEcrire);
+
+            // Une seule notification par balayage, et seulement si quelque
+            // chose a réellement bougé à l'écran : sinon on inonderait le flux
+            // temps réel d'événements identiques.
+            if (! empty($modifies)) {
+                $this->markVehiclesDirty($partnerId, $modifies);
+                $this->bumpVersionDebounced($partnerId, 1);
+                $bilan['changements_vus'] += count($modifies);
+            }
+        }
+
+        return $bilan;
     }
 
     public function updateFleetBatchFromLocations(int|iterable $partnerIdOrLocations, array $items = [], bool $bump = true): void
