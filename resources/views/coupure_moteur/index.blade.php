@@ -192,6 +192,27 @@
     min-width: 200px;
 }
 
+/* Filtre par état moteur — même gabarit que la recherche. */
+.engine-filter-wrap {
+    position: relative;
+}
+.engine-filter-wrap i {
+    position: absolute;
+    left: 0.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.65rem;
+    color: var(--color-secondary-text);
+    pointer-events: none;
+}
+.engine-filter-wrap select {
+    height: 30px;
+    font-size: 0.75rem;
+    padding: 0 0.5rem 0 1.75rem;
+    min-width: 165px;
+    cursor: pointer;
+}
+
 /* ── Zone scroll ────────────────────────────────────────────── */
 .engine-scroll {
     flex: 1 1 auto;
@@ -800,6 +821,21 @@
                        aria-label="Rechercher un véhicule">
             </div>
 
+            {{-- Filtre par état moteur. « Indéterminé » regroupe les véhicules
+                 dont le boîtier n'a rien remonté d'exploitable : ils gardent le
+                 bouton de vérification, et il est utile de pouvoir les isoler. --}}
+            <div class="engine-filter-wrap">
+                <i class="fas fa-filter" aria-hidden="true"></i>
+                <select id="engineStateFilter"
+                        class="ui-input-style"
+                        aria-label="Filtrer par état moteur">
+                    <option value="">Tous les moteurs</option>
+                    <option value="cut">Moteur coupé</option>
+                    <option value="on">Moteur actif</option>
+                    <option value="unknown">État indéterminé</option>
+                </select>
+            </div>
+
         </div>
 
         {{-- Tableau --}}
@@ -1207,10 +1243,29 @@ function renderTable() {
 }
 
 let searchQuery      = '';
+let engineStateQuery = '';
 let _filterScheduled = false;
 
 function applyFilters(resetPage = false) {
-    filtered = allRows.filter(r => !searchQuery || r.dataset.search.includes(searchQuery));
+    filtered = allRows.filter(r => {
+        if (searchQuery && !r.dataset.search.includes(searchQuery)) {
+            return false;
+        }
+
+        if (!engineStateQuery) {
+            return true;
+        }
+
+        /*
+         * Une ligne dont l etat n est pas encore arrive (le lot est
+         * asynchrone) est traitee comme indeterminee : elle apparait sous
+         * « Etat indetermine » et disparait des deux autres filtres des que
+         * son etat reel est connu -- scheduleFilter() reapplique le tri a
+         * chaque reponse.
+         */
+        return (r.dataset.engine || 'unknown') === engineStateQuery;
+    });
+
     if (resetPage) currentPage = 1;
     renderTable();
 }
@@ -1224,6 +1279,11 @@ function scheduleFilter() {
 
 document.getElementById('engineSearch').addEventListener('input', function () {
     searchQuery = this.value.toLowerCase().trim();
+    applyFilters(true);
+});
+
+document.getElementById('engineStateFilter').addEventListener('change', function () {
+    engineStateQuery = this.value;
     applyFilters(true);
 });
 
@@ -1304,6 +1364,15 @@ function setEngineAsOf(id, meta) {
     el.style.display = 'inline-flex';
 }
 
+/*
+ * Porte l etat moteur sur la LIGNE du tableau, pour que le filtre puisse trier
+ * sans reinspecter les boutons ni leurs classes CSS.
+ */
+function marquerEtatSurLigne(btn, etat) {
+    const ligne = btn.closest('tr');
+    if (ligne) { ligne.dataset.engine = etat; }
+}
+
 function setUI(id, payload) {
     const btn         = document.querySelector(`.engine-toggle[data-id="${id}"]`);
     const engineBadge = document.getElementById(`engineBadge-${id}`);
@@ -1322,6 +1391,7 @@ function setUI(id, payload) {
         engineBadge.className = 'engine-badge loading';
         gpsBadge.textContent  = noGps ? 'GPS: absent' : 'GPS: N/A';
         gpsBadge.className    = 'gps-badge-status unknown';
+        marquerEtatSurLigne(btn, 'unknown');
         setEngineAsOf(id, null);
         updateKpi(); scheduleFilter(); return;
     }
@@ -1340,6 +1410,8 @@ function setUI(id, payload) {
     btn.classList.toggle('is-cut', cut);
     btn.classList.toggle('is-on',  known && !cut);
     btn.title = cut ? 'Rétablir le moteur' : 'Couper le moteur';
+
+    marquerEtatSurLigne(btn, known ? (cut ? 'cut' : 'on') : 'unknown');
 
     if (!known) {
         engineBadge.innerHTML = '<i class="fas fa-question-circle" style="font-size:0.5rem;"></i> Cliquer pour vérifier';
