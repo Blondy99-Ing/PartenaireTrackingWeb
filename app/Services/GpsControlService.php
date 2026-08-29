@@ -537,13 +537,27 @@ class GpsControlService
         if ($this->isProviderSuccess($data) && !empty($token)) {
             Cache::put($this->tokenCacheKey, (string) $token, now()->addSeconds($this->tokenTtlSeconds));
 
-            // 18GPS documentation: when LoginType=ENTERPRISE, the returned id is the unit id.
-            // Keep it per account so batch endpoints like getDeviceListByCustomId can use it later.
+            /*
+             | 18GPS documentation: when LoginType=ENTERPRISE, the returned id is
+             | the unit id. Keep it per account so batch endpoints such as
+             | getDeviceListByCustomId can use it later.
+             |
+             | Durée de vie VOLONTAIREMENT bien plus longue que celle du jeton :
+             | l'unit id n'est pas un identifiant de session, c'est celui de
+             | l'unité elle-même, et il ne change pas.
+             |
+             | Lui donner la durée du jeton avait une conséquence mesurée en
+             | production : l'application interne partage la même clé de jeton,
+             | s'authentifie de son côté et le renouvelle — mais sans réécrire
+             | l'unit id. Cette application voyait alors un jeton valide, ne se
+             | réauthentifiait donc pas, et son unit id expirait sans jamais être
+             | renouvelé. Le relevé de flotte échouait ensuite 77 % du temps.
+             */
             if (!empty($data['id'])) {
                 Cache::put(
                     "gps18gps:{$this->account}:unit_id",
                     (string) $data['id'],
-                    now()->addSeconds($this->tokenTtlSeconds)
+                    now()->addDay()
                 );
             }
 
@@ -1200,8 +1214,30 @@ class GpsControlService
                     continue;
                 }
 
-                $unitId = trim((string) Cache::get("gps18gps:{$acc}:unit_id", ''));
-                if ($unitId === '') {
+                /*
+                 | On passe par getCachedUnitId(), qui sait forcer une vraie
+                 | réauthentification. La lecture directe du cache que faisait
+                 | ce code abandonnait en SILENCE dès que l'unit id manquait —
+                 | ni erreur, ni trace — alors que le jeton, lui, restait
+                 | valide et empêchait toute nouvelle authentification.
+                 |
+                 | Le second essai rend le balayage insensible à ce qui a pu
+                 | écraser le jeton entre-temps, y compris l'autre application
+                 | qui partage la même clé de cache.
+                 */
+                $unitId = $this->getCachedUnitId();
+
+                if ($unitId === null) {
+                    $unitId = $this->getCachedUnitId(true);
+                }
+
+                if ($unitId === null) {
+                    // Ne jamais échouer en silence : c'est ce qui a laissé le
+                    // relevé inopérant plusieurs jours sans que rien ne le dise.
+                    Log::warning('[GPS_LIVE_FLEET] unit id introuvable, compte ignore', [
+                        'compte' => $acc,
+                    ]);
+
                     continue;
                 }
 
